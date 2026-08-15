@@ -37,7 +37,7 @@ async function submit() {
       @keydown.ctrl.enter="submit"
     ></textarea>
     <div class="row">
-      <span class="hint">Ctrl+Enter 发送 · 上限 1000 字符</span>
+      <span class="hint">Ctrl+Enter 发送 · 上限 1000 字符 · 支持 Markdown</span>
       <span v-if="error" class="error">{{ error }}</span>
       <button class="primary" :disabled="busy || !text.trim()" @click="submit">
         {{ busy ? "发送中…" : "发布" }}

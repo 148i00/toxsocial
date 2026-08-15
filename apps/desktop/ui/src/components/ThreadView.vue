@@ -1,7 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { api, formatTime } from "../api";
+import { renderMarkdown } from "../markdown";
 import type { TimelineItem } from "../types";
+
+function md(text?: string | null): string {
+  return renderMarkdown(text || "");
+}
 
 const props = defineProps<{ postId: string }>();
 const emit = defineEmits<{ refresh: [] }>();
@@ -57,7 +62,7 @@ onMounted(load);
         <span v-if="post.isOwn" class="tag">我</span>
         <span class="time">{{ formatTime(post.ts) }}</span>
       </div>
-      <div class="body">{{ post.text }}</div>
+      <div class="body markdown" v-html="md(post.text)"></div>
       <div class="stats">
         <span>💬 {{ comments.length }} 评论</span>
         <span>⚡ {{ reactions.length }} 反应：{{ reactionSummary || "暂无" }}</span>
@@ -82,7 +87,7 @@ onMounted(load);
         <span class="author">{{ c.authorName }}</span>
         <span class="time">{{ formatTime(c.ts) }}</span>
       </div>
-      <div class="body">{{ c.text }}</div>
+      <div class="body markdown" v-html="md(c.text)"></div>
     </article>
   </div>
 </template>

@@ -1,11 +1,15 @@
 <script setup lang="ts">
+import { computed } from "vue";
 import { api, formatTime } from "../api";
+import { renderMarkdown } from "../markdown";
 import type { OwnInfo, TimelineItem } from "../types";
 
 const props = defineProps<{ item: TimelineItem; own: OwnInfo | null }>();
 const emit = defineEmits<{ open: [id: string] }>();
 
 const EMOJIS = ["👍", "❤️", "😂", "🔥", "🎉"];
+
+const bodyHtml = computed(() => renderMarkdown(props.item.text || ""));
 
 async function react(emoji: string) {
   try {
@@ -23,7 +27,7 @@ async function react(emoji: string) {
       <span v-if="item.isOwn" class="tag">我</span>
       <span class="time">{{ formatTime(item.ts) }}</span>
     </div>
-    <div class="body">{{ item.text }}</div>
+    <div class="body markdown" v-html="bodyHtml"></div>
     <div class="foot">
       <span class="stat">💬 {{ item.commentCount }}</span>
       <span class="stat">⚡

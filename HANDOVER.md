@@ -80,6 +80,7 @@ CLI 双实例联调（M1/M2 验证方法，全部跑通过）：
 7. ✅ Desktop 取关功能可用：新增 `remove_friend_by_toxid` 命令并接入 FriendsPanel
 8. ✅ ThreadView 反应展示增强：按 emoji 分组计数显示
 9. ✅ TimelineItem 新增 `reactions` 汇总，PostCard 直接展示各 emoji 计数
+10. ✅ 帖子支持 Markdown 渲染（标题/粗体/斜体/代码/列表/引用/链接/图片，已做 HTML 转义防 XSS）
 
 **下一步（M4 剩余）**：
 - 长文/图片附件（Tox 文件传输）
