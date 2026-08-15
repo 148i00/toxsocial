@@ -309,8 +309,8 @@ pub fn remove_friend_by_toxid(state: State<AppState>, toxid: String) -> Result<(
 }
 
 #[tauri::command]
-pub fn publish_post(
-    state: State<AppState>,
+pub async fn publish_post(
+    state: State<'_, AppState>,
     text: String,
     public: Option<bool>,
 ) -> Result<Post, String> {
@@ -343,6 +343,16 @@ pub fn publish_post(
     };
     for env in envelopes {
         fan_out(&state, env)?;
+    }
+    if is_public {
+        let relay = crate::relay::DEFAULT_RELAY;
+        let pubkey = post.author.clone();
+        let id = post.id.clone();
+        let ts = post.ts;
+        let text = post.text.clone();
+        if let Err(e) = crate::relay::publish_post(relay, &pubkey, &id, ts, &text).await {
+            eprintln!("[toxsocial] relay publish failed: {e}");
+        }
     }
     state.persist();
     Ok(post)
@@ -528,6 +538,32 @@ pub fn conference_invite(
 }
 
 #[tauri::command]
+pub fn conference_invite_by_toxid(
+    state: State<AppState>,
+    conference_number: u32,
+    toxid: String,
+) -> Result<(), String> {
+    let toxid = toxid.trim().to_string();
+    let friend_number = {
+        let session = state.session.lock().unwrap();
+        session
+            .friend_list()
+            .into_iter()
+            .find(|n| {
+                session
+                    .friend_public_key(*n)
+                    .map(|pk| toxid == pk || toxid.starts_with(&pk))
+                    .unwrap_or(false)
+            })
+            .ok_or_else(|| "好友不存在或尚未添加".to_string())?
+    };
+    let session = state.session.lock().unwrap();
+    session
+        .conference_invite(friend_number, conference_number)
+        .map_err(|e| format!("invite failed: {e}"))
+}
+
+#[tauri::command]
 pub fn conference_send(
     state: State<AppState>,
     conference_number: u32,
@@ -699,6 +735,57 @@ pub fn request_public_posts(state: State<AppState>, since: Option<i64>, depth: O
         }
     }
     Ok(sent)
+}
+
+#[tauri::command]
+pub async fn search_relay_directory(state: State<'_, AppState>, query: String) -> Result<Vec<DirectoryEntryInfo>, String> {
+    let _ = state;
+    let entries = crate::relay::search_directory(crate::relay::DEFAULT_RELAY, query.trim()).await?;
+    Ok(entries
+        .into_iter()
+        .map(|e| DirectoryEntryInfo {
+            name: e.name,
+            pubkey: e.pubkey,
+            toxid: e.toxid,
+            avatar: e.avatar,
+            relay: e.relay,
+            source: "relay".to_string(),
+        })
+        .collect())
+}
+
+#[tauri::command]
+pub async fn fetch_relay_public_posts(state: State<'_, AppState>, since: Option<i64>) -> Result<usize, String> {
+    let since = since.unwrap_or(0);
+    let items = crate::relay::fetch_outbox(crate::relay::DEFAULT_RELAY, since).await?;
+    let engine = state.engine.lock().unwrap();
+    let received_at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+    let mut count = 0;
+    for item in &items {
+        let id = item["id"].as_str().unwrap_or("").to_string();
+        let pubkey = item["pubkey"].as_str().unwrap_or("").to_string();
+        let text = item["text"].as_str().unwrap_or("").to_string();
+        let ts = item["ts"].as_i64().unwrap_or(0);
+        if id.is_empty() || pubkey.is_empty() {
+            continue;
+        }
+        let post = tox_social::envelope::Post {
+            v: tox_social::envelope::PROTOCOL_VERSION,
+            id,
+            author: pubkey.clone(),
+            ts,
+            text,
+            public: true,
+        };
+        let env = Envelope::Post(post);
+        if engine.persist(&env, &pubkey, received_at) {
+            count += 1;
+        }
+    }
+    Ok(count)
 }
 
 // ---------------------------------------------------------------------------

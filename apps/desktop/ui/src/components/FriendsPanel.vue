@@ -5,7 +5,7 @@ import { t } from "../i18n";
 import Avatar from "./Avatar.vue";
 import type { DirectoryEntryInfo, FriendInfo } from "../types";
 
-defineProps<{ friends: FriendInfo[] }>();
+const props = defineProps<{ friends: FriendInfo[] }>();
 const emit = defineEmits<{ changed: [] }>();
 
 const toxid = ref("");
@@ -36,15 +36,35 @@ async function add() {
   }
 }
 
+function isFriend(d: DirectoryEntryInfo): boolean {
+  return props.friends.some(
+    (f) => f.toxid === d.toxid || (d.pubkey.length > 0 && f.toxid.startsWith(d.pubkey)),
+  );
+}
+
 async function searchDirectory() {
   const q = dirQuery.value.trim();
   if (!q || dirSearching.value) return;
   dirSearching.value = true;
   dirNote.value = "";
   try {
-    dirResults.value = await api.searchDirectory(q, 50);
+    const local = await api.searchDirectory(q, 50);
+    let relay: DirectoryEntryInfo[] = [];
+    try {
+      relay = await api.searchRelayDirectory(q);
+    } catch {
+      // relay unavailable, ignore
+    }
+    const merged = [...local, ...relay];
+    const seen = new Set<string>();
+    const filtered = merged.filter((d) => {
+      if (!d.pubkey || seen.has(d.pubkey) || isFriend(d)) return false;
+      seen.add(d.pubkey);
+      return true;
+    });
+    dirResults.value = filtered;
     const sent = await api.requestDirectorySearch(q, 2);
-    dirNote.value = `已向 ${sent} 位好友发起目录请求；如果好友没有，会自动问好友的好友。结果会陆续同步到本地目录。`;
+    dirNote.value = `已从本地/Relay 找到 ${filtered.length} 人，并向 ${sent} 位好友发起目录请求；结果会陆续同步。`;
   } catch (e) {
     dirNote.value = String(e);
   } finally {

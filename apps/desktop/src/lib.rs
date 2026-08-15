@@ -3,6 +3,7 @@
 mod commands;
 mod events;
 mod media;
+mod relay;
 mod state;
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -85,6 +86,7 @@ pub fn run() {
             commands::conference_new,
             commands::conference_invite,
             commands::conference_send,
+            commands::conference_invite_by_toxid,
             commands::conference_peers,
             commands::get_conference_id,
             commands::list_conferences,
@@ -94,6 +96,8 @@ pub fn run() {
             commands::request_directory_search,
             commands::fetch_public_timeline,
             commands::request_public_posts,
+            commands::search_relay_directory,
+            commands::fetch_relay_public_posts,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

@@ -26,6 +26,8 @@ export const api = {
   conferenceNew: () => invoke<number>("conference_new"),
   conferenceInvite: (friendNumber: number, conferenceNumber: number) =>
     invoke<void>("conference_invite", { friendNumber, conferenceNumber }),
+  conferenceInviteByToxid: (conferenceNumber: number, toxid: string) =>
+    invoke<void>("conference_invite_by_toxid", { conferenceNumber, toxid }),
   conferenceSend: (conferenceNumber: number, text: string) =>
     invoke<void>("conference_send", { conferenceNumber, text }),
   conferencePeers: (conferenceNumber: number) =>
@@ -44,6 +46,10 @@ export const api = {
     invoke<TimelineItem[]>("fetch_public_timeline", { limit }),
   requestPublicPosts: (since?: number, depth?: number) =>
     invoke<number>("request_public_posts", { since, depth }),
+  searchRelayDirectory: (query: string) =>
+    invoke<DirectoryEntryInfo[]>("search_relay_directory", { query }),
+  fetchRelayPublicPosts: (since?: number) =>
+    invoke<number>("fetch_relay_public_posts", { since }),
 };
 
 export function onEvent<T>(event: string, cb: (payload: T) => void): Promise<UnlistenFn> {

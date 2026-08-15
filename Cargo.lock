@@ -4234,6 +4234,7 @@ dependencies = [
  "tox-core",
  "tox-social",
  "tox-store",
+ "url",
 ]
 
 [[package]]

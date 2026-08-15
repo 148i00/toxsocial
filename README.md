@@ -49,5 +49,6 @@ powershell -ExecutionPolicy Bypass -File scripts\bundle.ps1
 ## 可选服务器（没有自己的服务器也能用）
 
 - 当前核心功能完全 **P2P / 无服务器**
-- 如果需要更快的搜索和公开内容发现，可以使用 `server/` 下的 **Cloudflare Worker**（免费版）
-- 部署方法见 `server/README.md`
+- 已部署 Relay：`https://toxsocial-relay.vcst.top`
+- 客户端已接入：公开帖子自动发布到 Relay，找人同时搜索本地/好友/Relay，公共页可拉取 Relay 内容
+- 部署/自建方法见 `server/README.md`

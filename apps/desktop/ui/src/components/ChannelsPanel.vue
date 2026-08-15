@@ -7,6 +7,7 @@ const conferenceNumber = ref<number | null>(null);
 const channelId = ref("");
 const ownToxid = ref("");
 const friendNumber = ref("0");
+const inviteToxid = ref("");
 const message = ref("");
 const messages = ref<{ peer: string; text: string }[]>([]);
 const log = ref<string[]>([]);
@@ -73,6 +74,34 @@ async function create() {
     error.value = String(e);
   } finally {
     busy.value = false;
+  }
+}
+
+async function inviteByToxid() {
+  if (conferenceNumber.value === null || !inviteToxid.value.trim() || busy.value) return;
+  busy.value = true;
+  error.value = "";
+  try {
+    await api.conferenceInviteByToxid(conferenceNumber.value, inviteToxid.value.trim());
+    log.value.push(`已邀请好友 ${inviteToxid.value.slice(0, 8)}… 进入频道 #${conferenceNumber.value}`);
+    inviteToxid.value = "";
+  } catch (e) {
+    error.value = String(e);
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function copyInvite() {
+  if (!ownToxid.value || !channelId.value) return;
+  const text = `ToxID: ${ownToxid.value}
+频道ID: ${channelId.value}
+好友请求附言: join_channel ${channelId.value}`;
+  try {
+    await navigator.clipboard.writeText(text);
+    log.value.push("邀请信息已复制");
+  } catch {
+    log.value.push("复制失败，请手动复制");
   }
 }
 
@@ -149,10 +178,18 @@ onMounted(async () => {
       </p>
       <div class="mono toxid">ToxID: {{ ownToxid }}</div>
       <div class="mono toxid">频道ID: {{ channelId }}</div>
+      <div class="row">
+        <button @click="copyInvite">复制邀请信息</button>
+      </div>
     </div>
 
     <div class="card" v-if="conferenceNumber !== null">
-      <label>{{ t("inviteFriend") }}</label>
+      <label>邀请好友（ToxID）</label>
+      <div class="row">
+        <input v-model="inviteToxid" class="mono" placeholder="好友 ToxID 或公钥" />
+        <button :disabled="busy || !inviteToxid.trim()" @click="inviteByToxid">邀请</button>
+      </div>
+      <label>{{ t("inviteFriend") }}（好友编号，备用）</label>
       <div class="row">
         <input v-model="friendNumber" type="number" min="0" />
         <button :disabled="busy" @click="invite">{{ t("add") }}</button>
