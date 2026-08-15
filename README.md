@@ -15,4 +15,17 @@ Rust (workspace) + Tauri v2 + Vue3 + SQLite，底层 c-toxcore（GPLv3）经 bin
 
 ## 状态
 
-规划阶段（M0：环境与构建管线尚未开始）。
+**M0 ✅ / M1 ✅ / M2 ✅（核心链路已端到端验证）** → 下一步：M3 Tauri 桌面端。
+
+已完成：构建管线（CMake + vcpkg + c-toxcore 0.2.23 静态库 + bindgen）、`ToxSession` 安全封装、
+`TSP/1` 社交协议（帖子/评论/点赞信封 + Feed 引擎 + SQLite 持久化）、`tox-cli` 双实例联调
+（DHT bootstrap → 好友请求/接受 → UDP 加密连接 → 发帖 fan-out → 时间线聚合）。
+
+```powershell
+# 构建（c-toxcore 静态库已就绪，无需重新编译）
+$env:SODIUM_LIB = "$env:USERPROFILE\vcpkg\installed\x64-windows\lib"
+$env:PATH += ";$env:USERPROFILE\vcpkg\installed\x64-windows\bin;build\c-toxcore\vcpkg_installed\x64-windows\bin"
+cargo build -p tox-cli
+# 两个终端分别启动实例，通过 <save>.cmd 命令文件发帖（post <text>）
+.\target\debug\tox-cli.exe run alice.tox --db alice.db
+```
