@@ -56,3 +56,10 @@ export interface DirectoryEntryInfo {
   relay: string;
   source: string;
 }
+
+export interface PublicChannelInfo {
+  name: string;
+  desc: string;
+  hostToxid: string;
+  channelId: string;
+}

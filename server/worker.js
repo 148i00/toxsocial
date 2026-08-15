@@ -39,6 +39,33 @@ export default {
       return json({ ok: true });
     }
 
+    if (path === '/api/channels' && request.method === 'GET') {
+      const list = await env.CHANNELS.list();
+      const items = [];
+      for (const key of list.keys) {
+        const val = await env.CHANNELS.get(key.name, 'json');
+        if (val) items.push(val);
+      }
+      return json({ items });
+    }
+
+    if (path === '/api/channels' && request.method === 'POST') {
+      const body = await request.json();
+      if (!body.name || !body.hostToxid || !body.channelId) {
+        return json({ error: 'name, hostToxid and channelId required' }, 400);
+      }
+      const key = body.channelId;
+      const channel = {
+        name: body.name,
+        desc: body.desc || '',
+        hostToxid: body.hostToxid,
+        channelId: body.channelId,
+        updated_at: Date.now(),
+      };
+      await env.CHANNELS.put(key, JSON.stringify(channel));
+      return json({ ok: true });
+    }
+
     if (path === '/api/outbox' && request.method === 'GET') {
       const pubkey = url.searchParams.get('pubkey');
       const since = Number(url.searchParams.get('since') || 0);

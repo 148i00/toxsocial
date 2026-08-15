@@ -24,6 +24,11 @@ const searching = ref(false);
 const notifications = ref<{ id: number; text: string; time: number }[]>([]);
 const unread = ref(0);
 const showNotifications = ref(false);
+const showAddFriend = ref(false);
+const addToxid = ref("");
+const addMsg = ref("你好，关注一下！");
+const addBusy = ref(false);
+const addError = ref("");
 let notificationId = 0;
 
 function notify(text: string) {
@@ -33,6 +38,22 @@ function notify(text: string) {
 
 function markAllRead() {
   unread.value = 0;
+}
+
+async function submitAddFriend() {
+  if (!addToxid.value.trim() || addBusy.value) return;
+  addBusy.value = true;
+  addError.value = "";
+  try {
+    await api.addFriend(addToxid.value.trim(), addMsg.value);
+    addToxid.value = "";
+    showAddFriend.value = false;
+    await refreshAll();
+  } catch (e) {
+    addError.value = String(e);
+  } finally {
+    addBusy.value = false;
+  }
 }
 
 async function refreshOwn() {
@@ -144,6 +165,7 @@ async function runSearch() {
         <button :class="{ active: view === 'timeline' && !threadPostId }" @click="backToTimeline(); view = 'timeline'">
           首页
         </button>
+        <button @click="showAddFriend = true">＋ 添加好友</button>
         <button :class="{ active: view === 'friends' }" @click="view = 'friends'">
           关注 <span v-if="own" class="count">{{ own.friendCount }}</span>
         </button>
@@ -236,6 +258,22 @@ async function runSearch() {
       </div>
       <SettingsPanel v-else :own="own" @saved="refreshAll" />
     </main>
+
+    <!-- Add friend modal -->
+    <div v-if="showAddFriend" class="modal-overlay" @click.self="showAddFriend = false">
+      <div class="modal">
+        <h3>添加好友</h3>
+        <input v-model="addToxid" class="mono" placeholder="粘贴好友的 ToxID（76 位十六进制）" />
+        <input v-model="addMsg" placeholder="好友请求附言" />
+        <p v-if="addError" class="error">{{ addError }}</p>
+        <div class="row">
+          <button @click="showAddFriend = false">取消</button>
+          <button class="primary" :disabled="addBusy || addToxid.trim().length < 70" @click="submitAddFriend">
+            {{ addBusy ? "发送中…" : "发送请求" }}
+          </button>
+        </div>
+      </div>
+    </div>
 
     <!-- Right: me panel -->
     <aside class="me-panel" v-if="own">
@@ -340,6 +378,39 @@ nav button.active {
 .public-page .row {
   display: flex;
   gap: 8px;
+}
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+.modal {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px;
+  width: 420px;
+  max-width: 90vw;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: var(--shadow);
+}
+.modal h3 {
+  margin: 0;
+}
+.modal .row {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.modal .error {
+  color: var(--danger);
+  font-size: 12px;
 }
 .notif-panel {
   background: var(--bg-3);

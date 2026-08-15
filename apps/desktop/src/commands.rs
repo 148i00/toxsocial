@@ -87,6 +87,15 @@ pub struct DirectoryEntryInfo {
     pub source: String,
 }
 
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct PublicChannelInfo {
+    pub name: String,
+    pub desc: String,
+    pub host_toxid: String,
+    pub channel_id: String,
+}
+
 // ---------------------------------------------------------------------------
 // Commands
 // ---------------------------------------------------------------------------
@@ -786,6 +795,45 @@ pub async fn fetch_relay_public_posts(state: State<'_, AppState>, since: Option<
         }
     }
     Ok(count)
+}
+
+#[tauri::command]
+pub async fn list_public_channels() -> Result<Vec<PublicChannelInfo>, String> {
+    let channels = crate::relay::list_channels(crate::relay::DEFAULT_RELAY).await?;
+    Ok(channels
+        .into_iter()
+        .map(|c| PublicChannelInfo {
+            name: c.name,
+            desc: c.desc,
+            host_toxid: c.host_toxid,
+            channel_id: c.channel_id,
+        })
+        .collect())
+}
+
+#[tauri::command]
+pub async fn register_public_channel(
+    state: State<'_, AppState>,
+    conference_number: u32,
+    name: String,
+    desc: String,
+) -> Result<(), String> {
+    let (channel_id, host_toxid) = {
+        let session = state.session.lock().unwrap();
+        let channel_id = session
+            .conference_get_id(conference_number)
+            .map_err(|e| e.to_string())?;
+        let host_toxid = session.self_address();
+        (channel_id, host_toxid)
+    };
+    crate::relay::register_channel(
+        crate::relay::DEFAULT_RELAY,
+        name.trim(),
+        desc.trim(),
+        &host_toxid,
+        &channel_id,
+    )
+    .await
 }
 
 // ---------------------------------------------------------------------------

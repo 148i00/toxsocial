@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { ConferencePeerInfo, DirectoryEntryInfo, FriendInfo, MediaConfig, OwnInfo, TimelineItem } from "./types";
+import type { ConferencePeerInfo, DirectoryEntryInfo, FriendInfo, MediaConfig, OwnInfo, PublicChannelInfo, TimelineItem } from "./types";
 
 export const api = {
   getOwnInfo: () => invoke<OwnInfo>("get_own_info"),
@@ -50,6 +50,9 @@ export const api = {
     invoke<DirectoryEntryInfo[]>("search_relay_directory", { query }),
   fetchRelayPublicPosts: (since?: number) =>
     invoke<number>("fetch_relay_public_posts", { since }),
+  listPublicChannels: () => invoke<PublicChannelInfo[]>("list_public_channels"),
+  registerPublicChannel: (conferenceNumber: number, name: string, desc: string) =>
+    invoke<void>("register_public_channel", { conferenceNumber, name, desc }),
 };
 
 export function onEvent<T>(event: string, cb: (payload: T) => void): Promise<UnlistenFn> {

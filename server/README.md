@@ -7,6 +7,8 @@
 - `GET /api/directory?q=...`：搜索用户
 - `POST /api/outbox`：发布公开帖子
 - `GET /api/outbox?pubkey=...&since=...`：拉取公开帖子
+- `POST /api/channels`：发布公共频道
+- `GET /api/channels`：获取公共频道列表
 
 ## 部署步骤
 1. 注册 Cloudflare 账号（免费）

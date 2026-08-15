@@ -89,3 +89,67 @@ pub async fn fetch_outbox(relay: &str, since: i64) -> Result<Vec<serde_json::Val
     }
     Ok(json["items"].as_array().cloned().unwrap_or_default())
 }
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RelayChannel {
+    pub name: String,
+    pub desc: String,
+    pub host_toxid: String,
+    pub channel_id: String,
+}
+
+pub async fn list_channels(relay: &str) -> Result<Vec<RelayChannel>, String> {
+    let url = format!("{}/api/channels", relay.trim_end_matches('/'));
+    let resp = reqwest::get(url)
+        .await
+        .map_err(|e| format!("relay request failed: {e}"))?;
+    let status = resp.status();
+    let json: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("relay response invalid: {e}"))?;
+    if !status.is_success() {
+        return Err(format!("relay error {}: {}", status, json));
+    }
+    let mut out = Vec::new();
+    if let Some(items) = json["items"].as_array() {
+        for item in items {
+            out.push(RelayChannel {
+                name: item["name"].as_str().unwrap_or("").to_string(),
+                desc: item["desc"].as_str().unwrap_or("").to_string(),
+                host_toxid: item["hostToxid"].as_str().unwrap_or("").to_string(),
+                channel_id: item["channelId"].as_str().unwrap_or("").to_string(),
+            });
+        }
+    }
+    Ok(out)
+}
+
+pub async fn register_channel(
+    relay: &str,
+    name: &str,
+    desc: &str,
+    host_toxid: &str,
+    channel_id: &str,
+) -> Result<(), String> {
+    let url = format!("{}/api/channels", relay.trim_end_matches('/'));
+    let body = serde_json::json!({
+        "name": name,
+        "desc": desc,
+        "hostToxid": host_toxid,
+        "channelId": channel_id,
+    });
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(url)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("relay register channel failed: {e}"))?;
+    let status = resp.status();
+    if !status.is_success() {
+        let text = resp.text().await.unwrap_or_default();
+        return Err(format!("relay register channel error {}: {}", status, text));
+    }
+    Ok(())
+}

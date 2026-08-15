@@ -16,3 +16,7 @@ id = "656d6f061785401b9b236612bdbb5eb3"
 [[kv_namespaces]]
 binding = "OUTBOX"
 id = "61e8eb86ad1348db813209ce6196b83b"
+
+[[kv_namespaces]]
+binding = "CHANNELS"
+id = "8f3e2238f4854f1fb2c833c3bcf204e7"

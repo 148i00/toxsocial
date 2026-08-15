@@ -98,6 +98,8 @@ pub fn run() {
             commands::request_public_posts,
             commands::search_relay_directory,
             commands::fetch_relay_public_posts,
+            commands::list_public_channels,
+            commands::register_public_channel,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

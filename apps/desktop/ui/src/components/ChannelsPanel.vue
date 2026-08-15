@@ -2,6 +2,7 @@
 import { onMounted, ref } from "vue";
 import { api, onEvent } from "../api";
 import { t } from "../i18n";
+import type { PublicChannelInfo } from "../types";
 
 const conferenceNumber = ref<number | null>(null);
 const channelId = ref("");
@@ -14,42 +15,69 @@ const log = ref<string[]>([]);
 const busy = ref(false);
 const error = ref("");
 
-interface PublicChannel {
-  name: string;
-  desc: string;
-  hostToxid: string;
+const publicChannels = ref<PublicChannelInfo[]>([]);
+const channelName = ref("");
+const channelDesc = ref("");
+
+async function loadPublicChannels() {
+  try {
+    publicChannels.value = await api.listPublicChannels();
+  } catch (e) {
+    publicChannels.value = [];
+    log.value.push(`加载公共频道失败：${e}`);
+  }
 }
 
-// 公共频道目录：实际加入需要 host 在线并实现自动邀请。
-// 后续可改为从远程目录服务拉取。
-const publicChannels: PublicChannel[] = [
-  {
-    name: "ToxSocial 官方频道",
-    desc: "项目讨论与公告",
-    hostToxid: "",
-  },
-  {
-    name: "去中心化闲聊",
-    desc: "聊技术、聊生活、聊自由软件",
-    hostToxid: "",
-  },
-  {
-    name: "Tox 中文社区",
-    desc: "Tox 协议中文用户交流",
-    hostToxid: "",
-  },
-];
-
-async function joinPublic(ch: PublicChannel) {
+async function joinPublic(ch: PublicChannelInfo) {
   if (!ch.hostToxid || ch.hostToxid.length < 70) {
     log.value.push(`「${ch.name}」暂时没有可用的 host，等待频道管理员接入。`);
     return;
   }
   try {
-    await api.addFriend(ch.hostToxid, `我想加入公共频道：${ch.name}`);
-    log.value.push(`已向「${ch.name}」host 发送好友请求/加入申请。`);
+    await api.addFriend(ch.hostToxid, `join_channel ${ch.channelId}`);
+    log.value.push(`已向「${ch.name}」host 发送加入申请。`);
   } catch (e) {
     log.value.push(`加入「${ch.name}」失败：${e}`);
+  }
+}
+
+async function publishChannel() {
+  if (conferenceNumber.value === null || !channelName.value.trim()) {
+    error.value = "请先创建/加入频道并填写频道名称";
+    return;
+  }
+  busy.value = true;
+  error.value = "";
+  try {
+    await api.registerPublicChannel(
+      conferenceNumber.value,
+      channelName.value.trim(),
+      channelDesc.value.trim(),
+    );
+    log.value.push(`已把频道「${channelName.value.trim()}」发布为公共频道`);
+    channelName.value = "";
+    channelDesc.value = "";
+    await loadPublicChannels();
+  } catch (e) {
+    error.value = String(e);
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function pasteInvite() {
+  try {
+    const text = await navigator.clipboard.readText();
+    const toxid = text.match(/ToxID:\s*(\S+)/)?.[1] || "";
+    const ch = text.match(/频道ID:\s*(\S+)/)?.[1] || "";
+    if (!toxid || !ch) {
+      log.value.push("剪贴板里没有找到有效的频道邀请信息");
+      return;
+    }
+    await api.addFriend(toxid, `join_channel ${ch}`);
+    log.value.push("已粘贴邀请并发送加入申请");
+  } catch (e) {
+    log.value.push(`粘贴失败：${e}`);
   }
 }
 
@@ -141,6 +169,7 @@ onMounted(async () => {
   } catch {
     /* ignore */
   }
+  await loadPublicChannels();
   onEvent("channel:message", (e: { conferenceNumber: number; peerNumber: number; text: string }) => {
     messages.value.push({ peer: `#${e.peerNumber}`, text: e.text });
   });
@@ -180,6 +209,7 @@ onMounted(async () => {
       <div class="mono toxid">频道ID: {{ channelId }}</div>
       <div class="row">
         <button @click="copyInvite">复制邀请信息</button>
+        <button @click="pasteInvite">粘贴邀请并加入</button>
       </div>
     </div>
 
@@ -206,10 +236,18 @@ onMounted(async () => {
       </div>
     </div>
 
+    <div class="card" v-if="conferenceNumber !== null">
+      <div class="log-title">发布为公共频道</div>
+      <input v-model="channelName" placeholder="频道名称" />
+      <input v-model="channelDesc" placeholder="频道简介（可选）" />
+      <button class="primary" :disabled="busy || !channelName.trim()" @click="publishChannel">发布到公共频道列表</button>
+    </div>
+
     <div class="card">
       <div class="log-title">公共频道</div>
       <p class="tip">发现并加入公共频道。加入后会向频道 host 发送好友请求/加入申请，host 接受后邀请你进入。</p>
-      <div v-for="ch in publicChannels" :key="ch.name" class="pub-channel">
+      <div v-if="publicChannels.length === 0" class="empty">暂无公共频道，成为第一个 host 吧。</div>
+      <div v-for="ch in publicChannels" :key="ch.channelId" class="pub-channel">
         <div class="pub-info">
           <div class="pub-name">{{ ch.name }}</div>
           <div class="pub-desc">{{ ch.desc }}</div>
