@@ -45,3 +45,9 @@ powershell -ExecutionPolicy Bypass -File scripts\bundle.ps1
 #   target\release\bundle\msi\ToxSocial_0.1.0_x64_en-US.msi
 #   target\release\bundle\nsis\ToxSocial_0.1.0_x64-setup.exe
 ```
+
+## 可选服务器（没有自己的服务器也能用）
+
+- 当前核心功能完全 **P2P / 无服务器**
+- 如果需要更快的搜索和公开内容发现，可以使用 `server/` 下的 **Cloudflare Worker**（免费版）
+- 部署方法见 `server/README.md`

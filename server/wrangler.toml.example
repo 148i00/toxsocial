@@ -1,0 +1,11 @@
+name = "toxsocial-relay"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+
+[[kv_namespaces]]
+binding = "DIRECTORY"
+id = "REPLACE_WITH_DIRECTORY_KV_ID"
+
+[[kv_namespaces]]
+binding = "OUTBOX"
+id = "REPLACE_WITH_OUTBOX_KV_ID"
