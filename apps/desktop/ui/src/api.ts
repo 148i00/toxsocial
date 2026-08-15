@@ -7,6 +7,7 @@ export const api = {
   setProfile: (name: string, bio: string) => invoke<void>("set_profile", { name, bio }),
   addFriend: (toxid: string, message: string) => invoke<number>("add_friend", { toxid, message }),
   removeFriend: (friendNumber: number) => invoke<void>("remove_friend", { friendNumber }),
+  removeFriendByToxid: (toxid: string) => invoke<void>("remove_friend_by_toxid", { toxid }),
   publishPost: (text: string) => invoke<TimelineItem>("publish_post", { text }),
   publishComment: (postId: string, text: string) =>
     invoke<TimelineItem>("publish_comment", { postId, text }),

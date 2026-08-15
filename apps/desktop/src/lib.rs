@@ -37,6 +37,7 @@ pub fn run() {
             commands::set_profile,
             commands::add_friend,
             commands::remove_friend,
+            commands::remove_friend_by_toxid,
             commands::publish_post,
             commands::publish_comment,
             commands::publish_reaction,

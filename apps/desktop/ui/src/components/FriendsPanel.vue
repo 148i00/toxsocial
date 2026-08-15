@@ -31,17 +31,12 @@ async function add() {
 }
 
 async function remove(f: FriendInfo) {
-  // The store keeps friends by public key; removal is by friend number,
-  // which we don't retain in the UI — simplest path: re-send via backend.
-  // For MVP we expose unfollow through the friends list of the session.
   if (!confirm(`取消关注 ${f.name || f.toxid.slice(0, 8)}？`)) return;
   try {
-    // NOTE: friend numbers are session-stable per run; the backend helper
-    // resolves pk -> friend number. For MVP this is a no-op fallback:
-    // full unfollow lands in M4.
+    await api.removeFriendByToxid(f.toxid);
     emit("changed");
-  } catch {
-    /* ignore */
+  } catch (e) {
+    alert(String(e));
   }
 }
 </script>

@@ -132,6 +132,39 @@ pub fn remove_friend(state: State<AppState>, friend_number: u32) -> Result<(), S
 }
 
 #[tauri::command]
+pub fn remove_friend_by_toxid(state: State<AppState>, toxid: String) -> Result<(), String> {
+    let toxid = toxid.trim().to_string();
+    let friend_number = {
+        let session = state.session.lock().unwrap();
+        session
+            .friend_list()
+            .into_iter()
+            .find(|n| {
+                session
+                    .friend_public_key(*n)
+                    .map(|pk| pk == toxid)
+                    .unwrap_or(false)
+            })
+            .ok_or_else(|| "friend not found".to_string())?
+    };
+    {
+        let mut session = state.session.lock().unwrap();
+        session
+            .delete_friend(friend_number)
+            .map_err(|e| format!("remove friend failed: {e}"))?;
+    }
+    state.persist();
+    {
+        let engine = state.engine.lock().unwrap();
+        engine
+            .store()
+            .friend_remove(&toxid)
+            .map_err(|e| format!("remove friend from store failed: {e}"))?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
 pub fn publish_post(state: State<AppState>, text: String) -> Result<Post, String> {
     let me = state.session.lock().unwrap().self_public_key();
     let post = {
