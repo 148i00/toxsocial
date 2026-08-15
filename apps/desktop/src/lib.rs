@@ -5,18 +5,50 @@ mod events;
 mod media;
 mod state;
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
+use tauri::Manager;
+
 use state::AppState;
+
+static ALLOW_EXIT: AtomicBool = AtomicBool::new(false);
 
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
+            use tauri::menu::{Menu, MenuItem};
+            use tauri::tray::TrayIconBuilder;
+            use tauri::Manager;
+
             let state = AppState::load(app).map_err(|e| {
                 eprintln!("[toxsocial] failed to init state: {e}");
                 e
             })?;
-            use tauri::Manager;
             app.manage(state);
             events::spawn_event_pump(app.handle().clone());
+
+            // System tray: keep the app alive in the background.
+            let show_i = MenuItem::with_id(app, "show", "显示主窗口", true, None::<&str>)?;
+            let quit_i = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&show_i, &quit_i])?;
+            let _tray = TrayIconBuilder::with_id("toxsocial-tray")
+                .icon(app.default_window_icon().unwrap().clone())
+                .menu(&menu)
+                .show_menu_on_left_click(false)
+                .on_menu_event(|app, event| match event.id.as_ref() {
+                    "show" => {
+                        if let Some(window) = app.get_webview_window("main") {
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
+                    "quit" => {
+                        ALLOW_EXIT.store(true, Ordering::SeqCst);
+                        app.exit(0);
+                    }
+                    _ => {}
+                })
+                .build(app)?;
 
             // Best-effort bootstrap to the public DHT.
             let handle = app.handle().clone();
@@ -36,6 +68,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::get_own_info,
             commands::set_profile,
+            commands::set_avatar,
             commands::add_friend,
             commands::remove_friend,
             commands::remove_friend_by_toxid,
@@ -57,20 +90,25 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|_app, event| {
-            use tauri::RunEvent;
+        .run(|app, event| {
+            use tauri::{RunEvent, WindowEvent};
             match event {
                 RunEvent::Exit => println!("[toxsocial] RunEvent::Exit"),
-                RunEvent::ExitRequested { code, .. } => {
-                    println!("[toxsocial] RunEvent::ExitRequested code={code:?}")
+                RunEvent::ExitRequested { api, code, .. } => {
+                    if ALLOW_EXIT.load(Ordering::SeqCst) {
+                        println!("[toxsocial] RunEvent::ExitRequested code={code:?}");
+                    } else {
+                        api.prevent_exit();
+                        println!("[toxsocial] exit prevented (running in background)");
+                    }
                 }
                 RunEvent::WindowEvent { label, event, .. } => {
-                    use tauri::WindowEvent;
-                    if let WindowEvent::Destroyed = event {
-                        println!("[toxsocial] window destroyed: {label}");
-                    }
-                    if let WindowEvent::CloseRequested { .. } = event {
-                        println!("[toxsocial] window close requested: {label}");
+                    if let WindowEvent::CloseRequested { api, .. } = event {
+                        println!("[toxsocial] window close requested: {label}; hiding to tray");
+                        api.prevent_close();
+                        if let Some(window) = app.get_webview_window(&label) {
+                            let _ = window.hide();
+                        }
                     }
                 }
                 _ => {}

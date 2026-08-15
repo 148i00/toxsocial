@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from "vue";
 import { api, formatTime } from "../api";
 import { renderMarkdown } from "../markdown";
+import Avatar from "./Avatar.vue";
 import type { TimelineItem } from "../types";
 
 function md(text?: string | null): string {
@@ -58,6 +59,7 @@ onMounted(load);
   <div v-if="post" class="thread">
     <article class="card post">
       <div class="head">
+        <Avatar :src="post.authorAvatar" :name="post.authorName" :size="28" />
         <span class="author">{{ post.authorName }}</span>
         <span v-if="post.isOwn" class="tag">我</span>
         <span class="time">{{ formatTime(post.ts) }}</span>
@@ -84,6 +86,7 @@ onMounted(load);
     <div v-if="comments.length === 0" class="empty">还没有评论，来抢沙发 🛋️</div>
     <article v-for="c in comments" :key="c.id" class="card comment">
       <div class="head">
+        <Avatar :src="c.authorAvatar" :name="c.authorName" :size="24" />
         <span class="author">{{ c.authorName }}</span>
         <span class="time">{{ formatTime(c.ts) }}</span>
       </div>

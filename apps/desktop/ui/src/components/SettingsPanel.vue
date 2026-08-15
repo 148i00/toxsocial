@@ -3,6 +3,7 @@ import { onMounted, ref } from "vue";
 import QRCode from "qrcode";
 import { api } from "../api";
 import { locale, setLocale, t } from "../i18n";
+import Avatar from "./Avatar.vue";
 import type { OwnInfo } from "../types";
 
 const props = defineProps<{ own: OwnInfo | null }>();
@@ -20,6 +21,8 @@ const deviceToxid = ref("");
 const deviceMsg = ref("你好，这是我的另一台设备");
 const syncResult = ref("");
 const syncing = ref(false);
+const avatarFile = ref<HTMLInputElement | null>(null);
+const avatarBusy = ref(false);
 
 onMounted(async () => {
   if (props.own) {
@@ -75,6 +78,37 @@ async function syncNow() {
   }
 }
 
+async function onAvatarSelected(e: Event) {
+  const input = e.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = "";
+  if (!file || avatarBusy.value) return;
+  if (file.size > 5 * 1024 * 1024) {
+    alert("头像不能超过 5MB");
+    return;
+  }
+  avatarBusy.value = true;
+  try {
+    const dataUrl = await readFileAsDataUrl(file);
+    await api.setAvatar(dataUrl);
+    emit("saved");
+    alert("头像已更新并广播给好友");
+  } catch (err) {
+    alert(String(err));
+  } finally {
+    avatarBusy.value = false;
+  }
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error || new Error("read failed"));
+    reader.readAsDataURL(file);
+  });
+}
+
 async function save() {
   if (busy.value) return;
   busy.value = true;
@@ -101,6 +135,18 @@ async function save() {
         <button :class="{ active: locale === 'zh' }" @click="setLocale('zh')">中文</button>
         <button :class="{ active: locale === 'en' }" @click="setLocale('en')">English</button>
       </div>
+    </div>
+
+    <div class="card">
+      <label>头像</label>
+      <div class="avatar-row">
+        <Avatar :src="own?.avatar" :name="own?.name" :size="72" />
+        <input ref="avatarFile" type="file" accept="image/*" hidden @change="onAvatarSelected" />
+        <button :disabled="avatarBusy" @click="avatarFile?.click()">
+          {{ avatarBusy ? "上传中…" : "上传头像" }}
+        </button>
+      </div>
+      <p class="tip">头像会通过 Imgur 上传并随资料广播给好友。</p>
     </div>
 
     <div class="card">
@@ -213,6 +259,11 @@ label {
 .row button.active {
   background: var(--accent);
   color: #fff;
+}
+.avatar-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 .toxid {
   background: var(--bg);

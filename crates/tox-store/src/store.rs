@@ -50,6 +50,7 @@ pub struct FriendRow {
     pub toxid: String,
     pub nospam: String,
     pub name: String,
+    pub avatar: String,
     pub status: i64, // 0 offline, 1 online, 2 blocked
     pub added_at: i64,
     pub last_seen: Option<i64>,
@@ -64,6 +65,7 @@ CREATE TABLE IF NOT EXISTS friends (
   toxid       TEXT PRIMARY KEY,
   nospam      TEXT,
   name        TEXT,
+  avatar      TEXT DEFAULT '',
   status      INTEGER NOT NULL DEFAULT 0,
   added_at    INTEGER NOT NULL,
   last_seen   INTEGER
@@ -105,6 +107,7 @@ impl Store {
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let conn = Connection::open(path)?;
         conn.execute_batch(SCHEMA)?;
+        migrate_friends_avatar(&conn);
         Ok(Store { conn })
     }
 
@@ -112,6 +115,7 @@ impl Store {
     pub fn open_in_memory() -> Result<Self> {
         let conn = Connection::open_in_memory()?;
         conn.execute_batch(SCHEMA)?;
+        migrate_friends_avatar(&conn);
         Ok(Store { conn })
     }
 
@@ -138,30 +142,40 @@ impl Store {
 
     pub fn friend_upsert(&self, f: &FriendRow) -> Result<()> {
         self.conn.execute(
-            "INSERT INTO friends(toxid, nospam, name, status, added_at, last_seen)
-             VALUES(?1, ?2, ?3, ?4, ?5, ?6)
+            "INSERT INTO friends(toxid, nospam, name, avatar, status, added_at, last_seen)
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)
              ON CONFLICT(toxid) DO UPDATE SET
                nospam = excluded.nospam,
                name   = excluded.name,
+               avatar = excluded.avatar,
                status = excluded.status,
                last_seen = excluded.last_seen",
-            params![f.toxid, f.nospam, f.name, f.status, f.added_at, f.last_seen],
+            params![
+                f.toxid,
+                f.nospam,
+                f.name,
+                f.avatar,
+                f.status,
+                f.added_at,
+                f.last_seen
+            ],
         )?;
         Ok(())
     }
 
     pub fn friend_list(&self) -> Result<Vec<FriendRow>> {
-        let mut stmt =
-            self.conn
-                .prepare("SELECT toxid, nospam, name, status, added_at, last_seen FROM friends")?;
+        let mut stmt = self.conn.prepare(
+            "SELECT toxid, nospam, name, avatar, status, added_at, last_seen FROM friends",
+        )?;
         let rows = stmt.query_map([], |r| {
             Ok(FriendRow {
                 toxid: r.get(0)?,
                 nospam: r.get(1)?,
                 name: r.get(2)?,
-                status: r.get(3)?,
-                added_at: r.get(4)?,
-                last_seen: r.get(5)?,
+                avatar: r.get(3)?,
+                status: r.get(4)?,
+                added_at: r.get(5)?,
+                last_seen: r.get(6)?,
             })
         })?;
         rows.collect()
@@ -327,6 +341,10 @@ fn now_ms() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0)
+}
+
+fn migrate_friends_avatar(conn: &Connection) {
+    let _ = conn.execute("ALTER TABLE friends ADD COLUMN avatar TEXT DEFAULT ''", []);
 }
 
 fn row_to_post(r: &rusqlite::Row) -> Result<PostRow> {

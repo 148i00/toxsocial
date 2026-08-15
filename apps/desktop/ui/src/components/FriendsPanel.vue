@@ -2,6 +2,7 @@
 import { ref } from "vue";
 import { api } from "../api";
 import { t } from "../i18n";
+import Avatar from "./Avatar.vue";
 import type { FriendInfo } from "../types";
 
 defineProps<{ friends: FriendInfo[] }>();
@@ -63,6 +64,7 @@ async function remove(f: FriendInfo) {
       {{ t("noFriends") }}
     </div>
     <div v-for="f in friends" :key="f.toxid" class="friend">
+      <Avatar :src="f.avatar" :name="f.name" :size="36" />
       <span class="dot" :class="{ online: f.online }"></span>
       <div class="info">
         <div class="name">{{ f.name || "未命名好友" }}</div>

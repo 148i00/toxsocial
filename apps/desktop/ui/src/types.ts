@@ -3,6 +3,7 @@ export interface OwnInfo {
   pubkey: string;
   name: string;
   statusMessage: string;
+  avatar: string;
   friendCount: number;
 }
 
@@ -15,6 +16,7 @@ export interface TimelineItem {
   id: string;
   author: string;
   authorName: string;
+  authorAvatar: string;
   kind: "post" | "comment" | "reaction";
   text: string | null;
   emoji: string | null;
@@ -30,6 +32,7 @@ export interface TimelineItem {
 export interface FriendInfo {
   toxid: string;
   name: string;
+  avatar: string;
   online: boolean;
   lastSeen: number | null;
 }

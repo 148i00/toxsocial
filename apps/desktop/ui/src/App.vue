@@ -9,6 +9,7 @@ import ThreadView from "./components/ThreadView.vue";
 import FriendsPanel from "./components/FriendsPanel.vue";
 import SettingsPanel from "./components/SettingsPanel.vue";
 import ChannelsPanel from "./components/ChannelsPanel.vue";
+import Avatar from "./components/Avatar.vue";
 
 const view = ref<"timeline" | "friends" | "settings" | "channels">("timeline");
 const own = ref<OwnInfo | null>(null);
@@ -154,9 +155,11 @@ async function runSearch() {
         </div>
       </div>
       <div class="sidebar-foot" v-if="own">
-        <div class="dot" :class="{ online: own.friendCount > 0 }"></div>
-        <span>{{ own.name || "未设置昵称" }}</span>
-        <span class="tag">{{ t("connectedDht") }}</span>
+        <Avatar :src="own.avatar" :name="own.name" :size="28" />
+        <div class="foot-info">
+          <span class="foot-name">{{ own.name || "未设置昵称" }}</span>
+          <span class="tag">{{ t("connectedDht") }}</span>
+        </div>
       </div>
     </aside>
 
@@ -212,6 +215,7 @@ async function runSearch() {
     <!-- Right: me panel -->
     <aside class="me-panel" v-if="own">
       <div class="me-card">
+        <Avatar :src="own.avatar" :name="own.name" :size="64" />
         <div class="me-name">{{ own.name || "未设置昵称" }}</div>
         <div class="mono">{{ own.pubkey.slice(0, 20) }}…</div>
         <div class="me-stats">
@@ -276,6 +280,19 @@ nav button.active {
   padding: 10px 8px;
   font-size: 13px;
   color: var(--text-dim);
+}
+.foot-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.foot-name {
+  color: var(--text);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .content {

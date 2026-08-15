@@ -2,6 +2,7 @@
 import { computed } from "vue";
 import { api, formatTime } from "../api";
 import { renderMarkdown } from "../markdown";
+import Avatar from "./Avatar.vue";
 import type { OwnInfo, TimelineItem } from "../types";
 
 const props = defineProps<{ item: TimelineItem; own: OwnInfo | null }>();
@@ -23,6 +24,7 @@ async function react(emoji: string) {
 <template>
   <article class="card" @click="emit('open', item.id)">
     <div class="head">
+      <Avatar :src="item.authorAvatar" :name="item.authorName" :size="28" />
       <span class="author">{{ item.authorName }}</span>
       <span v-if="item.isOwn" class="tag">我</span>
       <span class="time">{{ formatTime(item.ts) }}</span>

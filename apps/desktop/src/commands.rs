@@ -21,6 +21,7 @@ pub struct OwnInfo {
     pub pubkey: String,
     pub name: String,
     pub status_message: String,
+    pub avatar: String,
     pub friend_count: usize,
 }
 
@@ -37,6 +38,7 @@ pub struct TimelineItem {
     pub id: String,
     pub author: String,
     pub author_name: String,
+    pub author_avatar: String,
     pub kind: String,
     pub text: Option<String>,
     pub emoji: Option<String>,
@@ -54,6 +56,7 @@ pub struct TimelineItem {
 pub struct FriendInfo {
     pub toxid: String,
     pub name: String,
+    pub avatar: String,
     pub online: bool,
     pub last_seen: Option<i64>,
 }
@@ -80,6 +83,14 @@ pub struct ConferencePeerInfo {
 #[tauri::command]
 pub fn get_own_info(state: State<AppState>) -> OwnInfo {
     let session = state.session.lock().unwrap();
+    let avatar = {
+        let engine = state.engine.lock().unwrap();
+        engine
+            .store()
+            .kv_get("avatar_url")
+            .unwrap_or_default()
+            .unwrap_or_default()
+    };
     OwnInfo {
         toxid: session.self_address(),
         pubkey: session.self_public_key(),
@@ -87,6 +98,7 @@ pub fn get_own_info(state: State<AppState>) -> OwnInfo {
         status_message: session
             .self_status_message()
             .unwrap_or_default(),
+        avatar,
         friend_count: session.friend_count(),
     }
 }
@@ -110,6 +122,14 @@ pub fn set_profile(
 
     // Broadcast the profile update to all online friends.
     let me = state.session.lock().unwrap().self_public_key();
+    let avatar = {
+        let engine = state.engine.lock().unwrap();
+        engine
+            .store()
+            .kv_get("avatar_url")
+            .unwrap_or_default()
+            .unwrap_or_default()
+    };
     let ts = now_ms();
     let profile = Profile {
         v: tox_social::envelope::PROTOCOL_VERSION,
@@ -117,8 +137,8 @@ pub fn set_profile(
         ts,
         name: name.trim().to_string(),
         bio: bio.trim().to_string(),
-        avatar: String::new(),
-        avatar_len: 0,
+        avatar: avatar.clone(),
+        avatar_len: if avatar.is_empty() { 0 } else { avatar.len() as u64 },
     };
     let wire = Envelope::Profile(profile).encode();
     let session = state.session.lock().unwrap();
@@ -128,6 +148,55 @@ pub fn set_profile(
         }
     }
     Ok(())
+}
+
+#[tauri::command]
+pub async fn set_avatar(state: State<'_, AppState>, data_base64: String) -> Result<String, String> {
+    let client_id = {
+        let engine = state.engine.lock().unwrap();
+        engine
+            .store()
+            .kv_get("imgur_client_id")
+            .map_err(|e| e.to_string())?
+            .unwrap_or_default()
+    };
+    if client_id.is_empty() {
+        return Err("请先在设置中填写 Imgur Client ID".to_string());
+    }
+    let url = crate::media::upload_media(&data_base64, "avatar.png", &client_id).await?;
+    {
+        let engine = state.engine.lock().unwrap();
+        engine
+            .store()
+            .kv_set("avatar_url", &url)
+            .map_err(|e| e.to_string())?;
+    }
+    // Broadcast updated profile (with avatar) to online friends.
+    let me = state.session.lock().unwrap().self_public_key();
+    let name = state.session.lock().unwrap().self_name();
+    let bio = state
+        .session
+        .lock()
+        .unwrap()
+        .self_status_message()
+        .unwrap_or_default();
+    let profile = Profile {
+        v: tox_social::envelope::PROTOCOL_VERSION,
+        author: me,
+        ts: now_ms(),
+        name,
+        bio,
+        avatar: url.clone(),
+        avatar_len: url.len() as u64,
+    };
+    let wire = Envelope::Profile(profile).encode();
+    let session = state.session.lock().unwrap();
+    for n in session.friend_list() {
+        if session.friend_connection(n) != Connection::None {
+            let _ = session.send_message(n, &wire);
+        }
+    }
+    Ok(url)
 }
 
 #[tauri::command]
@@ -320,6 +389,7 @@ pub fn get_friends(state: State<AppState>) -> Result<Vec<FriendInfo>, String> {
         .map(|f| FriendInfo {
             toxid: f.toxid,
             name: f.name,
+            avatar: f.avatar,
             online: f.status == 1,
             last_seen: f.last_seen,
         })

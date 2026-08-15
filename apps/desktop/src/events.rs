@@ -139,7 +139,7 @@ fn handle_event(app: &AppHandle, state: &State<AppState>, ev: Event) {
                 }
                 Incoming::Profile(p) => {
                     println!("[toxsocial] profile from {pk}: name={}", p.name);
-                    update_friend_meta(state, &pk, Some(&p.name), None);
+                    update_friend_meta(state, &pk, Some(&p.name), None, Some(&p.avatar));
                 }
                 Incoming::Chunk => {}
                 Incoming::Rejected(_) => {
@@ -162,7 +162,7 @@ fn handle_event(app: &AppHandle, state: &State<AppState>, ev: Event) {
                     .unwrap_or_default()
             };
             let online = connection != Connection::None;
-            update_friend_meta(state, &pk, None, Some(online));
+            update_friend_meta(state, &pk, None, Some(online), None);
             let name = state.name_for(&pk);
             let _ = app.emit(
                 "friend:connection",
@@ -183,7 +183,7 @@ fn handle_event(app: &AppHandle, state: &State<AppState>, ev: Event) {
                     .friend_public_key(friend_number)
                     .unwrap_or_default()
             };
-            update_friend_meta(state, &pk, Some(&name), None);
+            update_friend_meta(state, &pk, Some(&name), None, None);
             let _ = app.emit(
                 "friend:name",
                 json!({ "publicKey": pk, "name": name }),
@@ -374,7 +374,13 @@ fn now_ms() -> i64 {
         .unwrap_or(0)
 }
 
-fn update_friend_meta(state: &State<AppState>, pk: &str, name: Option<&str>, online: Option<bool>) {
+fn update_friend_meta(
+    state: &State<AppState>,
+    pk: &str,
+    name: Option<&str>,
+    online: Option<bool>,
+    avatar: Option<&str>,
+) {
     let engine = state.engine.lock().unwrap();
     let store = engine.store();
     let now = std::time::SystemTime::now()
@@ -390,12 +396,16 @@ fn update_friend_meta(state: &State<AppState>, pk: &str, name: Option<&str>, onl
         toxid: pk.to_string(),
         nospam: String::new(),
         name: String::new(),
+        avatar: String::new(),
         status: 0,
         added_at: now,
         last_seen: None,
     });
     if let Some(name) = name {
         row.name = name.to_string();
+    }
+    if let Some(avatar) = avatar {
+        row.avatar = avatar.to_string();
     }
     if let Some(online) = online {
         row.status = if online { 1 } else { 0 };
@@ -452,6 +462,22 @@ pub(crate) fn item_from_row(
             .find(|f| f.toxid == row.author && !f.name.is_empty())
             .map(|f| f.name)
             .unwrap_or_else(|| short(&row.author).to_string()),
+        author_avatar: if row.author == me {
+            engine
+                .store()
+                .kv_get("avatar_url")
+                .unwrap_or_default()
+                .unwrap_or_default()
+        } else {
+            engine
+                .store()
+                .friend_list()
+                .unwrap_or_default()
+                .into_iter()
+                .find(|f| f.toxid == row.author)
+                .map(|f| f.avatar)
+                .unwrap_or_default()
+        },
         kind: match row.kind {
             PostKind::Post => "post",
             PostKind::Comment => "comment",
