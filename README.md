@@ -38,3 +38,10 @@ cargo build -p tox-cli
 # 两个终端分别启动实例，通过 <save>.cmd 命令文件发帖（post <text>）
 .\target\debug\tox-cli.exe run alice.tox --db alice.db
 ```
+
+# 构建 Windows 安装包（会自动复制 libsodium.dll / pthreadVC3.dll 到 target\release）
+powershell -ExecutionPolicy Bypass -File scripts\bundle.ps1
+# 产物：
+#   target\release\bundle\msi\ToxSocial_0.1.0_x64_en-US.msi
+#   target\release\bundle\nsis\ToxSocial_0.1.0_x64-setup.exe
+```
