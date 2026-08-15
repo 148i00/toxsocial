@@ -309,15 +309,31 @@ pub fn remove_friend_by_toxid(state: State<AppState>, toxid: String) -> Result<(
 }
 
 #[tauri::command]
-pub fn publish_post(state: State<AppState>, text: String) -> Result<Post, String> {
+pub fn publish_post(
+    state: State<AppState>,
+    text: String,
+    public: Option<bool>,
+) -> Result<Post, String> {
     let me = state.session.lock().unwrap().self_public_key();
     let text = text.trim().to_string();
+    let is_public = public.unwrap_or(false);
     let (post, envelopes) = {
         let engine = state.engine.lock().unwrap();
         if text.chars().count() > tox_social::MAX_POST_CHARS {
-            engine
-                .publish_long_post(&me, &text)
-                .map_err(|e| e.to_string())?
+            if is_public {
+                engine
+                    .publish_long_public_post(&me, &text)
+                    .map_err(|e| e.to_string())?
+            } else {
+                engine
+                    .publish_long_post(&me, &text)
+                    .map_err(|e| e.to_string())?
+            }
+        } else if is_public {
+            let post = engine
+                .publish_public_post(&me, &text)
+                .map_err(|e| e.to_string())?;
+            (post.clone(), vec![Envelope::Post(post)])
         } else {
             let post = engine
                 .publish_post(&me, &text)
@@ -631,6 +647,45 @@ pub fn request_directory_search(state: State<AppState>, query: String, depth: Op
         author: me,
         ts: now_ms(),
         query: query.trim().to_string(),
+        depth,
+    });
+    let wire = req.encode();
+    let session = state.session.lock().unwrap();
+    let mut sent = 0;
+    for n in session.friend_list() {
+        if session.friend_connection(n) != Connection::None {
+            if session.send_message(n, &wire).is_ok() {
+                sent += 1;
+            }
+        }
+    }
+    Ok(sent)
+}
+
+#[tauri::command]
+pub fn fetch_public_timeline(state: State<AppState>, limit: Option<u32>) -> Result<Vec<TimelineItem>, String> {
+    let limit = limit.unwrap_or(50);
+    let engine = state.engine.lock().unwrap();
+    let rows = engine
+        .store()
+        .public_posts_since(0, limit)
+        .map_err(|e| e.to_string())?;
+    Ok(rows
+        .iter()
+        .map(|r| events::item_from_row(&state, &engine, r))
+        .collect())
+}
+
+#[tauri::command]
+pub fn request_public_posts(state: State<AppState>, since: Option<i64>, depth: Option<u32>) -> Result<usize, String> {
+    let since = since.unwrap_or(0);
+    let depth = depth.unwrap_or(2);
+    let me = state.session.lock().unwrap().self_public_key();
+    let req = Envelope::OutboxReq(tox_social::envelope::OutboxReq {
+        v: tox_social::envelope::PROTOCOL_VERSION,
+        author: me,
+        ts: now_ms(),
+        since,
         depth,
     });
     let wire = req.encode();

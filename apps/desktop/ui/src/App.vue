@@ -11,7 +11,7 @@ import SettingsPanel from "./components/SettingsPanel.vue";
 import ChannelsPanel from "./components/ChannelsPanel.vue";
 import Avatar from "./components/Avatar.vue";
 
-const view = ref<"timeline" | "friends" | "settings" | "channels">("timeline");
+const view = ref<"timeline" | "friends" | "settings" | "channels" | "public">("timeline");
 const own = ref<OwnInfo | null>(null);
 const timeline = ref<TimelineItem[]>([]);
 const threadPostId = ref<string | null>(null);
@@ -19,6 +19,7 @@ const friends = ref<FriendInfo[]>([]);
 const loading = ref(true);
 const searchQuery = ref("");
 const searchResults = ref<TimelineItem[]>([]);
+const publicTimeline = ref<TimelineItem[]>([]);
 const searching = ref(false);
 const notifications = ref<{ id: number; text: string; time: number }[]>([]);
 const unread = ref(0);
@@ -44,6 +45,15 @@ async function refreshTimeline() {
 
 async function refreshFriends() {
   friends.value = await api.getFriends();
+}
+
+async function refreshPublicTimeline() {
+  publicTimeline.value = await api.fetchPublicTimeline(50);
+}
+
+async function requestPublic() {
+  await api.requestPublicPosts(0, 2);
+  await refreshPublicTimeline();
 }
 
 async function refreshAll() {
@@ -138,6 +148,7 @@ async function runSearch() {
           关注 <span v-if="own" class="count">{{ own.friendCount }}</span>
         </button>
         <button :class="{ active: view === 'channels' }" @click="view = 'channels'">{{ t("channels") }}</button>
+        <button :class="{ active: view === 'public' }" @click="view = 'public'">公共</button>
         <button @click="showNotifications = !showNotifications">
           通知 <span v-if="unread" class="count">{{ unread }}</span>
         </button>
@@ -209,6 +220,20 @@ async function runSearch() {
 
       <FriendsPanel v-else-if="view === 'friends'" :friends="friends" @changed="refreshAll" />
       <ChannelsPanel v-else-if="view === 'channels'" />
+      <div v-else-if="view === 'public'" class="public-page">
+        <div class="row">
+          <button class="primary" @click="requestPublic">请求公共内容</button>
+          <button @click="refreshPublicTimeline">刷新</button>
+        </div>
+        <div v-if="publicTimeline.length === 0" class="empty">还没有公共内容，点击“请求公共内容”向好友网络获取。</div>
+        <PostCard
+          v-for="p in publicTimeline"
+          :key="p.id"
+          :item="p"
+          :own="own"
+          @open="openThreadWithData"
+        />
+      </div>
       <SettingsPanel v-else :own="own" @saved="refreshAll" />
     </main>
 
@@ -306,6 +331,15 @@ nav button.active {
 }
 .search-box {
   margin-bottom: 12px;
+}
+.public-page {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.public-page .row {
+  display: flex;
+  gap: 8px;
 }
 .notif-panel {
   background: var(--bg-3);

@@ -15,7 +15,9 @@ use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
 
 use tox_core::{Connection, Event, ToxSession, DEFAULT_BOOTSTRAP_NODES};
-use tox_social::envelope::{DirEntry, DirReq, DirResp, Envelope, SyncPosts, SyncReq};
+use tox_social::envelope::{
+    DirEntry, DirReq, DirResp, Envelope, OutboxReq, OutboxResp, SyncPosts, SyncReq,
+};
 use tox_social::feed::{FeedEngine, Incoming};
 use tox_social::MAX_ENVELOPE_BYTES;
 use tox_store::{PostKind, Store};
@@ -495,6 +497,12 @@ fn handle_event(
                 Incoming::DirResp(resp) => {
                     handle_dir_resp(engine, &pk, &resp);
                 }
+                Incoming::OutboxReq(req) => {
+                    handle_outbox_req(session, engine, friend_number, &req)?;
+                }
+                Incoming::OutboxResp(resp) => {
+                    handle_outbox_resp(engine, &pk, &resp);
+                }
                 Incoming::Rejected(_) => println!("[chat    #{friend_number}] {text}"),
             }
         }
@@ -732,6 +740,58 @@ fn handle_dir_resp(engine: &FeedEngine, sender_pk: &str, resp: &DirResp) {
         let _ = engine.store().dir_upsert(&entry);
     }
     println!("[dir     ] updated from {sender_pk}: {} entries", resp.items.len());
+}
+
+fn handle_outbox_req(
+    session: &ToxSession,
+    engine: &FeedEngine,
+    friend_number: u32,
+    req: &OutboxReq,
+) -> Result<()> {
+    let items = engine.public_posts_since(req.since, 100);
+    if !items.is_empty() {
+        let resp = Envelope::OutboxResp(OutboxResp {
+            v: tox_social::envelope::PROTOCOL_VERSION,
+            author: session.self_public_key(),
+            ts: now_ms(),
+            items,
+        });
+        session.send_message(friend_number, &resp.encode())?;
+    }
+    if req.depth > 0 {
+        let fwd = Envelope::OutboxReq(OutboxReq {
+            v: tox_social::envelope::PROTOCOL_VERSION,
+            author: session.self_public_key(),
+            ts: now_ms(),
+            since: req.since,
+            depth: req.depth - 1,
+        });
+        let wire = fwd.encode();
+        for n in session.friend_list() {
+            if n == friend_number {
+                continue;
+            }
+            if session.friend_connection(n) != Connection::None {
+                session.send_message(n, &wire)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn handle_outbox_resp(engine: &FeedEngine, _sender_pk: &str, resp: &OutboxResp) {
+    let received_at = now_ms();
+    for item in &resp.items {
+        if let Envelope::Post(p) = item {
+            if engine.persist(item, &p.author, received_at) {
+                println!(
+                    "[outbox  ] public post from {}: {}",
+                    &p.author[..8.min(p.author.len())],
+                    p.text
+                );
+            }
+        }
+    }
 }
 
 /// Command file path: <save>.cmd

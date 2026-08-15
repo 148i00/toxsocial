@@ -92,6 +92,8 @@ pub fn run() {
             commands::search_posts,
             commands::search_directory,
             commands::request_directory_search,
+            commands::fetch_public_timeline,
+            commands::request_public_posts,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

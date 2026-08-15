@@ -5,7 +5,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use tox_store::{PostKind, PostRow, PostSource, Store};
 
-use crate::envelope::{Comment, DirReq, DirResp, Envelope, Post, PostChunk, Profile, Reaction};
+use crate::envelope::{
+    Comment, DirReq, DirResp, Envelope, OutboxReq, OutboxResp, Post, PostChunk, Profile, Reaction,
+};
 use crate::{MAX_ENVELOPE_BYTES, MAX_POST_CHARS};
 
 /// Reason an incoming message was rejected.
@@ -30,6 +32,10 @@ pub enum Incoming {
     DirReq(DirReq),
     /// A directory response from a friend.
     DirResp(DirResp),
+    /// A public-outbox request from a friend.
+    OutboxReq(OutboxReq),
+    /// A public-outbox response from a friend.
+    OutboxResp(OutboxResp),
     /// Rejected; the caller may fall back to treating it as plain chat.
     Rejected(Reject),
 }
@@ -73,6 +79,8 @@ impl FeedEngine {
             }
             Envelope::DirReq(req) => Incoming::DirReq(req),
             Envelope::DirResp(resp) => Incoming::DirResp(resp),
+            Envelope::OutboxReq(req) => Incoming::OutboxReq(req),
+            Envelope::OutboxResp(resp) => Incoming::OutboxResp(resp),
             other => {
                 self.persist(&other, sender_pk, received_at);
                 Incoming::Persisted(other)
@@ -94,6 +102,7 @@ impl FeedEngine {
                 received_at,
                 source: PostSource::FriendDirect,
                 channel_id: None,
+                is_public: p.public,
             }),
             Envelope::Comment(c) => Some(PostRow {
                 id: c.id.clone(),
@@ -106,6 +115,7 @@ impl FeedEngine {
                 received_at,
                 source: PostSource::FriendDirect,
                 channel_id: None,
+                is_public: false,
             }),
             Envelope::Reaction(r) => Some(PostRow {
                 id: r.id.clone(),
@@ -118,13 +128,16 @@ impl FeedEngine {
                 received_at,
                 source: PostSource::FriendDirect,
                 channel_id: None,
+                is_public: false,
             }),
             Envelope::Profile(_)
             | Envelope::PostChunk(_)
             | Envelope::SyncReq(_)
             | Envelope::SyncPosts(_)
             | Envelope::DirReq(_)
-            | Envelope::DirResp(_) => None,
+            | Envelope::DirResp(_)
+            | Envelope::OutboxReq(_)
+            | Envelope::OutboxResp(_) => None,
         };
         match row {
             Some(row) => self.store.post_upsert(&row).unwrap_or(false),
@@ -156,6 +169,39 @@ impl FeedEngine {
             received_at: now_ms(),
             source: PostSource::SelfPublished,
             channel_id: None,
+            is_public: post.public,
+        };
+        self.store
+            .post_upsert(&row)
+            .map_err(|e| format!("store error: {e}"))?;
+        Ok(post)
+    }
+
+    /// Create a public post and persist it locally.
+    pub fn publish_public_post(&self, author_pk: &str, text: &str) -> Result<Post, String> {
+        if text.is_empty() {
+            return Err("post text is empty".to_string());
+        }
+        if text.chars().count() > MAX_POST_CHARS {
+            return Err(format!("post too long (max {MAX_POST_CHARS} chars)"));
+        }
+        let mut post = Post::new(author_pk, text);
+        post.public = true;
+        if Envelope::Post(post.clone()).wire_len() > MAX_ENVELOPE_BYTES {
+            return Err("post exceeds 1300-byte envelope limit".to_string());
+        }
+        let row = PostRow {
+            id: post.id.clone(),
+            author: author_pk.to_string(),
+            kind: PostKind::Post,
+            parent_id: None,
+            text: Some(post.text.clone()),
+            emoji: None,
+            ts: post.ts,
+            received_at: now_ms(),
+            source: PostSource::SelfPublished,
+            channel_id: None,
+            is_public: true,
         };
         self.store
             .post_upsert(&row)
@@ -184,6 +230,41 @@ impl FeedEngine {
             received_at: now_ms(),
             source: PostSource::SelfPublished,
             channel_id: None,
+            is_public: post.public,
+        };
+        self.store
+            .post_upsert(&row)
+            .map_err(|e| format!("store error: {e}"))?;
+        let chunks = split_post_chunks(&post);
+        Ok((post, chunks))
+    }
+
+    /// Create a long public post, persist it locally, and return chunk envelopes.
+    pub fn publish_long_public_post(
+        &self,
+        author_pk: &str,
+        text: &str,
+    ) -> Result<(Post, Vec<Envelope>), String> {
+        if text.is_empty() {
+            return Err("post text is empty".to_string());
+        }
+        if text.chars().count() > 50_000 {
+            return Err("post too long (max 50000 chars)".to_string());
+        }
+        let mut post = Post::new(author_pk, text);
+        post.public = true;
+        let row = PostRow {
+            id: post.id.clone(),
+            author: author_pk.to_string(),
+            kind: PostKind::Post,
+            parent_id: None,
+            text: Some(post.text.clone()),
+            emoji: None,
+            ts: post.ts,
+            received_at: now_ms(),
+            source: PostSource::SelfPublished,
+            channel_id: None,
+            is_public: true,
         };
         self.store
             .post_upsert(&row)
@@ -216,6 +297,7 @@ impl FeedEngine {
             author: c.author.clone(),
             ts: c.ts,
             text,
+            public: false,
         };
         let row = PostRow {
             id: post.id.clone(),
@@ -228,6 +310,7 @@ impl FeedEngine {
             received_at,
             source: PostSource::FriendDirect,
             channel_id: None,
+            is_public: post.public,
         };
         let _ = self.store.post_upsert(&row);
         let _ = self.store.chunk_delete(&post.id, sender_pk);
@@ -259,6 +342,7 @@ impl FeedEngine {
             received_at: now_ms(),
             source: PostSource::SelfPublished,
             channel_id: None,
+            is_public: false,
         };
         self.store
             .post_upsert(&row)
@@ -285,6 +369,7 @@ impl FeedEngine {
             received_at: now_ms(),
             source: PostSource::SelfPublished,
             channel_id: None,
+            is_public: false,
         };
         self.store
             .post_upsert(&row)
@@ -318,6 +403,16 @@ impl FeedEngine {
             .collect()
     }
 
+    /// Public posts known locally with `ts > since`, oldest first.
+    pub fn public_posts_since(&self, since: i64, limit: u32) -> Vec<Envelope> {
+        self.store
+            .public_posts_since(since, limit)
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(row_to_envelope)
+            .collect()
+    }
+
     /// Persist all items from a `sync_posts` message. Returns the envelopes
     /// that were actually new (not duplicates).
     pub fn handle_sync_posts(&self, sender_pk: &str, items: Vec<Envelope>) -> Vec<Envelope> {
@@ -345,7 +440,9 @@ impl FeedEngine {
                     | Envelope::SyncReq(_)
                     | Envelope::SyncPosts(_)
                     | Envelope::DirReq(_)
-                    | Envelope::DirResp(_) => None,
+                    | Envelope::DirResp(_)
+                    | Envelope::OutboxReq(_)
+                    | Envelope::OutboxResp(_) => None,
                 }
             })
             .collect()
@@ -360,6 +457,7 @@ fn row_to_envelope(row: PostRow) -> Option<Envelope> {
             author: row.author,
             ts: row.ts,
             text: row.text.unwrap_or_default(),
+            public: row.is_public,
         })),
         PostKind::Comment => Some(Envelope::Comment(Comment {
             v: 1,
@@ -391,6 +489,8 @@ impl Envelope {
             Envelope::SyncReq(s) => &s.author,
             Envelope::DirReq(r) => &r.author,
             Envelope::DirResp(r) => &r.author,
+            Envelope::OutboxReq(r) => &r.author,
+            Envelope::OutboxResp(r) => &r.author,
             Envelope::SyncPosts(s) => &s.author,
         }
     }

@@ -19,6 +19,8 @@ pub struct Post {
     pub ts: i64,
     #[serde(rename = "text")]
     pub text: String,
+    #[serde(rename = "public", default)]
+    pub public: bool,
 }
 
 /// A comment attached to a post.
@@ -131,6 +133,32 @@ pub struct DirResp {
     pub items: Vec<DirEntry>,
 }
 
+/// Request public posts from a friend (and optionally friends-of-friends).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct OutboxReq {
+    pub v: u32,
+    #[serde(rename = "a")]
+    pub author: String,
+    #[serde(rename = "ts")]
+    pub ts: i64,
+    #[serde(rename = "since", default)]
+    pub since: i64,
+    #[serde(rename = "depth", default)]
+    pub depth: u32,
+}
+
+/// Public posts returned by a friend.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct OutboxResp {
+    pub v: u32,
+    #[serde(rename = "a")]
+    pub author: String,
+    #[serde(rename = "ts")]
+    pub ts: i64,
+    #[serde(rename = "items", default)]
+    pub items: Vec<Envelope>,
+}
+
 /// Pull-based backfill request sent when a friend comes online (M4).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SyncReq {
@@ -168,6 +196,8 @@ pub enum Envelope {
     SyncPosts(SyncPosts),
     DirReq(DirReq),
     DirResp(DirResp),
+    OutboxReq(OutboxReq),
+    OutboxResp(OutboxResp),
 }
 
 impl Envelope {
@@ -199,6 +229,8 @@ impl Envelope {
             Envelope::SyncPosts(_) => "sync_posts",
             Envelope::DirReq(_) => "dir_req",
             Envelope::DirResp(_) => "dir_resp",
+            Envelope::OutboxReq(_) => "outbox_req",
+            Envelope::OutboxResp(_) => "outbox_resp",
         }
     }
 
@@ -216,6 +248,7 @@ impl Post {
             author: author.to_string(),
             ts: now_ms(),
             text: text.to_string(),
+            public: false,
         }
     }
 }

@@ -8,7 +8,8 @@ export const api = {
   addFriend: (toxid: string, message: string) => invoke<number>("add_friend", { toxid, message }),
   removeFriend: (friendNumber: number) => invoke<void>("remove_friend", { friendNumber }),
   removeFriendByToxid: (toxid: string) => invoke<void>("remove_friend_by_toxid", { toxid }),
-  publishPost: (text: string) => invoke<TimelineItem>("publish_post", { text }),
+  publishPost: (text: string, isPublic?: boolean) =>
+    invoke<TimelineItem>("publish_post", { text, public: isPublic }),
   publishComment: (postId: string, text: string) =>
     invoke<TimelineItem>("publish_comment", { postId, text }),
   publishReaction: (postId: string, emoji: string) =>
@@ -39,6 +40,10 @@ export const api = {
     invoke<DirectoryEntryInfo[]>("search_directory", { query, limit }),
   requestDirectorySearch: (query: string, depth?: number) =>
     invoke<number>("request_directory_search", { query, depth }),
+  fetchPublicTimeline: (limit?: number) =>
+    invoke<TimelineItem[]>("fetch_public_timeline", { limit }),
+  requestPublicPosts: (since?: number, depth?: number) =>
+    invoke<number>("request_public_posts", { since, depth }),
 };
 
 export function onEvent<T>(event: string, cb: (payload: T) => void): Promise<UnlistenFn> {

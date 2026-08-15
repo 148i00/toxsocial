@@ -11,6 +11,7 @@ const text = ref("");
 const busy = ref(false);
 const error = ref("");
 const uploading = ref(false);
+const isPublic = ref(false);
 const mediaError = ref("");
 const fileInput = ref<HTMLInputElement | null>(null);
 
@@ -62,7 +63,7 @@ async function submit() {
   busy.value = true;
   error.value = "";
   try {
-    await api.publishPost(t);
+    await api.publishPost(t, isPublic.value);
     text.value = "";
     emit("posted");
   } catch (e) {
@@ -83,6 +84,10 @@ async function submit() {
       @keydown.ctrl.enter="submit"
     ></textarea>
     <div class="row">
+      <label class="public-toggle">
+        <input v-model="isPublic" type="checkbox" />
+        公开
+      </label>
       <span class="hint">{{ t("composerHint") }}</span>
       <span v-if="mediaError" class="error">{{ mediaError }}</span>
       <span v-if="error" class="error">{{ error }}</span>
@@ -125,5 +130,13 @@ textarea {
 .error {
   color: var(--danger);
   font-size: 12px;
+}
+.public-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-dim);
+  font-size: 12px;
+  white-space: nowrap;
 }
 </style>

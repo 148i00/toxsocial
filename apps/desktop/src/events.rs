@@ -7,7 +7,9 @@ use serde_json::json;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use tox_core::event::{Connection, Event};
-use tox_social::envelope::{DirEntry, DirReq, DirResp, Envelope, SyncPosts, SyncReq};
+use tox_social::envelope::{
+    DirEntry, DirReq, DirResp, Envelope, OutboxReq, OutboxResp, SyncPosts, SyncReq,
+};
 use tox_social::feed::Incoming;
 use tox_social::MAX_ENVELOPE_BYTES;
 use tox_store::{FriendRow, PostKind, PostRow, PostSource};
@@ -162,6 +164,12 @@ fn handle_event(app: &AppHandle, state: &State<AppState>, ev: Event) {
                 }
                 Incoming::DirResp(resp) => {
                     handle_dir_resp(state, &pk, &resp);
+                }
+                Incoming::OutboxReq(req) => {
+                    handle_outbox_req(state, friend_number, &req);
+                }
+                Incoming::OutboxResp(resp) => {
+                    handle_outbox_resp(state, app, &pk, &resp);
                 }
                 Incoming::Rejected(_) => {
                     // Plain chat message — not part of the social protocol yet.
@@ -465,6 +473,68 @@ fn handle_dir_resp(state: &State<AppState>, sender_pk: &str, resp: &DirResp) {
         "[toxsocial] directory updated from {sender_pk}: {} entries",
         resp.items.len()
     );
+}
+
+fn handle_outbox_req(state: &State<AppState>, friend_number: u32, req: &OutboxReq) {
+    let items = {
+        let engine = state.engine.lock().unwrap();
+        engine.public_posts_since(req.since, 100)
+    };
+    if !items.is_empty() {
+        let me = state.session.lock().unwrap().self_public_key();
+        let resp = Envelope::OutboxResp(OutboxResp {
+            v: tox_social::envelope::PROTOCOL_VERSION,
+            author: me,
+            ts: now_ms(),
+            items,
+        });
+        let wire = resp.encode();
+        let session = state.session.lock().unwrap();
+        let _ = session.send_message(friend_number, &wire);
+    }
+    if req.depth > 0 {
+        let me = state.session.lock().unwrap().self_public_key();
+        let fwd = Envelope::OutboxReq(OutboxReq {
+            v: tox_social::envelope::PROTOCOL_VERSION,
+            author: me,
+            ts: now_ms(),
+            since: req.since,
+            depth: req.depth - 1,
+        });
+        let wire = fwd.encode();
+        let session = state.session.lock().unwrap();
+        for n in session.friend_list() {
+            if n == friend_number {
+                continue;
+            }
+            if session.friend_connection(n) != Connection::None {
+                let _ = session.send_message(n, &wire);
+            }
+        }
+    }
+}
+
+fn handle_outbox_resp(state: &State<AppState>, app: &AppHandle, sender_pk: &str, resp: &OutboxResp) {
+    let received_at = now_ms();
+    let mut new_posts = Vec::new();
+    {
+        let engine = state.engine.lock().unwrap();
+        for item in &resp.items {
+            if let Envelope::Post(p) = item {
+                if engine.persist(item, &p.author, received_at) {
+                    new_posts.push(p.clone());
+                }
+            }
+        }
+    }
+    let name = state.name_for(sender_pk);
+    for p in new_posts {
+        println!("[toxsocial] public post received via outbox from {name}: {}", p.text);
+        let _ = app.emit(
+            "feed:post",
+            json!({ "id": p.id, "author": p.author, "authorName": name, "text": p.text, "ts": p.ts }),
+        );
+    }
 }
 
 fn update_friend_meta(
