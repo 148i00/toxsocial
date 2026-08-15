@@ -11,6 +11,45 @@ const log = ref<string[]>([]);
 const busy = ref(false);
 const error = ref("");
 
+interface PublicChannel {
+  name: string;
+  desc: string;
+  hostToxid: string;
+}
+
+// 公共频道目录：实际加入需要 host 在线并实现自动邀请。
+// 后续可改为从远程目录服务拉取。
+const publicChannels: PublicChannel[] = [
+  {
+    name: "ToxSocial 官方频道",
+    desc: "项目讨论与公告",
+    hostToxid: "",
+  },
+  {
+    name: "去中心化闲聊",
+    desc: "聊技术、聊生活、聊自由软件",
+    hostToxid: "",
+  },
+  {
+    name: "Tox 中文社区",
+    desc: "Tox 协议中文用户交流",
+    hostToxid: "",
+  },
+];
+
+async function joinPublic(ch: PublicChannel) {
+  if (!ch.hostToxid || ch.hostToxid.length < 70) {
+    log.value.push(`「${ch.name}」暂时没有可用的 host，等待频道管理员接入。`);
+    return;
+  }
+  try {
+    await api.addFriend(ch.hostToxid, `我想加入公共频道：${ch.name}`);
+    log.value.push(`已向「${ch.name}」host 发送好友请求/加入申请。`);
+  } catch (e) {
+    log.value.push(`加入「${ch.name}」失败：${e}`);
+  }
+}
+
 async function create() {
   if (busy.value) return;
   busy.value = true;
@@ -98,6 +137,18 @@ onMounted(() => {
       </div>
     </div>
 
+    <div class="card">
+      <div class="log-title">公共频道</div>
+      <p class="tip">发现并加入公共频道。加入后会向频道 host 发送好友请求/加入申请，host 接受后邀请你进入。</p>
+      <div v-for="ch in publicChannels" :key="ch.name" class="pub-channel">
+        <div class="pub-info">
+          <div class="pub-name">{{ ch.name }}</div>
+          <div class="pub-desc">{{ ch.desc }}</div>
+        </div>
+        <button :disabled="busy" @click="joinPublic(ch)">加入</button>
+      </div>
+    </div>
+
     <div class="card log-card">
       <div class="log-title">消息 / 日志</div>
       <div v-if="log.length === 0 && messages.length === 0" class="empty">还没有频道活动</div>
@@ -166,5 +217,30 @@ h2 {
   color: var(--text-dim);
   font-size: 12px;
   padding: 2px 0;
+}
+.pub-channel {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+}
+.pub-info {
+  flex: 1;
+  min-width: 0;
+}
+.pub-name {
+  font-weight: 600;
+}
+.pub-desc {
+  color: var(--text-dim);
+  font-size: 12px;
+}
+.tip {
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1.5;
 }
 </style>
