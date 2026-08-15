@@ -5,7 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use tox_store::{PostKind, PostRow, PostSource, Store};
 
-use crate::envelope::{Comment, Envelope, Post, Profile, Reaction};
+use crate::envelope::{Comment, Envelope, Post, PostChunk, Profile, Reaction};
 use crate::{MAX_ENVELOPE_BYTES, MAX_POST_CHARS};
 
 /// Reason an incoming message was rejected.
@@ -24,6 +24,8 @@ pub enum Incoming {
     Persisted(Envelope),
     /// A profile update (stored into friends metadata by the caller).
     Profile(Profile),
+    /// A long-post fragment was stored, but the post is not complete yet.
+    Chunk,
     /// Rejected; the caller may fall back to treating it as plain chat.
     Rejected(Reject),
 }
@@ -58,6 +60,13 @@ impl FeedEngine {
         let received_at = now_ms();
         match env.clone() {
             Envelope::Profile(p) => Incoming::Profile(p),
+            Envelope::PostChunk(c) => {
+                if let Some(post) = self.handle_post_chunk(&c, sender_pk, received_at) {
+                    Incoming::Persisted(Envelope::Post(post))
+                } else {
+                    Incoming::Chunk
+                }
+            }
             other => {
                 self.persist(&other, sender_pk, received_at);
                 Incoming::Persisted(other)
@@ -104,7 +113,10 @@ impl FeedEngine {
                 source: PostSource::FriendDirect,
                 channel_id: None,
             }),
-            Envelope::Profile(_) | Envelope::SyncReq(_) | Envelope::SyncPosts(_) => None,
+            Envelope::Profile(_)
+            | Envelope::PostChunk(_)
+            | Envelope::SyncReq(_)
+            | Envelope::SyncPosts(_) => None,
         };
         match row {
             Some(row) => self.store.post_upsert(&row).unwrap_or(false),
@@ -141,6 +153,77 @@ impl FeedEngine {
             .post_upsert(&row)
             .map_err(|e| format!("store error: {e}"))?;
         Ok(post)
+    }
+
+    /// Create a long post, persist it locally, and return the post plus the
+    /// chunk envelopes to fan out to friends.
+    pub fn publish_long_post(&self, author_pk: &str, text: &str) -> Result<(Post, Vec<Envelope>), String> {
+        if text.is_empty() {
+            return Err("post text is empty".to_string());
+        }
+        if text.chars().count() > 50_000 {
+            return Err("post too long (max 50000 chars)".to_string());
+        }
+        let post = Post::new(author_pk, text);
+        let row = PostRow {
+            id: post.id.clone(),
+            author: author_pk.to_string(),
+            kind: PostKind::Post,
+            parent_id: None,
+            text: Some(post.text.clone()),
+            emoji: None,
+            ts: post.ts,
+            received_at: now_ms(),
+            source: PostSource::SelfPublished,
+            channel_id: None,
+        };
+        self.store
+            .post_upsert(&row)
+            .map_err(|e| format!("store error: {e}"))?;
+        let chunks = split_post_chunks(&post);
+        Ok((post, chunks))
+    }
+
+    /// Store an incoming long-post fragment. Returns the assembled `Post` when
+    /// all fragments have arrived.
+    fn handle_post_chunk(&self, c: &PostChunk, sender_pk: &str, received_at: i64) -> Option<Post> {
+        if c.author != sender_pk || c.total == 0 || c.n >= c.total {
+            return None;
+        }
+        self.store
+            .chunk_upsert(&c.post_id, sender_pk, c.n, c.total, c.ts, &c.part)
+            .ok()?;
+        let count = self.store.chunk_count(&c.post_id, sender_pk).ok()?;
+        if count as u32 != c.total {
+            return None;
+        }
+        let parts = self.store.chunk_parts(&c.post_id, sender_pk).ok()?;
+        if parts.len() as u32 != c.total {
+            return None;
+        }
+        let text = parts.into_iter().map(|(_, p)| p).collect::<String>();
+        let post = Post {
+            v: crate::envelope::PROTOCOL_VERSION,
+            id: c.post_id.clone(),
+            author: c.author.clone(),
+            ts: c.ts,
+            text,
+        };
+        let row = PostRow {
+            id: post.id.clone(),
+            author: sender_pk.to_string(),
+            kind: PostKind::Post,
+            parent_id: None,
+            text: Some(post.text.clone()),
+            emoji: None,
+            ts: post.ts,
+            received_at,
+            source: PostSource::FriendDirect,
+            channel_id: None,
+        };
+        let _ = self.store.post_upsert(&row);
+        let _ = self.store.chunk_delete(&post.id, sender_pk);
+        Some(post)
     }
 
     /// Create a comment on a post, persist locally, return envelope.
@@ -244,7 +327,10 @@ impl FeedEngine {
                             None
                         }
                     }
-                    Envelope::Profile(_) | Envelope::SyncReq(_) | Envelope::SyncPosts(_) => None,
+                    Envelope::Profile(_)
+                    | Envelope::PostChunk(_)
+                    | Envelope::SyncReq(_)
+                    | Envelope::SyncPosts(_) => None,
                 }
             })
             .collect()
@@ -286,10 +372,57 @@ impl Envelope {
             Envelope::Comment(c) => &c.author,
             Envelope::Reaction(r) => &r.author,
             Envelope::Profile(p) => &p.author,
+            Envelope::PostChunk(c) => &c.author,
             Envelope::SyncReq(s) => &s.author,
             Envelope::SyncPosts(s) => &s.author,
         }
     }
+}
+
+fn split_post_chunks(post: &Post) -> Vec<Envelope> {
+    let chars: Vec<char> = post.text.chars().collect();
+    let mut parts: Vec<String> = Vec::new();
+    let mut current = String::new();
+
+    for ch in chars {
+        let mut candidate = current.clone();
+        candidate.push(ch);
+        let probe = Envelope::PostChunk(PostChunk {
+            v: crate::envelope::PROTOCOL_VERSION,
+            post_id: post.id.clone(),
+            author: post.author.clone(),
+            ts: post.ts,
+            n: parts.len() as u32,
+            total: 0,
+            part: candidate.clone(),
+        });
+        if probe.wire_len() <= MAX_ENVELOPE_BYTES || current.is_empty() {
+            current = candidate;
+        } else {
+            parts.push(std::mem::take(&mut current));
+            current.push(ch);
+        }
+    }
+    if !current.is_empty() {
+        parts.push(current);
+    }
+
+    let total = parts.len() as u32;
+    parts
+        .into_iter()
+        .enumerate()
+        .map(|(i, part)| {
+            Envelope::PostChunk(PostChunk {
+                v: crate::envelope::PROTOCOL_VERSION,
+                post_id: post.id.clone(),
+                author: post.author.clone(),
+                ts: post.ts,
+                n: i as u32,
+                total,
+                part,
+            })
+        })
+        .collect()
 }
 
 fn now_ms() -> i64 {
@@ -393,5 +526,36 @@ mod tests {
         let tl = engine.timeline(&[friend.clone()], 10);
         assert_eq!(tl.len(), 1);
         assert_eq!(tl[0].id, valid.id);
+    }
+
+    #[test]
+    fn long_post_is_split_and_reassembled() {
+        let engine = FeedEngine::new(store());
+        let me = "me".to_string();
+        let long_text = "长文测试".repeat(500); // > 1000 chars
+        let (post, chunks) = engine.publish_long_post(&me, &long_text).unwrap();
+        assert!(chunks.len() > 1);
+        assert_eq!(engine.timeline(&[me.clone()], 10).len(), 1);
+
+        // Receiver engine: feed chunks one by one; only the last one completes.
+        let rx = FeedEngine::new(store());
+        for (i, env) in chunks.iter().enumerate() {
+            let raw = env.encode();
+            let outcome = rx.handle_incoming(&me, &raw);
+            if i + 1 == chunks.len() {
+                match outcome {
+                    Incoming::Persisted(Envelope::Post(p)) => {
+                        assert_eq!(p.id, post.id);
+                        assert_eq!(p.text, long_text);
+                    }
+                    other => panic!("expected final post, got {other:?}"),
+                }
+            } else {
+                assert!(matches!(outcome, Incoming::Chunk), "expected Chunk, got {outcome:?}");
+            }
+        }
+        let tl = rx.timeline(&[me.clone()], 10);
+        assert_eq!(tl.len(), 1);
+        assert_eq!(tl[0].text.as_deref(), Some(long_text.as_str()));
     }
 }

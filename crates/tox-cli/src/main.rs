@@ -160,22 +160,32 @@ fn cmd_post(save: &Path, db: Option<&Path>, text: &str) -> Result<()> {
     let engine = FeedEngine::new(store);
     let me = session.self_public_key();
 
-    let post = engine
-        .publish_post(&me, text)
-        .map_err(|e| anyhow!("{e}"))?;
-    let wire = Envelope::Post(post.clone()).encode();
+    let text = text.trim().to_string();
+    let (post, envelopes) = if text.chars().count() > tox_social::MAX_POST_CHARS {
+        engine
+            .publish_long_post(&me, &text)
+            .map_err(|e| anyhow!("{e}"))?
+    } else {
+        let post = engine
+            .publish_post(&me, &text)
+            .map_err(|e| anyhow!("{e}"))?;
+        (post.clone(), vec![Envelope::Post(post)])
+    };
     let mut sent = 0;
-    for n in session.friend_list() {
-        if session.friend_connection(n) != Connection::None {
-            session
-                .send_message(n, &wire)
-                .map_err(|e| anyhow!("send to #{n} failed: {e}"))?;
-            sent += 1;
+    for env in envelopes {
+        let wire = env.encode();
+        for n in session.friend_list() {
+            if session.friend_connection(n) != Connection::None {
+                session
+                    .send_message(n, &wire)
+                    .map_err(|e| anyhow!("send to #{n} failed: {e}"))?;
+                sent += 1;
+            }
         }
     }
     persist(&session, save)?;
     println!(
-        "post {} published, fanned out to {sent} online friend(s)",
+        "post {} published, fanned out to {sent} message(s) to online friend(s)",
         post.id
     );
     Ok(())
@@ -296,20 +306,29 @@ fn handle_command(
                 println!("[cmd    ] usage: post <text>");
                 return Ok(());
             }
-            let post = engine
-                .publish_post(me, rest)
-                .map_err(|e| anyhow!("{e}"))?;
-            let wire = Envelope::Post(post.clone()).encode();
+            let (post, envelopes) = if rest.chars().count() > tox_social::MAX_POST_CHARS {
+                engine
+                    .publish_long_post(me, rest)
+                    .map_err(|e| anyhow!("{e}"))?
+            } else {
+                let post = engine
+                    .publish_post(me, rest)
+                    .map_err(|e| anyhow!("{e}"))?;
+                (post.clone(), vec![Envelope::Post(post)])
+            };
             let mut sent = 0;
-            for n in session.friend_list() {
-                if session.friend_connection(n) != Connection::None {
-                    session.send_message(n, &wire)?;
-                    sent += 1;
+            for env in envelopes {
+                let wire = env.encode();
+                for n in session.friend_list() {
+                    if session.friend_connection(n) != Connection::None {
+                        session.send_message(n, &wire)?;
+                        sent += 1;
+                    }
                 }
             }
             persist(session, save)?;
             println!(
-                "[cmd    ] post {} published, fanned out to {sent} online friend(s)",
+                "[cmd    ] post {} published, fanned out to {sent} message(s) to online friend(s)",
                 post.id
             );
         }
@@ -405,6 +424,7 @@ fn handle_event(
                     p.name,
                     p.bio
                 ),
+                Incoming::Chunk => {}
                 Incoming::Rejected(_) => println!("[chat    #{friend_number}] {text}"),
             }
         }

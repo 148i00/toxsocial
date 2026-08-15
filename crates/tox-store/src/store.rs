@@ -84,6 +84,17 @@ CREATE TABLE IF NOT EXISTS posts (
 CREATE INDEX IF NOT EXISTS idx_posts_author ON posts(author);
 CREATE INDEX IF NOT EXISTS idx_posts_ts     ON posts(ts DESC);
 CREATE INDEX IF NOT EXISTS idx_posts_parent ON posts(parent_id);
+CREATE TABLE IF NOT EXISTS post_chunks (
+  post_id      TEXT NOT NULL,
+  author       TEXT NOT NULL,
+  idx          INTEGER NOT NULL,
+  total        INTEGER NOT NULL,
+  ts           INTEGER NOT NULL,
+  part         TEXT NOT NULL,
+  received_at  INTEGER NOT NULL,
+  PRIMARY KEY (post_id, author, idx)
+);
+CREATE INDEX IF NOT EXISTS idx_post_chunks_post ON post_chunks(post_id, author);
 ";
 
 pub struct Store {
@@ -251,6 +262,59 @@ impl Store {
         let rows = stmt.query_map(params![author, since, limit], row_to_post)?;
         rows.collect()
     }
+
+    // --- long-post chunks ------------------------------------------------------
+
+    /// Store one fragment of a long post. Returns false if it was a duplicate.
+    pub fn chunk_upsert(
+        &self,
+        post_id: &str,
+        author: &str,
+        idx: u32,
+        total: u32,
+        ts: i64,
+        part: &str,
+    ) -> Result<bool> {
+        let n = self.conn.execute(
+            "INSERT OR IGNORE INTO post_chunks(post_id, author, idx, total, ts, part, received_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![post_id, author, idx, total, ts, part, now_ms()],
+        )?;
+        Ok(n > 0)
+    }
+
+    pub fn chunk_count(&self, post_id: &str, author: &str) -> Result<usize> {
+        self.conn.query_row(
+            "SELECT COUNT(*) FROM post_chunks WHERE post_id = ?1 AND author = ?2",
+            params![post_id, author],
+            |r| r.get(0),
+        )
+    }
+
+    pub fn chunk_parts(&self, post_id: &str, author: &str) -> Result<Vec<(u32, String)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT idx, part FROM post_chunks WHERE post_id = ?1 AND author = ?2 ORDER BY idx ASC",
+        )?;
+        let rows = stmt.query_map(params![post_id, author], |r| {
+            Ok((r.get::<_, u32>(0)?, r.get::<_, String>(1)?))
+        })?;
+        rows.collect()
+    }
+
+    pub fn chunk_delete(&self, post_id: &str, author: &str) -> Result<()> {
+        self.conn.execute(
+            "DELETE FROM post_chunks WHERE post_id = ?1 AND author = ?2",
+            params![post_id, author],
+        )?;
+        Ok(())
+    }
+}
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
 }
 
 fn row_to_post(r: &rusqlite::Row) -> Result<PostRow> {
@@ -405,5 +469,18 @@ mod tests {
 
         let limited = store.posts_by_author_since("x", 0, 2).unwrap();
         assert_eq!(limited.len(), 2);
+    }
+
+    #[test]
+    fn long_post_chunks_roundtrip() {
+        let store = Store::open_in_memory().unwrap();
+        assert!(store.chunk_upsert("p1", "alice", 0, 2, 1, "hello ").unwrap());
+        assert!(!store.chunk_upsert("p1", "alice", 0, 2, 1, "hello ").unwrap()); // duplicate
+        store.chunk_upsert("p1", "alice", 1, 2, 1, "world").unwrap();
+        assert_eq!(store.chunk_count("p1", "alice").unwrap(), 2);
+        let parts = store.chunk_parts("p1", "alice").unwrap();
+        assert_eq!(parts, vec![(0, "hello ".to_string()), (1, "world".to_string())]);
+        store.chunk_delete("p1", "alice").unwrap();
+        assert_eq!(store.chunk_count("p1", "alice").unwrap(), 0);
     }
 }

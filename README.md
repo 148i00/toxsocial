@@ -22,7 +22,8 @@ Rust (workspace) + Tauri v2 + Vue3 + SQLite，底层 c-toxcore（GPLv3）经 bin
 （DHT bootstrap → 好友请求/接受 → UDP 加密连接 → 发帖 fan-out → 时间线聚合）、
 Tauri v2 桌面端（Vue3 三栏 UI + Rust 命令/事件泵，已验证 App ↔ CLI 好友请求/发帖/评论）、
 M4 离线回补（好友上线自动 `sync_req` / `sync_posts`，CLI 双实例已验证）、
-帖子 Markdown 渲染（标题/粗体/斜体/代码/列表/引用/链接/图片）。
+帖子 Markdown 渲染（标题/粗体/斜体/代码/列表/引用/链接/图片）、
+长文自动分片（`post_chunk`，>1000 字符自动拆分/重组）。
 
 ```powershell
 # 构建（c-toxcore 静态库已就绪，无需重新编译）

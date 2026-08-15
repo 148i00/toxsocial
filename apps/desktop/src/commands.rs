@@ -175,13 +175,23 @@ pub fn remove_friend_by_toxid(state: State<AppState>, toxid: String) -> Result<(
 #[tauri::command]
 pub fn publish_post(state: State<AppState>, text: String) -> Result<Post, String> {
     let me = state.session.lock().unwrap().self_public_key();
-    let post = {
+    let text = text.trim().to_string();
+    let (post, envelopes) = {
         let engine = state.engine.lock().unwrap();
-        engine
-            .publish_post(&me, text.trim())
-            .map_err(|e| e.to_string())?
+        if text.chars().count() > tox_social::MAX_POST_CHARS {
+            engine
+                .publish_long_post(&me, &text)
+                .map_err(|e| e.to_string())?
+        } else {
+            let post = engine
+                .publish_post(&me, &text)
+                .map_err(|e| e.to_string())?;
+            (post.clone(), vec![Envelope::Post(post)])
+        }
     };
-    fan_out(&state, Envelope::Post(post.clone()))?;
+    for env in envelopes {
+        fan_out(&state, env)?;
+    }
     state.persist();
     Ok(post)
 }

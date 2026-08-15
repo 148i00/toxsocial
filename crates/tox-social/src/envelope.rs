@@ -71,6 +71,25 @@ pub struct Profile {
     pub avatar_len: u64,
 }
 
+/// A fragment of a long post. The receiver assembles all fragments before
+/// persisting the final `Post`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PostChunk {
+    pub v: u32,
+    #[serde(rename = "pid")]
+    pub post_id: String,
+    #[serde(rename = "a")]
+    pub author: String,
+    #[serde(rename = "ts")]
+    pub ts: i64,
+    #[serde(rename = "n")]
+    pub n: u32,
+    #[serde(rename = "total")]
+    pub total: u32,
+    #[serde(rename = "part")]
+    pub part: String,
+}
+
 /// Pull-based backfill request sent when a friend comes online (M4).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SyncReq {
@@ -103,6 +122,7 @@ pub enum Envelope {
     Comment(Comment),
     Reaction(Reaction),
     Profile(Profile),
+    PostChunk(PostChunk),
     SyncReq(SyncReq),
     SyncPosts(SyncPosts),
 }
@@ -131,6 +151,7 @@ impl Envelope {
             Envelope::Comment(_) => "comment",
             Envelope::Reaction(_) => "reaction",
             Envelope::Profile(_) => "profile",
+            Envelope::PostChunk(_) => "post_chunk",
             Envelope::SyncReq(_) => "sync_req",
             Envelope::SyncPosts(_) => "sync_posts",
         }

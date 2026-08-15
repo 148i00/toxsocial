@@ -141,6 +141,7 @@ fn handle_event(app: &AppHandle, state: &State<AppState>, ev: Event) {
                     println!("[toxsocial] profile from {pk}: name={}", p.name);
                     update_friend_meta(state, &pk, Some(&p.name), None);
                 }
+                Incoming::Chunk => {}
                 Incoming::Rejected(_) => {
                     // Plain chat message — not part of the social protocol yet.
                     let _ = app.emit(

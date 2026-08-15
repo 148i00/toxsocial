@@ -32,12 +32,12 @@ async function submit() {
     <textarea
       v-model="text"
       rows="3"
-      maxlength="1000"
-      placeholder="分享你的想法…（端到端加密广播给所有好友）"
+      maxlength="50000"
+      placeholder="分享你的想法…（端到端加密广播给所有好友，支持 Markdown 和长文自动分片）"
       @keydown.ctrl.enter="submit"
     ></textarea>
     <div class="row">
-      <span class="hint">Ctrl+Enter 发送 · 上限 1000 字符 · 支持 Markdown</span>
+      <span class="hint">Ctrl+Enter 发送 · 上限 50000 字符 · 支持 Markdown 与长文分片</span>
       <span v-if="error" class="error">{{ error }}</span>
       <button class="primary" :disabled="busy || !text.trim()" @click="submit">
         {{ busy ? "发送中…" : "发布" }}
