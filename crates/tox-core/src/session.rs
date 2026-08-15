@@ -231,6 +231,13 @@ impl ToxSession {
         String::from_utf8_lossy(&buf).into_owned()
     }
 
+    pub fn self_status_message(&self) -> Result<String, ToxError> {
+        let size = unsafe { tox_self_get_status_message_size(self.tox) };
+        let mut buf = vec![0u8; size];
+        unsafe { tox_self_get_status_message(self.tox, buf.as_mut_ptr()) };
+        Ok(String::from_utf8_lossy(&buf).into_owned())
+    }
+
     pub fn set_name(&mut self, name: &str) -> Result<(), ToxError> {
         let mut err: u32 = TOX_ERR_SET_INFO_OK;
         unsafe { tox_self_set_name(self.tox, name.as_ptr(), name.len(), &mut err) };

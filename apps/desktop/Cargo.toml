@@ -1,0 +1,22 @@
+[package]
+name = "toxsocial-desktop"
+description = "ToxSocial desktop client — decentralized social network on the Tox protocol"
+version = "0.1.0"
+edition = "2021"
+license.workspace = true
+default-run = "toxsocial-desktop"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tox-core = { path = "../../crates/tox-core" }
+tox-social = { path = "../../crates/tox-social" }
+tox-store = { path = "../../crates/tox-store" }
+
+[lib]
+name = "toxsocial_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]

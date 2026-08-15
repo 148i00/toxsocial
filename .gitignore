@@ -8,6 +8,10 @@ third_party/c-toxcore/build/
 third_party/c-toxcore/_build/
 third_party/c-toxcore/CMakeFiles/
 
+# Frontend
+apps/desktop/ui/node_modules/
+apps/desktop/ui/dist/
+
 # Local identity / data files
 *.tox-save
 *.tox-save.db

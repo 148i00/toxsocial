@@ -5,10 +5,12 @@
 //! typed [`Event`]s delivered over a channel. No C pointer ever escapes this
 //! crate.
 
+pub mod bootstrap;
 pub mod error;
 pub mod event;
 pub mod session;
 
+pub use bootstrap::DEFAULT_BOOTSTRAP_NODES;
 pub use error::ToxError;
 pub use event::{Connection, Event, Status};
 pub use session::{ToxSession, MAX_NAME_LENGTH, MAX_STATUS_MESSAGE_LENGTH};

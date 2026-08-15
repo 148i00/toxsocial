@@ -6,6 +6,7 @@ members = [
     "crates/tox-social",
     "crates/tox-store",
     "crates/tox-cli",
+    "apps/desktop",
 ]
 
 [workspace.package]
