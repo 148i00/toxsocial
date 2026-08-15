@@ -3,7 +3,7 @@ import { ref } from "vue";
 import { api } from "../api";
 import { t } from "../i18n";
 import Avatar from "./Avatar.vue";
-import type { FriendInfo } from "../types";
+import type { DirectoryEntryInfo, FriendInfo } from "../types";
 
 defineProps<{ friends: FriendInfo[] }>();
 const emit = defineEmits<{ changed: [] }>();
@@ -12,6 +12,10 @@ const toxid = ref("");
 const message = ref("你好，关注一下！");
 const busy = ref(false);
 const error = ref("");
+const dirQuery = ref("");
+const dirResults = ref<DirectoryEntryInfo[]>([]);
+const dirSearching = ref(false);
+const dirNote = ref("");
 const ok = ref("");
 
 async function add() {
@@ -29,6 +33,22 @@ async function add() {
     error.value = String(e);
   } finally {
     busy.value = false;
+  }
+}
+
+async function searchDirectory() {
+  const q = dirQuery.value.trim();
+  if (!q || dirSearching.value) return;
+  dirSearching.value = true;
+  dirNote.value = "";
+  try {
+    dirResults.value = await api.searchDirectory(q, 50);
+    const sent = await api.requestDirectorySearch(q, 2);
+    dirNote.value = `已向 ${sent} 位好友发起目录请求；如果好友没有，会自动问好友的好友。结果会陆续同步到本地目录。`;
+  } catch (e) {
+    dirNote.value = String(e);
+  } finally {
+    dirSearching.value = false;
   }
 }
 
@@ -58,6 +78,24 @@ async function remove(f: FriendInfo) {
       </button>
       <p v-if="error" class="error">{{ error }}</p>
       <p v-if="ok" class="ok">{{ ok }}</p>
+    </div>
+
+    <div class="add-box">
+      <label>找人（本地目录 + 好友递归查找）</label>
+      <input v-model="dirQuery" placeholder="输入昵称或公钥" @keydown.enter="searchDirectory" />
+      <button class="primary" :disabled="dirSearching || !dirQuery.trim()" @click="searchDirectory">
+        {{ dirSearching ? "搜索中…" : "搜索" }}
+      </button>
+      <p v-if="dirNote" class="ok">{{ dirNote }}</p>
+      <div v-for="d in dirResults" :key="d.pubkey" class="friend">
+        <Avatar :src="d.avatar" :name="d.name" :size="32" />
+        <div class="info">
+          <div class="name">{{ d.name || "未命名" }}</div>
+          <div class="mono">{{ d.pubkey }}</div>
+          <div v-if="d.relay" class="mono">relay: {{ d.relay }}</div>
+        </div>
+        <button @click="toxid = d.toxid || d.pubkey">关注</button>
+      </div>
     </div>
 
     <div v-if="friends.length === 0" class="empty">

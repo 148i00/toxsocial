@@ -76,6 +76,17 @@ pub struct ConferencePeerInfo {
     pub public_key: String,
 }
 
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct DirectoryEntryInfo {
+    pub name: String,
+    pub pubkey: String,
+    pub toxid: String,
+    pub avatar: String,
+    pub relay: String,
+    pub source: String,
+}
+
 // ---------------------------------------------------------------------------
 // Commands
 // ---------------------------------------------------------------------------
@@ -585,6 +596,51 @@ pub fn request_sync_all(state: State<AppState>) -> Result<usize, String> {
         let session = state.session.lock().unwrap();
         if session.send_message(friend_number, &wire).is_ok() {
             sent += 1;
+        }
+    }
+    Ok(sent)
+}
+
+#[tauri::command]
+pub fn search_directory(state: State<AppState>, query: String, limit: Option<u32>) -> Result<Vec<DirectoryEntryInfo>, String> {
+    let limit = limit.unwrap_or(50);
+    let engine = state.engine.lock().unwrap();
+    let rows = engine
+        .store()
+        .dir_search(query.trim(), limit)
+        .map_err(|e| e.to_string())?;
+    Ok(rows
+        .into_iter()
+        .map(|e| DirectoryEntryInfo {
+            name: e.name,
+            pubkey: e.pubkey,
+            toxid: e.toxid,
+            avatar: e.avatar,
+            relay: e.relay,
+            source: e.source,
+        })
+        .collect())
+}
+
+#[tauri::command]
+pub fn request_directory_search(state: State<AppState>, query: String, depth: Option<u32>) -> Result<usize, String> {
+    let depth = depth.unwrap_or(2);
+    let me = state.session.lock().unwrap().self_public_key();
+    let req = Envelope::DirReq(tox_social::envelope::DirReq {
+        v: tox_social::envelope::PROTOCOL_VERSION,
+        author: me,
+        ts: now_ms(),
+        query: query.trim().to_string(),
+        depth,
+    });
+    let wire = req.encode();
+    let session = state.session.lock().unwrap();
+    let mut sent = 0;
+    for n in session.friend_list() {
+        if session.friend_connection(n) != Connection::None {
+            if session.send_message(n, &wire).is_ok() {
+                sent += 1;
+            }
         }
     }
     Ok(sent)

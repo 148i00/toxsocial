@@ -90,6 +90,8 @@ pub fn run() {
             commands::list_conferences,
             commands::request_sync_all,
             commands::search_posts,
+            commands::search_directory,
+            commands::request_directory_search,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

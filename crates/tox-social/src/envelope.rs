@@ -90,6 +90,47 @@ pub struct PostChunk {
     pub part: String,
 }
 
+/// One entry in a shared public directory.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DirEntry {
+    #[serde(rename = "name")]
+    pub name: String,
+    #[serde(rename = "pubkey")]
+    pub pubkey: String,
+    #[serde(rename = "toxid", default)]
+    pub toxid: String,
+    #[serde(rename = "avatar", default)]
+    pub avatar: String,
+    #[serde(rename = "relay", default)]
+    pub relay: String,
+}
+
+/// Ask friends (and optionally friends-of-friends) for directory entries.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DirReq {
+    pub v: u32,
+    #[serde(rename = "a")]
+    pub author: String,
+    #[serde(rename = "ts")]
+    pub ts: i64,
+    #[serde(rename = "q", default)]
+    pub query: String,
+    #[serde(rename = "depth", default)]
+    pub depth: u32,
+}
+
+/// Directory entries returned by a friend.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DirResp {
+    pub v: u32,
+    #[serde(rename = "a")]
+    pub author: String,
+    #[serde(rename = "ts")]
+    pub ts: i64,
+    #[serde(rename = "items", default)]
+    pub items: Vec<DirEntry>,
+}
+
 /// Pull-based backfill request sent when a friend comes online (M4).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SyncReq {
@@ -125,6 +166,8 @@ pub enum Envelope {
     PostChunk(PostChunk),
     SyncReq(SyncReq),
     SyncPosts(SyncPosts),
+    DirReq(DirReq),
+    DirResp(DirResp),
 }
 
 impl Envelope {
@@ -154,6 +197,8 @@ impl Envelope {
             Envelope::PostChunk(_) => "post_chunk",
             Envelope::SyncReq(_) => "sync_req",
             Envelope::SyncPosts(_) => "sync_posts",
+            Envelope::DirReq(_) => "dir_req",
+            Envelope::DirResp(_) => "dir_resp",
         }
     }
 

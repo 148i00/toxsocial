@@ -47,3 +47,12 @@ export interface ConferencePeerInfo {
   name: string;
   publicKey: string;
 }
+
+export interface DirectoryEntryInfo {
+  name: string;
+  pubkey: string;
+  toxid: string;
+  avatar: string;
+  relay: string;
+  source: string;
+}

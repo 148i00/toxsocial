@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { ConferencePeerInfo, FriendInfo, MediaConfig, OwnInfo, TimelineItem } from "./types";
+import type { ConferencePeerInfo, DirectoryEntryInfo, FriendInfo, MediaConfig, OwnInfo, TimelineItem } from "./types";
 
 export const api = {
   getOwnInfo: () => invoke<OwnInfo>("get_own_info"),
@@ -35,6 +35,10 @@ export const api = {
   requestSyncAll: () => invoke<number>("request_sync_all"),
   searchPosts: (query: string, limit?: number) =>
     invoke<TimelineItem[]>("search_posts", { query, limit }),
+  searchDirectory: (query: string, limit?: number) =>
+    invoke<DirectoryEntryInfo[]>("search_directory", { query, limit }),
+  requestDirectorySearch: (query: string, depth?: number) =>
+    invoke<number>("request_directory_search", { query, depth }),
 };
 
 export function onEvent<T>(event: string, cb: (payload: T) => void): Promise<UnlistenFn> {

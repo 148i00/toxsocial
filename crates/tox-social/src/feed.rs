@@ -5,7 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use tox_store::{PostKind, PostRow, PostSource, Store};
 
-use crate::envelope::{Comment, Envelope, Post, PostChunk, Profile, Reaction};
+use crate::envelope::{Comment, DirReq, DirResp, Envelope, Post, PostChunk, Profile, Reaction};
 use crate::{MAX_ENVELOPE_BYTES, MAX_POST_CHARS};
 
 /// Reason an incoming message was rejected.
@@ -26,6 +26,10 @@ pub enum Incoming {
     Profile(Profile),
     /// A long-post fragment was stored, but the post is not complete yet.
     Chunk,
+    /// A directory request from a friend.
+    DirReq(DirReq),
+    /// A directory response from a friend.
+    DirResp(DirResp),
     /// Rejected; the caller may fall back to treating it as plain chat.
     Rejected(Reject),
 }
@@ -67,6 +71,8 @@ impl FeedEngine {
                     Incoming::Chunk
                 }
             }
+            Envelope::DirReq(req) => Incoming::DirReq(req),
+            Envelope::DirResp(resp) => Incoming::DirResp(resp),
             other => {
                 self.persist(&other, sender_pk, received_at);
                 Incoming::Persisted(other)
@@ -116,7 +122,9 @@ impl FeedEngine {
             Envelope::Profile(_)
             | Envelope::PostChunk(_)
             | Envelope::SyncReq(_)
-            | Envelope::SyncPosts(_) => None,
+            | Envelope::SyncPosts(_)
+            | Envelope::DirReq(_)
+            | Envelope::DirResp(_) => None,
         };
         match row {
             Some(row) => self.store.post_upsert(&row).unwrap_or(false),
@@ -335,7 +343,9 @@ impl FeedEngine {
                     Envelope::Profile(_)
                     | Envelope::PostChunk(_)
                     | Envelope::SyncReq(_)
-                    | Envelope::SyncPosts(_) => None,
+                    | Envelope::SyncPosts(_)
+                    | Envelope::DirReq(_)
+                    | Envelope::DirResp(_) => None,
                 }
             })
             .collect()
@@ -379,6 +389,8 @@ impl Envelope {
             Envelope::Profile(p) => &p.author,
             Envelope::PostChunk(c) => &c.author,
             Envelope::SyncReq(s) => &s.author,
+            Envelope::DirReq(r) => &r.author,
+            Envelope::DirResp(r) => &r.author,
             Envelope::SyncPosts(s) => &s.author,
         }
     }

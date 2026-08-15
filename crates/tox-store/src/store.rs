@@ -56,6 +56,17 @@ pub struct FriendRow {
     pub last_seen: Option<i64>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct DirectoryEntry {
+    pub pubkey: String,
+    pub toxid: String,
+    pub name: String,
+    pub avatar: String,
+    pub relay: String,
+    pub source: String,
+    pub updated_at: i64,
+}
+
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS kv (
   key   TEXT PRIMARY KEY,
@@ -97,6 +108,16 @@ CREATE TABLE IF NOT EXISTS post_chunks (
   PRIMARY KEY (post_id, author, idx)
 );
 CREATE INDEX IF NOT EXISTS idx_post_chunks_post ON post_chunks(post_id, author);
+CREATE TABLE IF NOT EXISTS directory (
+  pubkey      TEXT PRIMARY KEY,
+  toxid       TEXT DEFAULT '',
+  name        TEXT DEFAULT '',
+  avatar      TEXT DEFAULT '',
+  relay       TEXT DEFAULT '',
+  source      TEXT DEFAULT '',
+  updated_at  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_directory_name ON directory(name);
 ";
 
 pub struct Store {
@@ -185,6 +206,72 @@ impl Store {
         self.conn
             .execute("DELETE FROM friends WHERE toxid = ?1", params![toxid])?;
         Ok(())
+    }
+
+    // --- directory -------------------------------------------------------------
+
+    pub fn dir_upsert(&self, entry: &DirectoryEntry) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO directory(pubkey, toxid, name, avatar, relay, source, updated_at)
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)
+             ON CONFLICT(pubkey) DO UPDATE SET
+               toxid = excluded.toxid,
+               name = excluded.name,
+               avatar = excluded.avatar,
+               relay = excluded.relay,
+               source = excluded.source,
+               updated_at = excluded.updated_at",
+            params![
+                entry.pubkey,
+                entry.toxid,
+                entry.name,
+                entry.avatar,
+                entry.relay,
+                entry.source,
+                entry.updated_at
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn dir_search(&self, query: &str, limit: u32) -> Result<Vec<DirectoryEntry>> {
+        let pattern = format!("%{}%", query);
+        let mut stmt = self.conn.prepare(
+            "SELECT pubkey, toxid, name, avatar, relay, source, updated_at
+             FROM directory WHERE name LIKE ?1 OR pubkey LIKE ?1
+             ORDER BY updated_at DESC LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(params![pattern, limit], |r| {
+            Ok(DirectoryEntry {
+                pubkey: r.get(0)?,
+                toxid: r.get(1)?,
+                name: r.get(2)?,
+                avatar: r.get(3)?,
+                relay: r.get(4)?,
+                source: r.get(5)?,
+                updated_at: r.get(6)?,
+            })
+        })?;
+        rows.collect()
+    }
+
+    pub fn dir_all(&self, limit: u32) -> Result<Vec<DirectoryEntry>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT pubkey, toxid, name, avatar, relay, source, updated_at
+             FROM directory ORDER BY updated_at DESC LIMIT ?1",
+        )?;
+        let rows = stmt.query_map(params![limit], |r| {
+            Ok(DirectoryEntry {
+                pubkey: r.get(0)?,
+                toxid: r.get(1)?,
+                name: r.get(2)?,
+                avatar: r.get(3)?,
+                relay: r.get(4)?,
+                source: r.get(5)?,
+                updated_at: r.get(6)?,
+            })
+        })?;
+        rows.collect()
     }
 
     // --- posts -----------------------------------------------------------------

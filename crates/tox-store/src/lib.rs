@@ -5,4 +5,4 @@
 
 pub mod store;
 
-pub use store::{FriendRow, PostKind, PostRow, PostSource, Store};
+pub use store::{DirectoryEntry, FriendRow, PostKind, PostRow, PostSource, Store};

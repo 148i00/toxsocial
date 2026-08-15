@@ -7,7 +7,7 @@ use serde_json::json;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use tox_core::event::{Connection, Event};
-use tox_social::envelope::{Envelope, SyncPosts, SyncReq};
+use tox_social::envelope::{DirEntry, DirReq, DirResp, Envelope, SyncPosts, SyncReq};
 use tox_social::feed::Incoming;
 use tox_social::MAX_ENVELOPE_BYTES;
 use tox_store::{FriendRow, PostKind, PostRow, PostSource};
@@ -157,6 +157,12 @@ fn handle_event(app: &AppHandle, state: &State<AppState>, ev: Event) {
                     update_friend_meta(state, &pk, Some(&p.name), None, Some(&p.avatar));
                 }
                 Incoming::Chunk => {}
+                Incoming::DirReq(req) => {
+                    handle_dir_req(state, friend_number, &pk, &req);
+                }
+                Incoming::DirResp(resp) => {
+                    handle_dir_resp(state, &pk, &resp);
+                }
                 Incoming::Rejected(_) => {
                     // Plain chat message — not part of the social protocol yet.
                     let _ = app.emit(
@@ -387,6 +393,78 @@ fn now_ms() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0)
+}
+
+fn handle_dir_req(state: &State<AppState>, friend_number: u32, _sender_pk: &str, req: &DirReq) {
+    let items = {
+        let engine = state.engine.lock().unwrap();
+        engine
+            .store()
+            .dir_search(&req.query, 20)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|e| DirEntry {
+                name: e.name,
+                pubkey: e.pubkey,
+                toxid: e.toxid,
+                avatar: e.avatar,
+                relay: e.relay,
+            })
+            .collect::<Vec<_>>()
+    };
+    if !items.is_empty() {
+        let me = state.session.lock().unwrap().self_public_key();
+        let resp = Envelope::DirResp(DirResp {
+            v: tox_social::envelope::PROTOCOL_VERSION,
+            author: me,
+            ts: now_ms(),
+            items,
+        });
+        let wire = resp.encode();
+        let session = state.session.lock().unwrap();
+        let _ = session.send_message(friend_number, &wire);
+    }
+    if req.depth > 0 {
+        let me = state.session.lock().unwrap().self_public_key();
+        let fwd = Envelope::DirReq(DirReq {
+            v: tox_social::envelope::PROTOCOL_VERSION,
+            author: me,
+            ts: now_ms(),
+            query: req.query.clone(),
+            depth: req.depth - 1,
+        });
+        let wire = fwd.encode();
+        let session = state.session.lock().unwrap();
+        for n in session.friend_list() {
+            if n == friend_number {
+                continue;
+            }
+            if session.friend_connection(n) != Connection::None {
+                let _ = session.send_message(n, &wire);
+            }
+        }
+    }
+}
+
+fn handle_dir_resp(state: &State<AppState>, sender_pk: &str, resp: &DirResp) {
+    let now = now_ms();
+    let engine = state.engine.lock().unwrap();
+    for item in &resp.items {
+        let entry = tox_store::DirectoryEntry {
+            pubkey: item.pubkey.clone(),
+            toxid: item.toxid.clone(),
+            name: item.name.clone(),
+            avatar: item.avatar.clone(),
+            relay: item.relay.clone(),
+            source: sender_pk.to_string(),
+            updated_at: now,
+        };
+        let _ = engine.store().dir_upsert(&entry);
+    }
+    println!(
+        "[toxsocial] directory updated from {sender_pk}: {} entries",
+        resp.items.len()
+    );
 }
 
 fn update_friend_meta(

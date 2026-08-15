@@ -7,7 +7,7 @@
 pub mod envelope;
 pub mod feed;
 
-pub use envelope::{Comment, Envelope, Post, PostChunk, Profile, Reaction, SyncPosts, SyncReq};
+pub use envelope::{Comment, DirEntry, DirReq, DirResp, Envelope, Post, PostChunk, Profile, Reaction, SyncPosts, SyncReq};
 pub use feed::FeedEngine;
 
 /// Prefix marking a message as part of the social protocol.
