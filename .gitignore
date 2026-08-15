@@ -3,6 +3,7 @@
 **/*.rs.bk
 
 # c-toxcore build artifacts
+/build/
 third_party/c-toxcore/build/
 third_party/c-toxcore/_build/
 third_party/c-toxcore/CMakeFiles/
@@ -10,6 +11,9 @@ third_party/c-toxcore/CMakeFiles/
 # Local identity / data files
 *.tox-save
 *.tox-save.db
+test-*.tox
+test-*.db
+test-*.cmd
 !docs/**
 
 # IDE / OS
