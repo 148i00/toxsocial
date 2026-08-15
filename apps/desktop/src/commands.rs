@@ -65,6 +65,14 @@ pub struct MediaConfig {
     pub has_client_id: bool,
 }
 
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ConferencePeerInfo {
+    pub peer_number: u32,
+    pub name: String,
+    pub public_key: String,
+}
+
 // ---------------------------------------------------------------------------
 // Commands
 // ---------------------------------------------------------------------------
@@ -340,6 +348,62 @@ pub fn get_media_config(state: State<AppState>) -> Result<MediaConfig, String> {
         provider: "imgur".to_string(),
         has_client_id: !client_id.is_empty(),
     })
+}
+
+#[tauri::command]
+pub fn conference_new(state: State<AppState>) -> Result<u32, String> {
+    let mut session = state.session.lock().unwrap();
+    session
+        .conference_new()
+        .map_err(|e| format!("create conference failed: {e}"))
+}
+
+#[tauri::command]
+pub fn conference_invite(
+    state: State<AppState>,
+    friend_number: u32,
+    conference_number: u32,
+) -> Result<(), String> {
+    let session = state.session.lock().unwrap();
+    session
+        .conference_invite(friend_number, conference_number)
+        .map_err(|e| format!("invite failed: {e}"))
+}
+
+#[tauri::command]
+pub fn conference_send(
+    state: State<AppState>,
+    conference_number: u32,
+    text: String,
+) -> Result<(), String> {
+    let session = state.session.lock().unwrap();
+    session
+        .conference_send_message(conference_number, text.trim())
+        .map_err(|e| format!("send to conference failed: {e}"))
+}
+
+#[tauri::command]
+pub fn conference_peers(
+    state: State<AppState>,
+    conference_number: u32,
+) -> Result<Vec<ConferencePeerInfo>, String> {
+    let session = state.session.lock().unwrap();
+    let count = session
+        .conference_peer_count(conference_number)
+        .map_err(|e| e.to_string())?;
+    let mut peers = Vec::new();
+    for i in 0..count {
+        peers.push(ConferencePeerInfo {
+            peer_number: i,
+            name: session
+                .conference_peer_name(conference_number, i)
+                .unwrap_or_default(),
+            public_key: session
+                .conference_peer_public_key(conference_number, i)
+                .unwrap_or_default(),
+        });
+    }
+    Ok(peers)
 }
 
 // ---------------------------------------------------------------------------

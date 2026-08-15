@@ -167,7 +167,7 @@ cargo build   # build.rs: 定位静态库 + 调用 bindgen（或读取检入的 
 - [x] `tox-cli` 冒烟：`tox_new` → 打印 ToxID → save → load 验证
 - [x] 双实例端到端联调：好友请求/接受 → UDP 加密连接 → 帖子/评论广播 → SQLite 持久化 → 时间线查询
 
-## 9. 实际进度记录（M0-M4 部分完成）
+## 9. 实际进度记录（M0-M4 已完成）
 
 | 里程碑 | 状态 | 证据 |
 |---|---|---|
@@ -175,7 +175,7 @@ cargo build   # build.rs: 定位静态库 + 调用 bindgen（或读取检入的 
 | **M1** 身份与连接 | ✅ 核心验证 | 双实例经公共 DHT bootstrap，好友请求/自动接受，`online (udp)` 加密连接，名字交换 |
 | **M2** 社交协议核心 | ✅ 核心验证 | `TSP/1 ` 信封（post/comment/reaction/profile），发帖 fan-out 到在线好友，收端作者校验+SQLite 持久化+时间线聚合+评论线程 |
 | **M3** Tauri 桌面 MVP | ✅ 核心验证 | Tauri v2 应用可启动；与 `tox-cli` Carol 完成好友请求/自动接受 → UDP 连接 → 发帖/评论 E2E；修复 3 处 Mutex 死锁 |
-| **M4** 可靠性与社交扩展 | 🔄 部分完成 | 离线回补（sync_req/sync_posts）已实现并 CLI 双实例验证；附件/频道/UI 计数待做 |
+| **M4** 可靠性与社交扩展 | ✅ 核心验证 | 离线回补、长文分片、Markdown、Imgur 图片/视频外链、频道（conference）均已实现；CLI 双实例验证离线回补与频道 |
 
 ### 关键经验（踩坑记录）
 

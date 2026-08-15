@@ -357,7 +357,58 @@ fn handle_command(
                 println!("[cmd    ] friend #{n} {name} <{pk}>");
             }
         }
-        "help" => println!("[cmd    ] commands: post <text>, comment <post_id> <text>, friends, help"),
+        "conf_new" => {
+            let n = session
+                .conference_new()
+                .map_err(|e| anyhow!("{e}"))?;
+            println!("[cmd    ] conference #{n} created");
+        }
+        "conf_invite" => {
+            let parts: Vec<&str> = rest.split_whitespace().collect();
+            if parts.len() < 2 {
+                println!("[cmd    ] usage: conf_invite <friend#> <conf#>");
+                return Ok(());
+            }
+            let friend: u32 = parts[0].parse().map_err(|e| anyhow!("bad friend#: {e}"))?;
+            let conf: u32 = parts[1].parse().map_err(|e| anyhow!("bad conf#: {e}"))?;
+            session
+                .conference_invite(friend, conf)
+                .map_err(|e| anyhow!("{e}"))?;
+            println!("[cmd    ] invited friend #{friend} to conference #{conf}");
+        }
+        "conf_send" => {
+            let parts: Vec<&str> = rest.splitn(2, ' ').collect();
+            if parts.len() < 2 {
+                println!("[cmd    ] usage: conf_send <conf#> <text>");
+                return Ok(());
+            }
+            let conf: u32 = parts[0].parse().map_err(|e| anyhow!("bad conf#: {e}"))?;
+            session
+                .conference_send_message(conf, parts[1])
+                .map_err(|e| anyhow!("{e}"))?;
+            println!("[cmd    ] sent to conference #{conf}");
+        }
+        "conf_peers" => {
+            let parts: Vec<&str> = rest.split_whitespace().collect();
+            if parts.is_empty() {
+                println!("[cmd    ] usage: conf_peers <conf#>");
+                return Ok(());
+            }
+            let conf: u32 = parts[0].parse().map_err(|e| anyhow!("bad conf#: {e}"))?;
+            let count = session
+                .conference_peer_count(conf)
+                .map_err(|e| anyhow!("{e}"))?;
+            println!("[cmd    ] conference #{conf} peers: {count}");
+            for i in 0..count {
+                if let Ok(name) = session.conference_peer_name(conf, i) {
+                    let pk = session
+                        .conference_peer_public_key(conf, i)
+                        .unwrap_or_else(|_| "?".into());
+                    println!("[cmd    ]   [{i}] {name} <{pk}>");
+                }
+            }
+        }
+        "help" => println!("[cmd    ] commands: post <text>, comment <post_id> <text>, friends, conf_new, conf_invite <friend#> <conf#>, conf_send <conf#> <text>, conf_peers <conf#>, help"),
         other => println!("[cmd    ] unknown command: {other}"),
     }
     Ok(())
@@ -455,6 +506,44 @@ fn handle_event(
             friend_number,
             status,
         } => println!("[state   #{friend_number}] {status:?}"),
+        Event::ConferenceInvite {
+            friend_number,
+            conference_type,
+            cookie,
+        } => {
+            println!(
+                "[invite  ] friend #{friend_number} invited us to conference type {conference_type}"
+            );
+            if conference_type == tox_core::ffi::TOX_CONFERENCE_TYPE_TEXT {
+                match session.conference_join(friend_number, &cookie) {
+                    Ok(n) => println!("  -> joined as conference #{n}"),
+                    Err(e) => eprintln!("  -> join failed: {e}"),
+                }
+            } else {
+                println!("  -> AV conference not supported yet");
+            }
+        }
+        Event::ConferenceConnected { conference_number } => {
+            println!("[conf    ] connected to conference #{conference_number}");
+        }
+        Event::ConferenceMessage {
+            conference_number,
+            peer_number,
+            message_type: _,
+            text,
+        } => {
+            println!("[conf#{conference_number} peer {peer_number}] {text}");
+        }
+        Event::ConferencePeerName {
+            conference_number,
+            peer_number,
+            name,
+        } => {
+            println!("[conf    ] peer {peer_number} in #{conference_number} renamed to {name}");
+        }
+        Event::ConferencePeerListChanged { conference_number } => {
+            println!("[conf    ] peer list changed in conference #{conference_number}");
+        }
     }
     Ok(())
 }

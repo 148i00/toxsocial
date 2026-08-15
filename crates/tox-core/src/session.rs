@@ -135,6 +135,85 @@ unsafe extern "C" fn on_friend_connection_status(
     );
 }
 
+unsafe extern "C" fn on_conference_invite(
+    _tox: *mut Tox,
+    friend_number: u32,
+    conference_type: u32,
+    cookie: *const u8,
+    length: usize,
+    user_data: *mut c_void,
+) {
+    let ctx = &mut *(user_data as *mut CallbackCtx);
+    send(
+        ctx,
+        Event::ConferenceInvite {
+            friend_number,
+            conference_type,
+            cookie: std::slice::from_raw_parts(cookie, length).to_vec(),
+        },
+    );
+}
+
+unsafe extern "C" fn on_conference_connected(
+    _tox: *mut Tox,
+    conference_number: u32,
+    user_data: *mut c_void,
+) {
+    let ctx = &mut *(user_data as *mut CallbackCtx);
+    send(ctx, Event::ConferenceConnected { conference_number });
+}
+
+unsafe extern "C" fn on_conference_message(
+    _tox: *mut Tox,
+    conference_number: u32,
+    peer_number: u32,
+    message_type: u32,
+    message: *const u8,
+    length: usize,
+    user_data: *mut c_void,
+) {
+    let ctx = &mut *(user_data as *mut CallbackCtx);
+    let raw = std::slice::from_raw_parts(message, length);
+    send(
+        ctx,
+        Event::ConferenceMessage {
+            conference_number,
+            peer_number,
+            message_type,
+            text: String::from_utf8_lossy(raw).into_owned(),
+        },
+    );
+}
+
+unsafe extern "C" fn on_conference_peer_name(
+    _tox: *mut Tox,
+    conference_number: u32,
+    peer_number: u32,
+    name: *const u8,
+    length: usize,
+    user_data: *mut c_void,
+) {
+    let ctx = &mut *(user_data as *mut CallbackCtx);
+    let raw = std::slice::from_raw_parts(name, length);
+    send(
+        ctx,
+        Event::ConferencePeerName {
+            conference_number,
+            peer_number,
+            name: String::from_utf8_lossy(raw).into_owned(),
+        },
+    );
+}
+
+unsafe extern "C" fn on_conference_peer_list_changed(
+    _tox: *mut Tox,
+    conference_number: u32,
+    user_data: *mut c_void,
+) {
+    let ctx = &mut *(user_data as *mut CallbackCtx);
+    send(ctx, Event::ConferencePeerListChanged { conference_number });
+}
+
 // ---------------------------------------------------------------------------
 // ToxSession
 // ---------------------------------------------------------------------------
@@ -192,6 +271,27 @@ impl ToxSession {
             tox_callback_friend_connection_status(
                 tox,
                 Some(on_friend_connection_status),
+                ctx as *mut c_void,
+            );
+            tox_callback_conference_invite(tox, Some(on_conference_invite), ctx as *mut c_void);
+            tox_callback_conference_connected(
+                tox,
+                Some(on_conference_connected),
+                ctx as *mut c_void,
+            );
+            tox_callback_conference_message(
+                tox,
+                Some(on_conference_message),
+                ctx as *mut c_void,
+            );
+            tox_callback_conference_peer_name(
+                tox,
+                Some(on_conference_peer_name),
+                ctx as *mut c_void,
+            );
+            tox_callback_conference_peer_list_changed(
+                tox,
+                Some(on_conference_peer_list_changed),
                 ctx as *mut c_void,
             );
         }
@@ -406,6 +506,127 @@ impl ToxSession {
             return Err(ToxError::SendMessage(err));
         }
         Ok(())
+    }
+
+    // --- conferences ------------------------------------------------------------
+
+    pub fn conference_new(&mut self) -> Result<u32, ToxError> {
+        let mut err: u32 = 0;
+        let n = unsafe { tox_conference_new(self.tox, &mut err) };
+        if err != 0 {
+            return Err(ToxError::Conference(err));
+        }
+        Ok(n)
+    }
+
+    pub fn conference_invite(
+        &self,
+        friend_number: u32,
+        conference_number: u32,
+    ) -> Result<(), ToxError> {
+        let mut err: u32 = 0;
+        let ok = unsafe {
+            tox_conference_invite(self.tox, friend_number, conference_number, &mut err)
+        };
+        if !ok {
+            return Err(ToxError::Conference(err));
+        }
+        Ok(())
+    }
+
+    pub fn conference_join(&mut self, friend_number: u32, cookie: &[u8]) -> Result<u32, ToxError> {
+        let mut err: u32 = 0;
+        let n = unsafe {
+            tox_conference_join(self.tox, friend_number, cookie.as_ptr(), cookie.len(), &mut err)
+        };
+        if err != 0 {
+            return Err(ToxError::Conference(err));
+        }
+        Ok(n)
+    }
+
+    pub fn conference_send_message(
+        &self,
+        conference_number: u32,
+        text: &str,
+    ) -> Result<(), ToxError> {
+        if text.len() > TOX_MAX_MESSAGE_LENGTH {
+            return Err(ToxError::MessageTooLong(text.len()));
+        }
+        let mut err: u32 = 0;
+        let ok = unsafe {
+            tox_conference_send_message(
+                self.tox,
+                conference_number,
+                TOX_MESSAGE_TYPE_NORMAL,
+                text.as_ptr(),
+                text.len(),
+                &mut err,
+            )
+        };
+        if !ok {
+            return Err(ToxError::Conference(err));
+        }
+        Ok(())
+    }
+
+    pub fn conference_peer_count(&self, conference_number: u32) -> Result<u32, ToxError> {
+        let mut err: u32 = 0;
+        let n = unsafe { tox_conference_peer_count(self.tox, conference_number, &mut err) };
+        if err != 0 {
+            return Err(ToxError::Conference(err));
+        }
+        Ok(n)
+    }
+
+    pub fn conference_peer_name(
+        &self,
+        conference_number: u32,
+        peer_number: u32,
+    ) -> Result<String, ToxError> {
+        let mut err: u32 = 0;
+        let size = unsafe {
+            tox_conference_peer_get_name_size(self.tox, conference_number, peer_number, &mut err)
+        };
+        if err != 0 {
+            return Err(ToxError::Conference(err));
+        }
+        let mut buf = vec![0u8; size];
+        let ok = unsafe {
+            tox_conference_peer_get_name(
+                self.tox,
+                conference_number,
+                peer_number,
+                buf.as_mut_ptr(),
+                &mut err,
+            )
+        };
+        if !ok {
+            return Err(ToxError::Conference(err));
+        }
+        Ok(String::from_utf8_lossy(&buf).into_owned())
+    }
+
+    pub fn conference_peer_public_key(
+        &self,
+        conference_number: u32,
+        peer_number: u32,
+    ) -> Result<String, ToxError> {
+        let mut err: u32 = 0;
+        let mut buf = [0u8; TOX_PUBLIC_KEY_SIZE];
+        let ok = unsafe {
+            tox_conference_peer_get_public_key(
+                self.tox,
+                conference_number,
+                peer_number,
+                buf.as_mut_ptr(),
+                &mut err,
+            )
+        };
+        if !ok {
+            return Err(ToxError::Conference(err));
+        }
+        Ok(hex::encode(buf))
     }
 
     // --- events ---------------------------------------------------------------

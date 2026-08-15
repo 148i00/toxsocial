@@ -191,6 +191,61 @@ fn handle_event(app: &AppHandle, state: &State<AppState>, ev: Event) {
         }
         Event::FriendStatusMessage { .. } => {}
         Event::FriendStatus { .. } => {}
+        Event::ConferenceInvite {
+            friend_number,
+            conference_type,
+            cookie,
+        } => {
+            println!(
+                "[toxsocial] conference invite from #{friend_number} type={conference_type}"
+            );
+            if conference_type == tox_core::ffi::TOX_CONFERENCE_TYPE_TEXT {
+                let joined = {
+                    let mut session = state.session.lock().unwrap();
+                    session.conference_join(friend_number, &cookie)
+                };
+                match joined {
+                    Ok(n) => {
+                        let _ = app.emit(
+                            "channel:joined",
+                            json!({ "conferenceNumber": n, "friendNumber": friend_number }),
+                        );
+                    }
+                    Err(e) => eprintln!("[toxsocial] conference join failed: {e}"),
+                }
+            }
+        }
+        Event::ConferenceConnected { conference_number } => {
+            println!("[toxsocial] connected to conference #{conference_number}");
+            let _ = app.emit(
+                "channel:connected",
+                json!({ "conferenceNumber": conference_number }),
+            );
+        }
+        Event::ConferenceMessage {
+            conference_number,
+            peer_number,
+            message_type: _,
+            text,
+        } => {
+            println!("[toxsocial] conference #{conference_number} peer {peer_number}: {text}");
+            let _ = app.emit(
+                "channel:message",
+                json!({ "conferenceNumber": conference_number, "peerNumber": peer_number, "text": text }),
+            );
+        }
+        Event::ConferencePeerName {
+            conference_number,
+            peer_number,
+            name,
+        } => {
+            println!(
+                "[toxsocial] conference #{conference_number} peer {peer_number} name={name}"
+            );
+        }
+        Event::ConferencePeerListChanged { conference_number } => {
+            println!("[toxsocial] conference #{conference_number} peer list changed");
+        }
     }
 }
 

@@ -38,3 +38,9 @@ export interface MediaConfig {
   provider: string;
   hasClientId: boolean;
 }
+
+export interface ConferencePeerInfo {
+  peerNumber: number;
+  name: string;
+  publicKey: string;
+}

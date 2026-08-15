@@ -67,4 +67,27 @@ pub enum Event {
         friend_number: u32,
         connection: Connection,
     },
+    /// We were invited to join a conference.
+    ConferenceInvite {
+        friend_number: u32,
+        conference_type: u32,
+        cookie: Vec<u8>,
+    },
+    /// We successfully connected to a conference.
+    ConferenceConnected { conference_number: u32 },
+    /// A message was sent in a conference.
+    ConferenceMessage {
+        conference_number: u32,
+        peer_number: u32,
+        message_type: u32,
+        text: String,
+    },
+    /// A peer in a conference changed their name.
+    ConferencePeerName {
+        conference_number: u32,
+        peer_number: u32,
+        name: String,
+    },
+    /// The peer list of a conference changed.
+    ConferencePeerListChanged { conference_number: u32 },
 }

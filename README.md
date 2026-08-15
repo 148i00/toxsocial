@@ -15,7 +15,7 @@ Rust (workspace) + Tauri v2 + Vue3 + SQLite，底层 c-toxcore（GPLv3）经 bin
 
 ## 状态
 
-**M0 ✅ / M1 ✅ / M2 ✅ / M3 ✅ / M4（离线回补 + Markdown）✅**。
+**M0 ✅ / M1 ✅ / M2 ✅ / M3 ✅ / M4 ✅**。
 
 已完成：构建管线（CMake + vcpkg + c-toxcore 0.2.23 静态库 + bindgen）、`ToxSession` 安全封装、
 `TSP/1` 社交协议（帖子/评论/点赞信封 + Feed 引擎 + SQLite 持久化）、`tox-cli` 双实例联调
@@ -24,7 +24,8 @@ Tauri v2 桌面端（Vue3 三栏 UI + Rust 命令/事件泵，已验证 App ↔ 
 M4 离线回补（好友上线自动 `sync_req` / `sync_posts`，CLI 双实例已验证）、
 帖子 Markdown 渲染（标题/粗体/斜体/代码/列表/引用/链接/图片）、
 长文自动分片（`post_chunk`，>1000 字符自动拆分/重组）、
-图片/视频外链上传（Imgur，设置页配置 Client ID 后发帖自动上传并插入 Markdown）。
+图片/视频外链上传（Imgur，设置页配置 Client ID 后发帖自动上传并插入 Markdown）、
+频道（conference 群聊：创建/邀请/加入/发送，CLI + Desktop 面板）。
 
 ```powershell
 # 构建（c-toxcore 静态库已就绪，无需重新编译）

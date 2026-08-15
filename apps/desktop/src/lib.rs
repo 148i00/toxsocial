@@ -48,6 +48,10 @@ pub fn run() {
             commands::upload_media,
             commands::set_imgur_client_id,
             commands::get_media_config,
+            commands::conference_new,
+            commands::conference_invite,
+            commands::conference_send,
+            commands::conference_peers,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

@@ -7,8 +7,9 @@ import PostCard from "./components/PostCard.vue";
 import ThreadView from "./components/ThreadView.vue";
 import FriendsPanel from "./components/FriendsPanel.vue";
 import SettingsPanel from "./components/SettingsPanel.vue";
+import ChannelsPanel from "./components/ChannelsPanel.vue";
 
-const view = ref<"timeline" | "friends" | "settings">("timeline");
+const view = ref<"timeline" | "friends" | "settings" | "channels">("timeline");
 const own = ref<OwnInfo | null>(null);
 const timeline = ref<TimelineItem[]>([]);
 const threadPostId = ref<string | null>(null);
@@ -92,6 +93,7 @@ async function openThreadWithData(id: string) {
         <button :class="{ active: view === 'friends' }" @click="view = 'friends'">
           关注 <span v-if="own" class="count">{{ own.friendCount }}</span>
         </button>
+        <button :class="{ active: view === 'channels' }" @click="view = 'channels'">频道</button>
         <button :class="{ active: view === 'settings' }" @click="view = 'settings'">设置</button>
       </nav>
       <div class="sidebar-foot" v-if="own">
@@ -126,6 +128,7 @@ async function openThreadWithData(id: string) {
       </template>
 
       <FriendsPanel v-else-if="view === 'friends'" :friends="friends" @changed="refreshAll" />
+      <ChannelsPanel v-else-if="view === 'channels'" />
       <SettingsPanel v-else :own="own" @saved="refreshAll" />
     </main>
 

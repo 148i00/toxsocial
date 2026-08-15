@@ -24,6 +24,8 @@ pub enum ToxError {
     MessageTooLong(usize),
     /// A required pointer was null (allocation failure etc.).
     NullPointer,
+    /// Conference operation failed (error code).
+    Conference(u32),
 }
 
 impl fmt::Display for ToxError {
@@ -41,6 +43,7 @@ impl fmt::Display for ToxError {
                 write!(f, "message too long: {len} bytes (max 1372)")
             }
             ToxError::NullPointer => write!(f, "null pointer returned from toxcore"),
+            ToxError::Conference(code) => write!(f, "conference operation failed: {code}"),
         }
     }
 }

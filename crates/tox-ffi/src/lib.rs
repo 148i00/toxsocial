@@ -54,6 +54,12 @@ pub type Tox_Message_Type = u32;
 pub const TOX_MESSAGE_TYPE_NORMAL: Tox_Message_Type = 0;
 pub const TOX_MESSAGE_TYPE_ACTION: Tox_Message_Type = 1;
 
+pub type Tox_Conference_Number = u32;
+pub type Tox_Conference_Peer_Number = u32;
+pub type Tox_Conference_Type = u32;
+pub const TOX_CONFERENCE_TYPE_TEXT: Tox_Conference_Type = 0;
+pub const TOX_CONFERENCE_TYPE_AV: Tox_Conference_Type = 1;
+
 // Error enums: "OK" is always 0 in toxcore.
 pub const TOX_ERR_OPTIONS_NEW_OK: u32 = 0;
 pub const TOX_ERR_NEW_OK: u32 = 0;
@@ -176,6 +182,91 @@ extern "C" {
     ) -> u64;
     pub fn tox_self_get_friend_list_size(tox: *const Tox) -> usize;
     pub fn tox_self_get_friend_list(tox: *const Tox, list: *mut u32);
+
+    // --- conferences ---------------------------------------------------------------
+    pub fn tox_conference_new(tox: *mut Tox, error: *mut u32) -> Tox_Conference_Number;
+    pub fn tox_conference_delete(tox: *mut Tox, conference_number: u32, error: *mut u32) -> bool;
+    pub fn tox_conference_peer_count(tox: *const Tox, conference_number: u32, error: *mut u32) -> u32;
+    pub fn tox_conference_peer_get_name_size(
+        tox: *const Tox,
+        conference_number: u32,
+        peer_number: u32,
+        error: *mut u32,
+    ) -> usize;
+    pub fn tox_conference_peer_get_name(
+        tox: *const Tox,
+        conference_number: u32,
+        peer_number: u32,
+        name: *mut u8,
+        error: *mut u32,
+    ) -> bool;
+    pub fn tox_conference_peer_get_public_key(
+        tox: *const Tox,
+        conference_number: u32,
+        peer_number: u32,
+        public_key: *mut u8,
+        error: *mut u32,
+    ) -> bool;
+    pub fn tox_conference_invite(
+        tox: *mut Tox,
+        friend_number: u32,
+        conference_number: u32,
+        error: *mut u32,
+    ) -> bool;
+    pub fn tox_conference_join(
+        tox: *mut Tox,
+        friend_number: u32,
+        cookie: *const u8,
+        length: usize,
+        error: *mut u32,
+    ) -> Tox_Conference_Number;
+    pub fn tox_conference_send_message(
+        tox: *mut Tox,
+        conference_number: u32,
+        message_type: Tox_Message_Type,
+        message: *const u8,
+        length: usize,
+        error: *mut u32,
+    ) -> bool;
+    pub fn tox_callback_conference_invite(
+        tox: *mut Tox,
+        callback: Option<
+            unsafe extern "C" fn(*mut Tox, u32, Tox_Conference_Type, *const u8, usize, *mut c_void),
+        >,
+        user_data: *mut c_void,
+    );
+    pub fn tox_callback_conference_connected(
+        tox: *mut Tox,
+        callback: Option<unsafe extern "C" fn(*mut Tox, u32, *mut c_void)>,
+        user_data: *mut c_void,
+    );
+    pub fn tox_callback_conference_message(
+        tox: *mut Tox,
+        callback: Option<
+            unsafe extern "C" fn(
+                *mut Tox,
+                u32,
+                Tox_Conference_Peer_Number,
+                Tox_Message_Type,
+                *const u8,
+                usize,
+                *mut c_void,
+            ),
+        >,
+        user_data: *mut c_void,
+    );
+    pub fn tox_callback_conference_peer_name(
+        tox: *mut Tox,
+        callback: Option<
+            unsafe extern "C" fn(*mut Tox, u32, Tox_Conference_Peer_Number, *const u8, usize, *mut c_void),
+        >,
+        user_data: *mut c_void,
+    );
+    pub fn tox_callback_conference_peer_list_changed(
+        tox: *mut Tox,
+        callback: Option<unsafe extern "C" fn(*mut Tox, u32, *mut c_void)>,
+        user_data: *mut c_void,
+    );
 
     // --- callbacks ----------------------------------------------------------------
     pub fn tox_callback_friend_request(

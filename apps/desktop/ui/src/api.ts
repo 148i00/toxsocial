@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { FriendInfo, MediaConfig, OwnInfo, TimelineItem } from "./types";
+import type { ConferencePeerInfo, FriendInfo, MediaConfig, OwnInfo, TimelineItem } from "./types";
 
 export const api = {
   getOwnInfo: () => invoke<OwnInfo>("get_own_info"),
@@ -20,6 +20,13 @@ export const api = {
     invoke<string>("upload_media", { dataBase64, filename }),
   setImgurClientId: (clientId: string) => invoke<void>("set_imgur_client_id", { clientId }),
   getMediaConfig: () => invoke<MediaConfig>("get_media_config"),
+  conferenceNew: () => invoke<number>("conference_new"),
+  conferenceInvite: (friendNumber: number, conferenceNumber: number) =>
+    invoke<void>("conference_invite", { friendNumber, conferenceNumber }),
+  conferenceSend: (conferenceNumber: number, text: string) =>
+    invoke<void>("conference_send", { conferenceNumber, text }),
+  conferencePeers: (conferenceNumber: number) =>
+    invoke<ConferencePeerInfo[]>("conference_peers", { conferenceNumber }),
 };
 
 export function onEvent<T>(event: string, cb: (payload: T) => void): Promise<UnlistenFn> {
