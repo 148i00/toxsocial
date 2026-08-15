@@ -28,6 +28,8 @@ export const api = {
   conferencePeers: (conferenceNumber: number) =>
     invoke<ConferencePeerInfo[]>("conference_peers", { conferenceNumber }),
   requestSyncAll: () => invoke<number>("request_sync_all"),
+  searchPosts: (query: string, limit?: number) =>
+    invoke<TimelineItem[]>("search_posts", { query, limit }),
 };
 
 export function onEvent<T>(event: string, cb: (payload: T) => void): Promise<UnlistenFn> {

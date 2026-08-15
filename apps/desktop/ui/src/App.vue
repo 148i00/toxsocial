@@ -15,6 +15,9 @@ const timeline = ref<TimelineItem[]>([]);
 const threadPostId = ref<string | null>(null);
 const friends = ref<FriendInfo[]>([]);
 const loading = ref(true);
+const searchQuery = ref("");
+const searchResults = ref<TimelineItem[]>([]);
+const searching = ref(false);
 
 async function refreshOwn() {
   own.value = await api.getOwnInfo();
@@ -79,6 +82,22 @@ async function openThreadWithData(id: string) {
   threadPostId.value = id;
   threadItems.value = await api.fetchThread(id);
 }
+
+async function runSearch() {
+  const q = searchQuery.value.trim();
+  if (!q) {
+    searchResults.value = [];
+    return;
+  }
+  searching.value = true;
+  try {
+    searchResults.value = await api.searchPosts(q, 50);
+  } catch {
+    searchResults.value = [];
+  } finally {
+    searching.value = false;
+  }
+}
 </script>
 
 <template>
@@ -112,18 +131,38 @@ async function openThreadWithData(id: string) {
         </div>
         <ThreadView v-if="threadPostId" :post-id="threadPostId" @refresh="refreshThread" />
         <template v-else>
-          <PostComposer :own="own" @posted="refreshTimeline" />
-          <div v-if="loading" class="empty">加载中…</div>
-          <div v-else-if="timeline.length === 0" class="empty">
-            时间线还是空的 — 添加好友并等待对方发帖吧。
+          <div class="search-box">
+            <input
+              v-model="searchQuery"
+              placeholder="搜索帖子…"
+              @input="runSearch"
+            />
           </div>
-          <PostCard
-            v-for="p in timeline"
-            :key="p.id"
-            :item="p"
-            :own="own"
-            @open="openThreadWithData"
-          />
+          <template v-if="searchQuery.trim()">
+            <div v-if="searching" class="empty">搜索中…</div>
+            <div v-else-if="searchResults.length === 0" class="empty">没有匹配的帖子</div>
+            <PostCard
+              v-for="p in searchResults"
+              :key="p.id"
+              :item="p"
+              :own="own"
+              @open="openThreadWithData"
+            />
+          </template>
+          <template v-else>
+            <PostComposer :own="own" @posted="refreshTimeline" />
+            <div v-if="loading" class="empty">加载中…</div>
+            <div v-else-if="timeline.length === 0" class="empty">
+              时间线还是空的 — 添加好友并等待对方发帖吧。
+            </div>
+            <PostCard
+              v-for="p in timeline"
+              :key="p.id"
+              :item="p"
+              :own="own"
+              @open="openThreadWithData"
+            />
+          </template>
         </template>
       </template>
 
@@ -209,6 +248,9 @@ nav button.active {
 
 .thread-header {
   margin-bottom: 10px;
+}
+.search-box {
+  margin-bottom: 12px;
 }
 
 .me-panel {

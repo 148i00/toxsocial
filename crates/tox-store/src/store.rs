@@ -263,6 +263,18 @@ impl Store {
         rows.collect()
     }
 
+    /// Search posts by text content (case-insensitive), newest first.
+    pub fn search_posts(&self, query: &str, limit: u32) -> Result<Vec<PostRow>> {
+        let pattern = format!("%{}%", query.replace('%', "\\%").replace('_', "\\_"));
+        let mut stmt = self.conn.prepare(
+            "SELECT id, author, kind, parent_id, text, emoji, ts, received_at, source, channel_id
+             FROM posts WHERE kind = 0 AND text LIKE ?1 ESCAPE '\\'
+             ORDER BY ts DESC LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(params![pattern, limit], row_to_post)?;
+        rows.collect()
+    }
+
     // --- long-post chunks ------------------------------------------------------
 
     /// Store one fragment of a long post. Returns false if it was a duplicate.
@@ -482,5 +494,27 @@ mod tests {
         assert_eq!(parts, vec![(0, "hello ".to_string()), (1, "world".to_string())]);
         store.chunk_delete("p1", "alice").unwrap();
         assert_eq!(store.chunk_count("p1", "alice").unwrap(), 0);
+    }
+
+    #[test]
+    fn search_posts_matches_text() {
+        let store = Store::open_in_memory().unwrap();
+        let mk = |id: &str, author: &str, text: &str, ts: i64| PostRow {
+            id: id.into(),
+            author: author.into(),
+            kind: PostKind::Post,
+            parent_id: None,
+            text: Some(text.into()),
+            emoji: None,
+            ts,
+            received_at: ts,
+            source: PostSource::SelfPublished,
+            channel_id: None,
+        };
+        store.post_upsert(&mk("a", "x", "hello world", 3)).unwrap();
+        store.post_upsert(&mk("b", "x", "ToxSocial is cool", 5)).unwrap();
+        store.post_upsert(&mk("c", "x", "hello again", 1)).unwrap();
+        let rows = store.search_posts("hello", 10).unwrap();
+        assert_eq!(rows.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(), ["a", "c"]);
     }
 }

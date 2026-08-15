@@ -53,6 +53,7 @@ pub fn run() {
             commands::conference_send,
             commands::conference_peers,
             commands::request_sync_all,
+            commands::search_posts,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

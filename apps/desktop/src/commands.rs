@@ -273,6 +273,25 @@ pub fn fetch_timeline(state: State<AppState>, limit: Option<u32>) -> Result<Vec<
 }
 
 #[tauri::command]
+pub fn search_posts(
+    state: State<AppState>,
+    query: String,
+    limit: Option<u32>,
+) -> Result<Vec<TimelineItem>, String> {
+    let limit = limit.unwrap_or(50);
+    let query = query.trim().to_string();
+    if query.is_empty() {
+        return Ok(Vec::new());
+    }
+    let engine = state.engine.lock().unwrap();
+    let rows = engine.search_posts(&query, limit);
+    Ok(rows
+        .iter()
+        .map(|r| events::item_from_row(&state, &engine, r))
+        .collect())
+}
+
+#[tauri::command]
 pub fn fetch_thread(state: State<AppState>, post_id: String) -> Result<Vec<TimelineItem>, String> {
     let engine = state.engine.lock().unwrap();
     let post = engine

@@ -289,6 +289,11 @@ impl FeedEngine {
         self.store.timeline(authors, limit).unwrap_or_default()
     }
 
+    /// Search locally stored posts by text.
+    pub fn search_posts(&self, query: &str, limit: u32) -> Vec<PostRow> {
+        self.store.search_posts(query, limit).unwrap_or_default()
+    }
+
     /// Latest timestamp we have seen from `author` (posts/comments/reactions).
     pub fn latest_ts_for_author(&self, author: &str) -> Option<i64> {
         self.store.latest_ts_for_author(author).unwrap_or(None)
