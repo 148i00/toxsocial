@@ -224,6 +224,33 @@ impl Store {
         let rows = stmt.query_map(params![post_id], row_to_post)?;
         rows.collect()
     }
+
+    /// Latest timestamp ever stored for an author (posts/comments/reactions).
+    /// Used as the `since` cursor when requesting offline backfill.
+    pub fn latest_ts_for_author(&self, author: &str) -> Result<Option<i64>> {
+        self.conn.query_row(
+            "SELECT MAX(ts) FROM posts WHERE author = ?1",
+            params![author],
+            |r| r.get::<_, Option<i64>>(0),
+        )
+    }
+
+    /// Rows authored by `author` with `ts > since`, oldest first.
+    /// Used to build `sync_posts` responses.
+    pub fn posts_by_author_since(
+        &self,
+        author: &str,
+        since: i64,
+        limit: u32,
+    ) -> Result<Vec<PostRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, author, kind, parent_id, text, emoji, ts, received_at, source, channel_id
+             FROM posts WHERE author = ?1 AND ts > ?2
+             ORDER BY ts ASC LIMIT ?3",
+        )?;
+        let rows = stmt.query_map(params![author, since, limit], row_to_post)?;
+        rows.collect()
+    }
 }
 
 fn row_to_post(r: &rusqlite::Row) -> Result<PostRow> {
@@ -327,5 +354,56 @@ mod tests {
         assert_eq!(store.kv_get("nickname").unwrap().as_deref(), Some("Alice"));
         store.kv_set("nickname", "Bob").unwrap();
         assert_eq!(store.kv_get("nickname").unwrap().as_deref(), Some("Bob"));
+    }
+
+    #[test]
+    fn latest_ts_for_author_uses_all_kinds() {
+        let store = Store::open_in_memory().unwrap();
+        let mk = |id: &str, author: &str, kind: PostKind, ts: i64| PostRow {
+            id: id.into(),
+            author: author.into(),
+            kind,
+            parent_id: None,
+            text: Some("t".into()),
+            emoji: None,
+            ts,
+            received_at: ts,
+            source: PostSource::SelfPublished,
+            channel_id: None,
+        };
+        store.post_upsert(&mk("p1", "alice", PostKind::Post, 10)).unwrap();
+        store.post_upsert(&mk("c1", "alice", PostKind::Comment, 20)).unwrap();
+        store.post_upsert(&mk("r1", "bob", PostKind::Reaction, 30)).unwrap();
+        assert_eq!(store.latest_ts_for_author("alice").unwrap(), Some(20));
+        assert_eq!(store.latest_ts_for_author("bob").unwrap(), Some(30));
+        assert_eq!(store.latest_ts_for_author("nobody").unwrap(), None);
+    }
+
+    #[test]
+    fn posts_by_author_since_filters_and_orders() {
+        let store = Store::open_in_memory().unwrap();
+        let mk = |id: &str, author: &str, kind: PostKind, ts: i64| PostRow {
+            id: id.into(),
+            author: author.into(),
+            kind,
+            parent_id: None,
+            text: Some("t".into()),
+            emoji: None,
+            ts,
+            received_at: ts,
+            source: PostSource::SelfPublished,
+            channel_id: None,
+        };
+        store.post_upsert(&mk("a", "x", PostKind::Post, 1)).unwrap();
+        store.post_upsert(&mk("b", "x", PostKind::Comment, 2)).unwrap();
+        store.post_upsert(&mk("c", "x", PostKind::Post, 3)).unwrap();
+        store.post_upsert(&mk("d", "y", PostKind::Post, 4)).unwrap();
+
+        let rows = store.posts_by_author_since("x", 1, 10).unwrap();
+        assert_eq!(rows.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(), ["b", "c"]);
+        assert_eq!(rows[0].kind, PostKind::Comment);
+
+        let limited = store.posts_by_author_since("x", 0, 2).unwrap();
+        assert_eq!(limited.len(), 2);
     }
 }

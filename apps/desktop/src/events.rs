@@ -7,8 +7,9 @@ use serde_json::json;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use tox_core::event::{Connection, Event};
-use tox_social::envelope::Envelope;
+use tox_social::envelope::{Envelope, SyncPosts, SyncReq};
 use tox_social::feed::Incoming;
+use tox_social::MAX_ENVELOPE_BYTES;
 use tox_store::{FriendRow, PostKind, PostRow, PostSource};
 
 use crate::commands::TimelineItem;
@@ -127,6 +128,12 @@ fn handle_event(app: &AppHandle, state: &State<AppState>, ev: Event) {
                                 json!({ "id": r.id, "author": r.author, "authorName": name, "emoji": r.emoji, "ts": r.ts, "parentId": r.reply_to }),
                             );
                         }
+                        Envelope::SyncReq(req) => {
+                            handle_sync_req(state, friend_number, &pk, &req);
+                        }
+                        Envelope::SyncPosts(sp) => {
+                            handle_sync_posts(state, app, &pk, sp.items);
+                        }
                         _ => {}
                     }
                 }
@@ -162,6 +169,7 @@ fn handle_event(app: &AppHandle, state: &State<AppState>, ev: Event) {
             );
             if online {
                 println!("[toxsocial] friend online: {name} ({})", short(pk.as_str()));
+                send_sync_req(state, friend_number, &pk);
             }
         }
         Event::FriendName {
@@ -183,6 +191,131 @@ fn handle_event(app: &AppHandle, state: &State<AppState>, ev: Event) {
         Event::FriendStatusMessage { .. } => {}
         Event::FriendStatus { .. } => {}
     }
+}
+
+fn send_sync_req(state: &State<AppState>, friend_number: u32, pk: &str) {
+    let me = state.session.lock().unwrap().self_public_key();
+    let since = state
+        .engine
+        .lock()
+        .unwrap()
+        .latest_ts_for_author(pk)
+        .unwrap_or(0);
+    let req = Envelope::SyncReq(SyncReq {
+        v: tox_social::envelope::PROTOCOL_VERSION,
+        author: me,
+        ts: now_ms(),
+        since,
+    });
+    let wire = req.encode();
+    let session = state.session.lock().unwrap();
+    match session.send_message(friend_number, &wire) {
+        Ok(()) => println!("[toxsocial] sync_req sent to {pk} since={since}"),
+        Err(e) => eprintln!("[toxsocial] failed to send sync_req: {e}"),
+    }
+}
+
+fn handle_sync_req(
+    state: &State<AppState>,
+    friend_number: u32,
+    sender_pk: &str,
+    req: &SyncReq,
+) {
+    let me = state.session.lock().unwrap().self_public_key();
+    let items = {
+        let engine = state.engine.lock().unwrap();
+        engine.self_posts_since(&me, req.since, 200)
+    };
+    if items.is_empty() {
+        return;
+    }
+    for chunk in chunk_envelopes(&me, items) {
+        let sync = Envelope::SyncPosts(SyncPosts {
+            v: tox_social::envelope::PROTOCOL_VERSION,
+            author: me.clone(),
+            ts: now_ms(),
+            items: chunk,
+        });
+        let wire = sync.encode();
+        let session = state.session.lock().unwrap();
+        if let Err(e) = session.send_message(friend_number, &wire) {
+            eprintln!("[toxsocial] failed to send sync_posts: {e}");
+            return;
+        }
+    }
+    println!("[toxsocial] sync_posts sent to {sender_pk}");
+}
+
+fn handle_sync_posts(
+    state: &State<AppState>,
+    app: &AppHandle,
+    sender_pk: &str,
+    items: Vec<Envelope>,
+) {
+    let persisted = {
+        let engine = state.engine.lock().unwrap();
+        engine.handle_sync_posts(sender_pk, items)
+    };
+    if persisted.is_empty() {
+        return;
+    }
+    let name = state.name_for(sender_pk);
+    for env in persisted {
+        match env {
+            Envelope::Post(p) => {
+                println!("[toxsocial] post received from {name} (sync): {}", p.text);
+                let _ = app.emit(
+                    "feed:post",
+                    json!({ "id": p.id, "author": p.author, "authorName": name, "text": p.text, "ts": p.ts }),
+                );
+            }
+            Envelope::Comment(c) => {
+                let _ = app.emit(
+                    "feed:comment",
+                    json!({ "id": c.id, "author": c.author, "authorName": name, "text": c.text, "ts": c.ts, "parentId": c.reply_to }),
+                );
+            }
+            Envelope::Reaction(r) => {
+                let _ = app.emit(
+                    "feed:reaction",
+                    json!({ "id": r.id, "author": r.author, "authorName": name, "emoji": r.emoji, "ts": r.ts, "parentId": r.reply_to }),
+                );
+            }
+            _ => {}
+        }
+    }
+}
+
+fn chunk_envelopes(author: &str, items: Vec<Envelope>) -> Vec<Vec<Envelope>> {
+    let mut chunks = Vec::new();
+    let mut current: Vec<Envelope> = Vec::new();
+    for item in items {
+        let mut candidate = current.clone();
+        candidate.push(item.clone());
+        let probe = Envelope::SyncPosts(SyncPosts {
+            v: tox_social::envelope::PROTOCOL_VERSION,
+            author: author.to_string(),
+            ts: 0,
+            items: candidate.clone(),
+        });
+        if probe.wire_len() <= MAX_ENVELOPE_BYTES || current.is_empty() {
+            current = candidate;
+        } else {
+            chunks.push(std::mem::take(&mut current));
+            current.push(item);
+        }
+    }
+    if !current.is_empty() {
+        chunks.push(current);
+    }
+    chunks
+}
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
 }
 
 fn update_friend_meta(state: &State<AppState>, pk: &str, name: Option<&str>, online: Option<bool>) {

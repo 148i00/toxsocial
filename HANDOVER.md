@@ -7,7 +7,7 @@
 
 > 基于 Tox 协议（c-toxcore + Rust FFI）开发一个去中心化的类推特社交软件：先完成规划文档，再按阶段实现（身份/连接 → 帖子广播与时间线 → 评论 → Tauri 桌面端 MVP）。技术栈已选定：Tauri v2 前端 + Rust 后端 + 自建 c-toxcore（CMake）+ bindgen 绑定。
 
-**当前进度**：M0 ✅ / M1 ✅ / M2 ✅（核心链路已端到端验证）／ **M3 Tauri 桌面端 ✅：跨进程 E2E 已跑通**（App 自动接受好友请求 → 与 `tox-cli` 建立 UDP 连接 → 收到并持久化帖子/评论；期间修复了 3 处 Mutex 非重入导致的死锁）。
+**当前进度**：M0 ✅ / M1 ✅ / M2 ✅ / **M3 Tauri 桌面端 ✅**（跨进程 E2E 已跑通）／ **M4 进行中：离线回补（sync_req/sync_posts）已实现并用 CLI 双实例验证**（Alice 离线期间发帖，Bob 重连后自动收到缺失帖子）。
 
 ## 1. 环境事实（重要，勿重复踩坑）
 
@@ -60,24 +60,25 @@ CLI 双实例联调（M1/M2 验证方法，全部跑通过）：
 # 等双方 bootstrap 后：向 <save>.cmd 写命令：post <文本> / comment <post_id> <文本> / friends
 ```
 
-## 4. M3 当前状态与下一步
+## 4. M3/M4 当前状态与下一步
 
-**已完成**：
+**M3 已完成**：
 - 桌面端 Rust：`state.rs`（AppState：ToxSession+FeedEngine+数据目录）、`events.rs`（事件泵：tox 事件→SQLite→前端 emit，含 10s 心跳）、`commands.rs`（10 个 Tauri 命令 + DTO）
 - 前端：`ui/src/`（App.vue 三栏布局：导航/时间线/右侧；组件：PostComposer、PostCard、ThreadView、FriendsPanel、SettingsPanel；ToxID 二维码、实时事件刷新）
 - 图标已生成（apps/desktop/icons/，含 icon.ico —— **tauri-build 在 Windows 强制要求，缺失会构建失败**）
 - 编译：`cargo check/build -p toxsocial-desktop` 全绿；前端 vite build 成功
+- 验证过的运行时行为：启动 → 自动创建/加载身份 → 打印 ToxID → bootstrap 到 4 个 DHT 节点 → 心跳日志每 10s（friends/online 计数）。**应用退出码 0 是用户手动关窗口，非 bug。**
+- M3 收尾：App 自动接受好友请求、UDP 连接、发帖/评论 E2E 已跑通；修复 3 处 Mutex 死锁（见 §5 新踩坑）
 
-**验证过的运行时行为**：启动 → 自动创建/加载身份 → 打印 ToxID → bootstrap 到 4 个 DHT 节点 → 心跳日志每 10s（friends/online 计数）。**应用退出码 0 是用户手动关窗口，非 bug。**
+**M4 离线回补已完成**：
+1. ✅ `tox-store` 新增 `latest_ts_for_author` / `posts_by_author_since`
+2. ✅ `tox-social::FeedEngine` 新增 `latest_ts_for_author` / `self_posts_since` / `handle_sync_posts`
+3. ✅ 好友上线时自动发送 `sync_req`（CLI + Desktop 事件泵）
+4. ✅ 收到 `sync_req` 自动回 `sync_posts`（按 1300B 分块）
+5. ✅ 收到 `sync_posts` 自动校验并持久化，CLI/Desktop 均会打印/emit
+6. ✅ CLI 双实例 E2E：Alice 离线期间发帖，Bob 重连后自动收到缺失帖子
 
-**M3 收尾已完成**：
-1. ✅ 启动 App + `tox-cli` Carol 实例，Carol `add <App的ToxID>`，App 自动接受（日志 `[toxsocial] friend request from ...`）
-2. ✅ 连接建立：`pump alive: friends=1 online=1`，Carol 端 `online (udp)`
-3. ✅ Carol 发帖后 App 日志出现 `[toxsocial] post received from ...`，评论也写入 App 的 SQLite（`tox-cli timeline` 可查到帖子+评论）
-4. ✅ 修复了 3 处 `Mutex` 非重入死锁（见 §5 新踩坑）
-
-**下一步（M4）**：
-- 离线回补（sync_req/sync_posts 已定协议未实现）
+**下一步（M4 剩余）**：
 - 长文/图片附件（Tox 文件传输）
 - 频道（conference 群聊）
 - 评论/反应计数 UI 增强
@@ -98,7 +99,7 @@ CLI 双实例联调（M1/M2 验证方法，全部跑通过）：
 
 ## 6. 约定与备忘
 
-- 提交规范：git 已用 `toxsocial-dev` 身份提交；M3 主体已在上一 session 提交，本 session 的 M3 E2E 死锁修复（`apps/desktop/src/commands.rs`、`apps/desktop/src/events.rs`）和本文档更新待提交
+- 提交规范：git 已用 `toxsocial-dev` 身份提交；M3 主体与死锁修复已提交，本 session 的 M4 离线回补实现（`tox-store`、`tox-social`、`tox-cli`、`apps/desktop/src/events.rs`）和文档更新待提交
 - `.gitignore` 已忽略：target/、build/、ui/node_modules、ui/dist、test-*.tox/db/cmd
 - 许可证：c-toxcore GPLv3，本项目整体 GPL-3.0-or-later
 - 语言：用户用中文交流，回复用中文

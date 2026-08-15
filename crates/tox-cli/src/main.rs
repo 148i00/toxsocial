@@ -15,8 +15,9 @@ use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
 
 use tox_core::{Connection, Event, ToxSession, DEFAULT_BOOTSTRAP_NODES};
-use tox_social::envelope::Envelope;
+use tox_social::envelope::{Envelope, SyncPosts, SyncReq};
 use tox_social::feed::{FeedEngine, Incoming};
+use tox_social::MAX_ENVELOPE_BYTES;
 use tox_store::{PostKind, Store};
 
 /// Default DHT bootstrap nodes (shared, from tox-core).
@@ -390,6 +391,12 @@ fn handle_event(
                         &r.author[..8.min(r.author.len())],
                         r.emoji
                     ),
+                    Envelope::SyncReq(req) => {
+                        handle_sync_req(session, engine, friend_number, &pk, &req)?;
+                    }
+                    Envelope::SyncPosts(sp) => {
+                        handle_sync_posts(session, engine, &pk, sp.items)?;
+                    }
                     _ => {}
                 },
                 Incoming::Profile(p) => println!(
@@ -411,6 +418,10 @@ fn handle_event(
                 Connection::Udp => "online (udp)",
             };
             println!("[conn    #{friend_number}] {state}");
+            if connection != Connection::None {
+                let pk = session.friend_public_key(friend_number).unwrap_or_default();
+                send_sync_req(session, engine, friend_number, &pk);
+            }
         }
         Event::FriendName {
             friend_number,
@@ -426,6 +437,106 @@ fn handle_event(
         } => println!("[state   #{friend_number}] {status:?}"),
     }
     Ok(())
+}
+
+fn send_sync_req(session: &ToxSession, engine: &FeedEngine, friend_number: u32, pk: &str) {
+    let me = session.self_public_key();
+    let since = engine.latest_ts_for_author(pk).unwrap_or(0);
+    let req = Envelope::SyncReq(SyncReq {
+        v: tox_social::envelope::PROTOCOL_VERSION,
+        author: me,
+        ts: now_ms(),
+        since,
+    });
+    match session.send_message(friend_number, &req.encode()) {
+        Ok(()) => println!("[sync    ] sync_req sent to {pk} since={since}"),
+        Err(e) => eprintln!("[sync    ] failed to send sync_req: {e}"),
+    }
+}
+
+fn handle_sync_req(
+    session: &ToxSession,
+    engine: &FeedEngine,
+    friend_number: u32,
+    sender_pk: &str,
+    req: &SyncReq,
+) -> Result<()> {
+    let me = session.self_public_key();
+    let items = engine.self_posts_since(&me, req.since, 200);
+    if items.is_empty() {
+        return Ok(());
+    }
+    for chunk in chunk_envelopes(&me, items) {
+        let sync = Envelope::SyncPosts(SyncPosts {
+            v: tox_social::envelope::PROTOCOL_VERSION,
+            author: me.clone(),
+            ts: now_ms(),
+            items: chunk,
+        });
+        session.send_message(friend_number, &sync.encode())?;
+    }
+    println!("[sync    ] sync_posts sent to {sender_pk}");
+    Ok(())
+}
+
+fn handle_sync_posts(
+    _session: &ToxSession,
+    engine: &FeedEngine,
+    sender_pk: &str,
+    items: Vec<Envelope>,
+) -> Result<()> {
+    let persisted = engine.handle_sync_posts(sender_pk, items);
+    for env in persisted {
+        match env {
+            Envelope::Post(p) => println!(
+                "[post   {:.8} (sync)] {}: {}",
+                &p.id,
+                &p.author[..8.min(p.author.len())],
+                p.text
+            ),
+            Envelope::Comment(c) => println!(
+                "[comment {:.8} -> {:.8} (sync)] {}: {}",
+                &c.id,
+                &c.reply_to,
+                &c.author[..8.min(c.author.len())],
+                c.text
+            ),
+            Envelope::Reaction(r) => println!(
+                "[reaction {:.8} -> {:.8} (sync)] {}: {}",
+                &r.id,
+                &r.reply_to,
+                &r.author[..8.min(r.author.len())],
+                r.emoji
+            ),
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+fn chunk_envelopes(author: &str, items: Vec<Envelope>) -> Vec<Vec<Envelope>> {
+    let mut chunks = Vec::new();
+    let mut current: Vec<Envelope> = Vec::new();
+    for item in items {
+        let mut candidate = current.clone();
+        candidate.push(item.clone());
+        let probe = Envelope::SyncPosts(SyncPosts {
+            v: tox_social::envelope::PROTOCOL_VERSION,
+            author: author.to_string(),
+            ts: 0,
+            items: candidate.clone(),
+        });
+        if probe.wire_len() <= MAX_ENVELOPE_BYTES || current.is_empty() {
+            current = candidate;
+        } else {
+            chunks.push(std::mem::take(&mut current));
+            current.push(item);
+        }
+    }
+    if !current.is_empty() {
+        chunks.push(current);
+    }
+    chunks
 }
 
 /// Command file path: <save>.cmd

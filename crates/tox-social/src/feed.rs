@@ -205,6 +205,78 @@ impl FeedEngine {
     pub fn timeline(&self, authors: &[String], limit: u32) -> Vec<PostRow> {
         self.store.timeline(authors, limit).unwrap_or_default()
     }
+
+    /// Latest timestamp we have seen from `author` (posts/comments/reactions).
+    pub fn latest_ts_for_author(&self, author: &str) -> Option<i64> {
+        self.store.latest_ts_for_author(author).unwrap_or(None)
+    }
+
+    /// Build `sync_posts` payload items: all locally stored envelopes authored
+    /// by `author` with `ts > since`, oldest first.
+    pub fn self_posts_since(&self, author: &str, since: i64, limit: u32) -> Vec<Envelope> {
+        self.store
+            .posts_by_author_since(author, since, limit)
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(row_to_envelope)
+            .collect()
+    }
+
+    /// Persist all items from a `sync_posts` message. Returns the envelopes
+    /// that were actually new (not duplicates).
+    pub fn handle_sync_posts(&self, sender_pk: &str, items: Vec<Envelope>) -> Vec<Envelope> {
+        let received_at = now_ms();
+        items
+            .into_iter()
+            .filter_map(|item| {
+                // Re-validate each item: its author must be the friend who sent it.
+                if item.author() != sender_pk {
+                    return None;
+                }
+                if item.wire_len() > MAX_ENVELOPE_BYTES {
+                    return None;
+                }
+                match item {
+                    Envelope::Post(_) | Envelope::Comment(_) | Envelope::Reaction(_) => {
+                        if self.persist(&item, sender_pk, received_at) {
+                            Some(item)
+                        } else {
+                            None
+                        }
+                    }
+                    Envelope::Profile(_) | Envelope::SyncReq(_) | Envelope::SyncPosts(_) => None,
+                }
+            })
+            .collect()
+    }
+}
+
+fn row_to_envelope(row: PostRow) -> Option<Envelope> {
+    match row.kind {
+        PostKind::Post => Some(Envelope::Post(Post {
+            v: 1,
+            id: row.id,
+            author: row.author,
+            ts: row.ts,
+            text: row.text.unwrap_or_default(),
+        })),
+        PostKind::Comment => Some(Envelope::Comment(Comment {
+            v: 1,
+            id: row.id,
+            author: row.author,
+            ts: row.ts,
+            reply_to: row.parent_id.unwrap_or_default(),
+            text: row.text.unwrap_or_default(),
+        })),
+        PostKind::Reaction => Some(Envelope::Reaction(Reaction {
+            v: 1,
+            id: row.id,
+            author: row.author,
+            ts: row.ts,
+            reply_to: row.parent_id.unwrap_or_default(),
+            emoji: row.emoji.unwrap_or_default(),
+        })),
+    }
 }
 
 impl Envelope {
@@ -289,5 +361,37 @@ mod tests {
         let thread = engine.store.thread_for(&post.id).unwrap();
         assert_eq!(thread.len(), 1);
         assert_eq!(thread[0].id, comment.id);
+    }
+
+    #[test]
+    fn self_posts_since_returns_self_authored_envelopes() {
+        let engine = FeedEngine::new(store());
+        let me = "me".to_string();
+        let post = engine.publish_post(&me, "离线补丁").unwrap();
+        let comment = engine.publish_comment(&me, &post.id, "评论").unwrap();
+
+        let items = engine.self_posts_since(&me, 0, 10);
+        assert_eq!(items.len(), 2);
+        assert!(items.iter().any(|e| matches!(e, Envelope::Post(p) if p.id == post.id)));
+        assert!(items.iter().any(|e| matches!(e, Envelope::Comment(c) if c.id == comment.id)));
+
+        let after = engine.self_posts_since(&me, i64::MAX, 10);
+        assert!(after.is_empty());
+    }
+
+    #[test]
+    fn handle_sync_posts_persists_valid_and_ignores_spoofed() {
+        let engine = FeedEngine::new(store());
+        let friend = "friend-pk".to_string();
+        let valid = Post::new(&friend, "好友离线时发的帖子");
+        let spoofed = Post::new("attacker", "伪造帖子");
+
+        let persisted = engine.handle_sync_posts(&friend, vec![Envelope::Post(valid.clone()), Envelope::Post(spoofed)]);
+        assert_eq!(persisted.len(), 1);
+        assert!(matches!(&persisted[0], Envelope::Post(p) if p.id == valid.id));
+
+        let tl = engine.timeline(&[friend.clone()], 10);
+        assert_eq!(tl.len(), 1);
+        assert_eq!(tl[0].id, valid.id);
     }
 }
