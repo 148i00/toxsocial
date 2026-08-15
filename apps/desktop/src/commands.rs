@@ -58,6 +58,13 @@ pub struct FriendInfo {
     pub last_seen: Option<i64>,
 }
 
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct MediaConfig {
+    pub provider: String,
+    pub has_client_id: bool,
+}
+
 // ---------------------------------------------------------------------------
 // Commands
 // ---------------------------------------------------------------------------
@@ -290,6 +297,49 @@ pub fn get_friends(state: State<AppState>) -> Result<Vec<FriendInfo>, String> {
             last_seen: f.last_seen,
         })
         .collect())
+}
+
+#[tauri::command]
+pub async fn upload_media(
+    state: State<'_, AppState>,
+    data_base64: String,
+    filename: String,
+) -> Result<String, String> {
+    let client_id = {
+        let engine = state.engine.lock().unwrap();
+        engine
+            .store()
+            .kv_get("imgur_client_id")
+            .map_err(|e| e.to_string())?
+            .unwrap_or_default()
+    };
+    if client_id.is_empty() {
+        return Err("请先在设置中填写 Imgur Client ID".to_string());
+    }
+    crate::media::upload_media(&data_base64, &filename, &client_id).await
+}
+
+#[tauri::command]
+pub fn set_imgur_client_id(state: State<AppState>, client_id: String) -> Result<(), String> {
+    let engine = state.engine.lock().unwrap();
+    engine
+        .store()
+        .kv_set("imgur_client_id", client_id.trim())
+        .map_err(|e| format!("failed to save Imgur Client ID: {e}"))
+}
+
+#[tauri::command]
+pub fn get_media_config(state: State<AppState>) -> Result<MediaConfig, String> {
+    let engine = state.engine.lock().unwrap();
+    let client_id = engine
+        .store()
+        .kv_get("imgur_client_id")
+        .map_err(|e| e.to_string())?
+        .unwrap_or_default();
+    Ok(MediaConfig {
+        provider: "imgur".to_string(),
+        has_client_id: !client_id.is_empty(),
+    })
 }
 
 // ---------------------------------------------------------------------------

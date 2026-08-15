@@ -2,6 +2,7 @@
 
 mod commands;
 mod events;
+mod media;
 mod state;
 
 use state::AppState;
@@ -44,6 +45,9 @@ pub fn run() {
             commands::fetch_timeline,
             commands::fetch_thread,
             commands::get_friends,
+            commands::upload_media,
+            commands::set_imgur_client_id,
+            commands::get_media_config,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

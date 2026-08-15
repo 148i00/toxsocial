@@ -13,6 +13,8 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+base64 = "0.22"
+reqwest = { version = "0.13", features = ["json", "multipart"] }
 tox-core = { path = "../../crates/tox-core" }
 tox-social = { path = "../../crates/tox-social" }
 tox-store = { path = "../../crates/tox-store" }

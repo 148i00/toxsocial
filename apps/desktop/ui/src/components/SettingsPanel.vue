@@ -12,8 +12,11 @@ const bio = ref("");
 const qrUrl = ref("");
 const busy = ref(false);
 const saved = ref("");
+const imgurClientId = ref("");
+const mediaConfigured = ref(false);
+const mediaSaved = ref("");
 
-onMounted(() => {
+onMounted(async () => {
   if (props.own) {
     name.value = props.own.name;
     bio.value = props.own.statusMessage;
@@ -21,7 +24,25 @@ onMounted(() => {
   if (props.own) {
     QRCode.toDataURL(props.own.toxid, { width: 220, margin: 1 }).then((u) => (qrUrl.value = u));
   }
+  try {
+    const cfg = await api.getMediaConfig();
+    mediaConfigured.value = cfg.hasClientId;
+  } catch {
+    /* ignore */
+  }
 });
+
+async function saveMedia() {
+  if (!imgurClientId.value.trim()) return;
+  try {
+    await api.setImgurClientId(imgurClientId.value.trim());
+    imgurClientId.value = "";
+    mediaConfigured.value = true;
+    mediaSaved.value = "已保存 Imgur Client ID";
+  } catch (e) {
+    alert(String(e));
+  }
+}
 
 async function save() {
   if (busy.value) return;
@@ -50,6 +71,21 @@ async function save() {
       <textarea v-model="bio" rows="2" maxlength="500" placeholder="一句话介绍自己"></textarea>
       <button class="primary" :disabled="busy" @click="save">保存并广播</button>
       <p v-if="saved" class="ok">{{ saved }}</p>
+    </div>
+
+    <div class="card">
+      <label>媒体上传（Imgur）</label>
+      <p class="tip">发帖时可选择图片/视频，自动上传到 Imgur 并插入 Markdown 链接，减少 Tox 网络压力。</p>
+      <input
+        v-model="imgurClientId"
+        type="password"
+        placeholder="Imgur Client ID（匿名上传用）"
+      />
+      <div class="row">
+        <span class="state">{{ mediaConfigured ? "已配置" : "未配置" }}</span>
+        <button class="primary" :disabled="!imgurClientId.trim()" @click="saveMedia">保存</button>
+      </div>
+      <p v-if="mediaSaved" class="ok">{{ mediaSaved }}</p>
     </div>
 
     <div class="card">
@@ -97,6 +133,20 @@ label {
 }
 .ok {
   color: var(--accent-2);
+  font-size: 12px;
+}
+.tip {
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.state {
+  color: var(--text-dim);
   font-size: 12px;
 }
 .toxid {

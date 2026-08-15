@@ -20,11 +20,16 @@ function safeUrl(url: string): string {
 function inline(text: string): string {
   let s = text;
 
-  // Images: ![alt](url)
+  // Images / videos: ![alt](url), with `video:` prefix for video links
   s = s.replace(
     /!\[([^\]]*)\]\(([^)\s]+)\)/g,
-    (_m, alt: string, url: string) =>
-      `<img src="${safeUrl(url)}" alt="${alt}" loading="lazy" />`,
+    (_m, alt: string, url: string) => {
+      const safe = safeUrl(url);
+      if (alt.trim().toLowerCase().startsWith("video:")) {
+        return `<video src="${safe}" controls preload="metadata"></video>`;
+      }
+      return `<img src="${safe}" alt="${alt}" loading="lazy" />`;
+    },
   );
 
   // Links: [text](url)

@@ -33,3 +33,8 @@ export interface FriendInfo {
   online: boolean;
   lastSeen: number | null;
 }
+
+export interface MediaConfig {
+  provider: string;
+  hasClientId: boolean;
+}
