@@ -373,7 +373,10 @@ impl ToxSession {
     }
 
     pub fn friend_connection(&self, friend_number: u32) -> Connection {
-        Connection::from_raw(unsafe { tox_friend_get_connection_status(self.tox, friend_number) })
+        let mut err: u32 = 0;
+        Connection::from_raw(unsafe {
+            tox_friend_get_connection_status(self.tox, friend_number, &mut err)
+        })
     }
 
     /// Send a plain-text message to a friend. Must be <= 1372 bytes.
@@ -408,6 +411,11 @@ impl ToxSession {
     /// Blocking read of the next event.
     pub fn recv(&self) -> Result<Event, mpsc::RecvError> {
         self.rx.recv()
+    }
+
+    /// Blocking read of the next event with a timeout.
+    pub fn recv_timeout(&self, timeout: std::time::Duration) -> Result<Event, mpsc::RecvTimeoutError> {
+        self.rx.recv_timeout(timeout)
     }
 
     /// Stop the event loop and release the Tox instance.

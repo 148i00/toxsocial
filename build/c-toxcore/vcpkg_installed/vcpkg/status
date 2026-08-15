@@ -1,0 +1,122 @@
+Package: vcpkg-cmake-config
+Version: 2026-07-21
+Architecture: x64-windows
+Multi-Arch: same
+Abi: 5b79a75d148699d4885c99573ec3a92e233aab65804f5544509e90f1c02d0f7c
+Status: install ok installed
+
+Package: vcpkg-cmake
+Version: 2025-08-07
+Architecture: x64-windows
+Multi-Arch: same
+Abi: a5f3ad4638b5cb124e5009dd04080bbdd5c3ffbaf7420cfaf16134112a54e57e
+Status: install ok installed
+
+Package: gtest
+Version: 1.18.0
+Depends: vcpkg-cmake, vcpkg-cmake-config
+Architecture: x64-windows
+Multi-Arch: same
+Abi: 6f6a5d7935c67796d35a251c70e330f428d55670ae54962655770d5bb2be555d
+Description: Google Testing and Mocking Framework
+Status: install ok installed
+
+Package: vcpkg-cmake-get-vars
+Version: 2025-05-29
+Depends: vcpkg-cmake
+Architecture: x64-windows
+Multi-Arch: same
+Abi: f85f376e6f656216cdfe65caa5c06734be1e0fc8a1580932b0fc9a359df5aa1c
+Status: install ok installed
+
+Package: vcpkg-tool-meson
+Version: 1.9.0
+Port-Version: 10
+Depends: vcpkg-cmake-get-vars
+Architecture: x64-windows
+Multi-Arch: same
+Abi: 1a3042f9541e15026ec29c82ce4f6403eed740ecb2629ef76066c21b99924a3d
+Description: Meson build system
+Status: install ok installed
+
+Package: pkgconf
+Version: 3.0.3
+Depends: vcpkg-tool-meson
+Architecture: x64-windows
+Multi-Arch: same
+Abi: b6ae7c9668bdaa2c66a2d5911971b6a6b9b2ff914ceef97079df876408fc3091
+Description: pkgconf is a program which helps to configure compiler and linker flags for development libraries. It is similar to pkg-config from freedesktop.org.
+Status: install ok installed
+
+Package: vcpkg-pkgconfig-get-modules
+Version: 2024-04-03
+Depends: pkgconf
+Architecture: x64-windows
+Multi-Arch: same
+Abi: 4efc93cdba4c85e1e6ac4e645be97b7bedcfc5436d01c8b5a933b93158cd87c4
+Status: install ok installed
+
+Package: vcpkg-msbuild
+Version: 2023-08-08
+Depends: vcpkg-cmake-get-vars, vcpkg-pkgconfig-get-modules
+Architecture: x64-windows
+Multi-Arch: same
+Abi: 366b11dcafb7f3043502c118f26240b7cce681d6a4bed4459aea11e2b9013aea
+Status: install ok installed
+
+Package: vcpkg-make
+Version: 2026-07-09
+Depends: vcpkg-cmake-get-vars
+Architecture: x64-windows
+Multi-Arch: same
+Abi: 27a0b474bb974396dcfb31f4ab91db7de4aef5b272c929ac21b98422852c55d3
+Status: install ok installed
+
+Package: libsodium
+Version: 1.0.22
+Port-Version: 1
+Depends: vcpkg-cmake-get-vars, vcpkg-make, vcpkg-msbuild
+Architecture: x64-windows
+Multi-Arch: same
+Abi: 8e96d4ca31fad3d7a0b0151daf9ac36054afbf145be72cc6161da125e0bbcaf4
+Description: A modern and easy-to-use crypto library
+Status: install ok installed
+
+Package: libvpx
+Version: 1.16.0
+Port-Version: 3
+Depends: vcpkg-cmake-get-vars, vcpkg-msbuild
+Architecture: x64-windows
+Multi-Arch: same
+Abi: 7496ab8d6a6dc91f9046c1baf55ebbb97447540068271294fcd0cc3d9042d7f7
+Description: The reference software implementation for the video coding formats VP8 and VP9.
+Status: install ok installed
+
+Package: opus
+Version: 1.6.1
+Depends: vcpkg-cmake, vcpkg-cmake-config
+Architecture: x64-windows
+Multi-Arch: same
+Abi: 4a0070981474d3f138a4e06bd0e1fcaf263c8b6618d2140688205b437172fe7d
+Description: Totally open, royalty-free, highly versatile audio codec
+Status: install ok installed
+
+Package: pthreads
+Version: 3.0.0
+Port-Version: 14
+Depends: vcpkg-cmake-config
+Architecture: x64-windows
+Multi-Arch: same
+Abi: 862e2dc1208e8d30ee1e09ac1e258f5562eb848b7b89bd35d2db35f436b03bfa
+Description: Meta-package that provides PThreads4W on Windows, or assumes presence of system pthreads on POSIX systems.
+Status: install ok installed
+
+Package: winsock2
+Version: 0.0
+Port-Version: 5
+Architecture: x64-windows
+Multi-Arch: same
+Abi: d87d55e1cf2476fbf77a6c0e2f498010c523591fe7ec62d22ec5351c49ab8f74
+Description: Windows Sockets.
+Status: install ok installed
+

@@ -1,0 +1,11 @@
+x64-windows/
+x64-windows/debug/
+x64-windows/debug/lib/
+x64-windows/debug/lib/Ws2_32.Lib
+x64-windows/lib/
+x64-windows/lib/Ws2_32.Lib
+x64-windows/share/
+x64-windows/share/winsock2/
+x64-windows/share/winsock2/copyright
+x64-windows/share/winsock2/vcpkg.spdx.json
+x64-windows/share/winsock2/vcpkg_abi_info.txt

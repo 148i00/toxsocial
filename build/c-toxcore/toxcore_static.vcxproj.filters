@@ -1,0 +1,507 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\third_party\cmp\cmp.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\announce.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\bin_pack.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\bin_unpack.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\ccompat.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\crypto_core.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\crypto_core_pack.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\DHT.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\ev.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\events\conference_connected.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\events\conference_invite.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\events\conference_message.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\events\conference_peer_list_changed.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\events\conference_peer_name.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\events\conference_title.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\events\dht_nodes_response.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\events\events_alloc.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\events\file_chunk_request.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\events\file_recv.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\events\file_recv_chunk.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\events\file_recv_control.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\events\friend_connection_status.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\events\friend_lossless_packet.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\events\friend_lossy_packet.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\events\friend_message.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\events\friend_name.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\events\friend_read_receipt.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\events\friend_request.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\events\friend_status.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\events\friend_status_message.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\events\friend_typing.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\events\self_connection_status.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\events\group_custom_packet.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\events\group_custom_private_packet.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\events\group_invite.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\events\group_join_fail.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\events\group_message.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\events\group_moderation.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\events\group_password.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\events\group_peer_exit.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\events\group_peer_join.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\events\group_peer_limit.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\events\group_peer_name.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\events\group_peer_status.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\events\group_privacy_state.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\events\group_private_message.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\events\group_self_join.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\events\group_topic.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\events\group_topic_lock.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\events\group_voice_state.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\forwarding.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\friend_connection.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\friend_requests.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\group.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\group_chats.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\group_connection.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\group_announce.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\group_moderation.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\group_onion_announce.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\group_pack.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\LAN_discovery.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\list.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\logger.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\Messenger.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\mem.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\mono_time.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\net.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\net_crypto.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\net_log.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\net_profile.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\network.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\onion_announce.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\onion.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\onion_client.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\os_event.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\os_memory.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\os_network.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\os_random.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\ping_array.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\ping.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\rng.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\shared_key_cache.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\sort.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\state.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\TCP_client.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\TCP_common.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\TCP_connection.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\TCP_server.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\timed_auth.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\tox_api.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\tox.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\tox_dispatch.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\tox_event.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\tox_events.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\tox_log_level.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\tox_options.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\tox_private.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\tox_pack.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\tox_unpack.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\util.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxencryptsave\toxencryptsave.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\third_party\cmp\cmp.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\announce.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\bin_pack.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\bin_unpack.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\ccompat.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\crypto_core.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\crypto_core_pack.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\DHT.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\ev.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\events\events_alloc.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\forwarding.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\friend_connection.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\friend_requests.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\group_chats.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\group_common.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\group_connection.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\group.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\group_announce.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\group_moderation.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\group_onion_announce.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\group_pack.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\LAN_discovery.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\list.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\logger.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\Messenger.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\mem.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\mono_time.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\net.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\net_crypto.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\net_log.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\net_profile.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\network.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\onion_announce.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\onion_client.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\onion.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\os_event.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\os_memory.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\os_network.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\os_random.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\ping_array.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\ping.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\rng.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\shared_key_cache.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\sort.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\state.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\TCP_client.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\TCP_common.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\TCP_connection.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\TCP_server.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\timed_auth.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\tox_attributes.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\tox.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\tox_dispatch.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\tox_event.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\tox_events.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\tox_log_level.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\tox_options.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\tox_private.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\tox_pack.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\tox_unpack.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxcore\util.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\toxencryptsave\toxencryptsave.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\148i00\Documents\dsworkspace\toxproject\third_party\c-toxcore\CMakeLists.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{64C92058-EDB3-30AD-B04F-5C419542A165}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{784B8CA8-06C0-3E32-8EAA-8C3A0F9C4B37}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

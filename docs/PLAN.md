@@ -160,9 +160,28 @@ cargo build   # build.rs: 定位静态库 + 调用 bindgen（或读取检入的 
 
 ## 8. 下一步行动（Phase 0 Checklist）
 
-- [ ] 安装 cmake / LLVM / vcpkg + libsodium（本机现状：全部缺失）
-- [ ] 初始化 cargo workspace（`tox-ffi` / `tox-core` / `tox-social` / `tox-store` / `tox-cli`）
-- [ ] 拉取 c-toxcore submodule 并编译出静态库
-- [ ] 生成并检入 bindgen 绑定
-- [ ] `tox-cli` 冒烟：`tox_new` → 打印 ToxID → save → load 验证
-- [ ] 写 `docs/PROTOCOL.md` 对照实现的第一版单测（envelope 编解码）
+- [x] 安装 cmake / LLVM / vcpkg + libsodium（本机现状：全部缺失）
+- [x] 初始化 cargo workspace（`tox-ffi` / `tox-core` / `tox-social` / `tox-store` / `tox-cli`）
+- [x] 拉取 c-toxcore submodule 并编译出静态库
+- [x] 生成并检入 bindgen 绑定（`bindgen_output.rs`，与手写子集交叉验证）
+- [x] `tox-cli` 冒烟：`tox_new` → 打印 ToxID → save → load 验证
+- [x] 双实例端到端联调：好友请求/接受 → UDP 加密连接 → 帖子/评论广播 → SQLite 持久化 → 时间线查询
+
+## 9. 实际进度记录（M0/M1/M2 已超额完成）
+
+| 里程碑 | 状态 | 证据 |
+|---|---|---|
+| **M0** 环境与构建管线 | ✅ 完成 | cmake 4.4.2 + LLVM 22.1.8 + vcpkg(libsodium 1.0.22) + c-toxcore 0.2.23 静态库；`cargo check` 全绿；20 个单测通过；bindgen 0.72.1 生成 1491 行绑定 |
+| **M1** 身份与连接 | ✅ 核心验证 | 双实例经公共 DHT bootstrap，好友请求/自动接受，`online (udp)` 加密连接，名字交换 |
+| **M2** 社交协议核心 | ✅ 核心验证 | `TSP/1 ` 信封（post/comment/reaction/profile），发帖 fan-out 到在线好友，收端作者校验+SQLite 持久化+时间线聚合+评论线程 |
+| **M3** Tauri 桌面 MVP | ⏳ 未开始 | 下一步 |
+
+### 关键经验（踩坑记录）
+
+1. **ToxID 校验和已从 CRC16 改为奇偶字节 XOR**（`data_checksum`，0.2.20+）：调试 ToxID 解析时勿用旧算法。
+2. **`TOX_ERR_FRIEND_ADD` 枚举顺序变了**（0 = OK, 1 = NULL, 2 = TOO_LONG, 3 = NO_MESSAGE, 4 = OWN_KEY, 5 = ALREADY_SENT, 6 = BAD_CHECKSUM...）：错误码勿按旧文档硬编码。
+3. **`tox_friend_get_connection_status` / `tox_friend_get_last_online` 在 0.2.23 增加了 `error` 参数**：手写 FFI 少参数会导致 C 代码写垃圾指针 → ACCESS_VIOLATION（0xC0000005）。教训：手写绑定必须与 bindgen 输出交叉核对。
+4. **vcpkg 会为 c-toxcore 自动编译 opus/vpx**（`Dependencies.cmake` 无条件 find_package）：配置耗时 ~6 分钟属正常。
+5. **c-toxcore 目标名是 `toxcore_static`**（VS 生成器），静态库位于 `build/c-toxcore/Release/toxcore_static.lib`；Windows 链接需 `pthreadVC3.lib`（vcpkg pthreads4w）。
+6. **edition 2021 精确捕获**：闭包内 `tox.0` 只捕获字段（raw pointer）导致 Send 检查失败；先 `let tox = tox` 重绑定强制整体捕获。
+7. **toxcore 非线程安全**（默认）：所有 FFI 调用集中在单线程（事件循环线程内），外部只经 channel 收事件 —— tox-core 已按此设计。

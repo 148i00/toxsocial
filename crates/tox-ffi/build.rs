@@ -18,6 +18,9 @@ fn main() {
 
     let candidates: Vec<PathBuf> = vec![
         env::var("TOXCORE_LIB").ok().map(PathBuf::from),
+        Some(workspace.join("build/c-toxcore/Release")),
+        Some(workspace.join("build/c-toxcore/Debug")),
+        Some(workspace.join("build/c-toxcore")),
         Some(workspace.join("third_party/c-toxcore/build")),
         Some(workspace.join("third_party/c-toxcore/_build")),
     ]
@@ -25,31 +28,82 @@ fn main() {
     .flatten()
     .collect();
 
-    let mut found: Option<PathBuf> = None;
+    // MSVC static builds are named toxcore_static.lib / toxcore.lib;
+    // MinGW style: libtoxcore.a / libtoxcore_static.a.
+    const LIB_NAMES: &[&str] = &[
+        "toxcore_static.lib",
+        "toxcore.lib",
+        "libtoxcore_static.a",
+        "libtoxcore.a",
+    ];
+
+    let mut found: Option<(PathBuf, &'static str)> = None;
     for dir in &candidates {
-        let lib = dir.join("toxcore.lib");
-        let a = dir.join("libtoxcore.a");
-        if lib.exists() || a.exists() {
-            found = Some(dir.clone());
+        for name in LIB_NAMES {
+            if dir.join(name).exists() {
+                found = Some((dir.clone(), name));
+                break;
+            }
+        }
+        if found.is_some() {
             break;
         }
     }
 
     match found {
-        Some(dir) => {
+        Some((dir, lib_name)) => {
             println!("cargo:rustc-link-search=native={}", dir.display());
-            println!("cargo:rustc-link-lib=static=toxcore");
-            // Windows system deps required by c-toxcore.
-            for lib in ["ws2_32", "iphlpapi", "advapi32", "user32", "shell32", "bcrypt"] {
+            let stem = lib_name
+                .trim_start_matches("lib")
+                .trim_end_matches(".lib")
+                .trim_end_matches(".a");
+            println!("cargo:rustc-link-lib=static={}", stem);
+            // Windows system deps required by c-toxcore (+ pthreads4w via vcpkg).
+            for lib in [
+                "ws2_32",
+                "iphlpapi",
+                "advapi32",
+                "user32",
+                "shell32",
+                "bcrypt",
+                "pthreadVC3",
+            ] {
                 println!("cargo:rustc-link-lib={}", lib);
             }
             println!("cargo:rerun-if-changed={}", dir.display());
             println!("cargo:rerun-if-env-changed=TOXCORE_LIB");
-            // Let the caller point at libsodium via SODIUM_LIB (e.g. vcpkg).
-            if let Ok(sodium) = env::var("SODIUM_LIB") {
-                println!("cargo:rustc-link-search=native={}", sodium);
-                println!("cargo:rustc-link-lib=static=sodium");
+
+            // libsodium + pthreads4w: search vcpkg dirs (global install via
+            // SODIUM_LIB, or the per-project vcpkg_installed used by the
+            // c-toxcore CMake build).
+            let mut dep_dirs: Vec<PathBuf> = vec![
+                env::var("SODIUM_LIB").ok().map(PathBuf::from),
+                Some(workspace.join(
+                    "build/c-toxcore/vcpkg_installed/x64-windows/lib",
+                )),
+                Some(workspace.join(
+                    "build/c-toxcore/vcpkg_installed/x64-windows/debug/lib",
+                )),
+            ]
+            .into_iter()
+            .flatten()
+            .collect();
+            dep_dirs.dedup();
+            for d in &dep_dirs {
+                if d.exists() {
+                    println!("cargo:rustc-link-search=native={}", d.display());
+                }
             }
+            // Only link libsodium/pthreads if the libs are actually present.
+            let has_sodium = dep_dirs.iter().any(|d| d.join("libsodium.lib").exists());
+            let has_pthread = dep_dirs.iter().any(|d| d.join("pthreadVC3.lib").exists());
+            if has_sodium {
+                println!("cargo:rustc-link-lib=static=libsodium");
+            }
+            if has_pthread {
+                println!("cargo:rustc-link-lib=pthreadVC3");
+            }
+            println!("cargo:rerun-if-env-changed=SODIUM_LIB");
         }
         None => {
             // No lib yet: still let the crate compile for `cargo check` purposes,

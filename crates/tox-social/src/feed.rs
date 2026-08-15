@@ -37,6 +37,11 @@ impl FeedEngine {
         FeedEngine { store }
     }
 
+    /// Access the underlying store (e.g. for thread queries).
+    pub fn store(&self) -> &Store {
+        &self.store
+    }
+
     /// Process a raw friend message. `sender_pk` is the friend's public key
     /// (64 hex) as reported by the Tox layer — the only trusted identity.
     pub fn handle_incoming(&self, sender_pk: &str, raw: &str) -> Incoming {

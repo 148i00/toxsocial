@@ -17,7 +17,7 @@ use clap::{Parser, Subcommand};
 use tox_core::{Connection, Event, ToxSession};
 use tox_social::envelope::Envelope;
 use tox_social::feed::{FeedEngine, Incoming};
-use tox_store::Store;
+use tox_store::{PostKind, Store};
 
 /// Default DHT bootstrap nodes (https://nodes.tox.chat, 2025).
 const DEFAULT_NODES: &[(&str, u16, &str)] = &[
@@ -84,6 +84,12 @@ enum Cmd {
         db: Option<PathBuf>,
         text: String,
     },
+    /// Print the local timeline (posts + threads) from the store.
+    Timeline {
+        save: PathBuf,
+        #[arg(long)]
+        db: Option<PathBuf>,
+    },
     /// Run the event loop with the social feed engine.
     Run {
         save: PathBuf,
@@ -102,6 +108,7 @@ fn main() -> Result<()> {
         Cmd::Add { save, toxid, msg } => cmd_add(&save, &toxid, msg.as_deref().unwrap_or("")),
         Cmd::Send { save, friend, text } => cmd_send(&save, friend, &text),
         Cmd::Post { save, db, text } => cmd_post(&save, db.as_deref(), &text),
+        Cmd::Timeline { save, db } => cmd_timeline(&save, db.as_deref()),
         Cmd::Run { save, db, no_bootstrap } => cmd_run(&save, db.as_deref(), !no_bootstrap),
     }
 }
@@ -194,6 +201,55 @@ fn cmd_post(save: &Path, db: Option<&Path>, text: &str) -> Result<()> {
     Ok(())
 }
 
+/// Print the local timeline from the store (posts + threads).
+fn cmd_timeline(save: &Path, db: Option<&Path>) -> Result<()> {
+    let session = load(save)?;
+    let store = Store::open(db.unwrap_or(&db_path(save)))
+        .map_err(|e| anyhow!("cannot open store: {e}"))?;
+    let engine = FeedEngine::new(store);
+
+    // Authors: self + all friends (by public key).
+    let mut authors = vec![session.self_public_key()];
+    for n in session.friend_list() {
+        if let Ok(pk) = session.friend_public_key(n) {
+            authors.push(pk);
+        }
+    }
+
+    let posts = engine.timeline(&authors, 50);
+    if posts.is_empty() {
+        println!("(empty timeline)");
+        return Ok(());
+    }
+    for p in &posts {
+        let kind = match p.kind {
+            PostKind::Post => "post",
+            PostKind::Comment => "comment",
+            PostKind::Reaction => "reaction",
+        };
+        let text = p
+            .text
+            .clone()
+            .unwrap_or_else(|| p.emoji.clone().unwrap_or_default());
+        println!(
+            "[{kind} {:.8} by {:.8}] {}",
+            p.id,
+            p.author,
+            text
+        );
+        if p.kind == PostKind::Post {
+            for c in engine.store().thread_for(&p.id).unwrap_or_default() {
+                let ctext = c
+                    .text
+                    .clone()
+                    .unwrap_or_else(|| c.emoji.clone().unwrap_or_default());
+                println!("    └ [{:?} {:.8}] {}", c.kind, c.id, ctext);
+            }
+        }
+    }
+    Ok(())
+}
+
 fn cmd_run(save: &Path, db: Option<&Path>, bootstrap: bool) -> Result<()> {
     let mut session = load(save)?;
     let store = Store::open(db.unwrap_or(&db_path(save)))
@@ -207,92 +263,209 @@ fn cmd_run(save: &Path, db: Option<&Path>, bootstrap: bool) -> Result<()> {
                 Ok(()) => println!("bootstrap {host}:{port} ok"),
                 Err(e) => println!("bootstrap {host}:{port} failed: {e}"),
             }
+            // Most official nodes also run a TCP relay on the same port.
+            let _ = session.add_tcp_relay(host, *port, key);
         }
     }
 
     println!("== {} ({}) running; Ctrl+C to quit ==", session.self_name(), me);
+    println!(
+        "   command file: {} (write 'post <text>' to publish)",
+        cmd_path(save).display()
+    );
     loop {
-        let ev = match session.recv() {
-            Ok(ev) => ev,
-            Err(_) => break,
-        };
-        match ev {
-            Event::FriendRequest { public_key, message } => {
-                let msg = String::from_utf8_lossy(&message).into_owned();
-                println!("[request] from {public_key}: {msg}");
-                match session.add_friend_norequest(&public_key) {
-                    Ok(n) => {
-                        println!("  -> accepted as #{n}");
-                        persist(&session, save)?;
-                    }
-                    Err(e) => println!("  -> accept failed: {e}"),
+        // Process commands from the command file (single-session model).
+        for line in read_commands(&cmd_path(save)) {
+            if let Err(e) = handle_command(&line, &mut session, &engine, &me, save) {
+                println!("[cmd    ] error: {e}");
+            }
+        }
+        // Process events with a timeout so the command file gets polled.
+        match session.recv_timeout(std::time::Duration::from_millis(500)) {
+            Ok(ev) => {
+                if let Err(e) = handle_event(ev, &mut session, &engine, save) {
+                    println!("[event  ] error: {e}");
                 }
             }
-            Event::FriendMessage {
-                friend_number,
-                text,
-                ..
-            } => {
-                let pk = session.friend_public_key(friend_number).unwrap_or_default();
-                match engine.handle_incoming(&pk, &text) {
-                    Incoming::Persisted(env) => match env {
-                        Envelope::Post(p) => println!(
-                            "[post   {:.8}] {}: {}",
-                            &p.id,
-                            &p.author[..8.min(p.author.len())],
-                            p.text
-                        ),
-                        Envelope::Comment(c) => println!(
-                            "[comment {:.8} -> {:.8}] {}: {}",
-                            &c.id,
-                            &c.reply_to,
-                            &c.author[..8.min(c.author.len())],
-                            c.text
-                        ),
-                        Envelope::Reaction(r) => println!(
-                            "[reaction {:.8} -> {:.8}] {}: {}",
-                            &r.id,
-                            &r.reply_to,
-                            &r.author[..8.min(r.author.len())],
-                            r.emoji
-                        ),
-                        _ => {}
-                    },
-                    Incoming::Profile(p) => println!(
-                        "[profile {:.8}] name={} bio={}",
-                        &p.author[..8.min(p.author.len())],
-                        p.name,
-                        p.bio
-                    ),
-                    Incoming::Rejected(_) => println!("[chat    #{friend_number}] {text}"),
-                }
-            }
-            Event::FriendConnection {
-                friend_number,
-                connection,
-            } => {
-                let state = match connection {
-                    Connection::None => "offline",
-                    Connection::Tcp => "online (tcp)",
-                    Connection::Udp => "online (udp)",
-                };
-                println!("[conn    #{friend_number}] {state}");
-            }
-            Event::FriendName {
-                friend_number,
-                name,
-            } => println!("[name    #{friend_number}] {name}"),
-            Event::FriendStatusMessage {
-                friend_number,
-                status_message,
-            } => println!("[status  #{friend_number}] {status_message}"),
-            Event::FriendStatus {
-                friend_number,
-                status,
-            } => println!("[state   #{friend_number}] {status:?}"),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
         }
     }
     Ok(())
+}
+
+/// Execute one line from the command file.
+fn handle_command(
+    line: &str,
+    session: &mut ToxSession,
+    engine: &FeedEngine,
+    me: &str,
+    save: &Path,
+) -> Result<()> {
+    let line = line.trim();
+    if line.is_empty() {
+        return Ok(());
+    }
+    let (cmd, rest) = match line.split_once(' ') {
+        Some((c, r)) => (c, r.trim()),
+        None => (line, ""),
+    };
+    match cmd {
+        "post" => {
+            if rest.is_empty() {
+                println!("[cmd    ] usage: post <text>");
+                return Ok(());
+            }
+            let post = engine
+                .publish_post(me, rest)
+                .map_err(|e| anyhow!("{e}"))?;
+            let wire = Envelope::Post(post.clone()).encode();
+            let mut sent = 0;
+            for n in session.friend_list() {
+                if session.friend_connection(n) != Connection::None {
+                    session.send_message(n, &wire)?;
+                    sent += 1;
+                }
+            }
+            persist(session, save)?;
+            println!(
+                "[cmd    ] post {} published, fanned out to {sent} online friend(s)",
+                post.id
+            );
+        }
+        "comment" => {
+            let parts: Vec<&str> = rest.splitn(2, ' ').collect();
+            if parts.len() < 2 {
+                println!("[cmd    ] usage: comment <post_id> <text>");
+                return Ok(());
+            }
+            let comment = engine
+                .publish_comment(me, parts[0], parts[1])
+                .map_err(|e| anyhow!("{e}"))?;
+            let wire = Envelope::Comment(comment.clone()).encode();
+            for n in session.friend_list() {
+                if session.friend_connection(n) != Connection::None {
+                    session.send_message(n, &wire)?;
+                }
+            }
+            persist(session, save)?;
+            println!("[cmd    ] comment {} published", comment.id);
+        }
+        "friends" => {
+            for n in session.friend_list() {
+                let pk = session.friend_public_key(n).unwrap_or_else(|_| "?".into());
+                let name = session.friend_name(n).unwrap_or_else(|_| "?".into());
+                println!("[cmd    ] friend #{n} {name} <{pk}>");
+            }
+        }
+        "help" => println!("[cmd    ] commands: post <text>, comment <post_id> <text>, friends, help"),
+        other => println!("[cmd    ] unknown command: {other}"),
+    }
+    Ok(())
+}
+
+/// Handle one tox event.
+fn handle_event(
+    ev: Event,
+    session: &mut ToxSession,
+    engine: &FeedEngine,
+    save: &Path,
+) -> Result<()> {
+    match ev {
+        Event::FriendRequest { public_key, message } => {
+            let msg = String::from_utf8_lossy(&message).into_owned();
+            println!("[request] from {public_key}: {msg}");
+            match session.add_friend_norequest(&public_key) {
+                Ok(n) => {
+                    println!("  -> accepted as #{n}");
+                    persist(session, save)?;
+                }
+                Err(e) => println!("  -> accept failed: {e}"),
+            }
+        }
+        Event::FriendMessage {
+            friend_number,
+            text,
+            ..
+        } => {
+            let pk = session.friend_public_key(friend_number).unwrap_or_default();
+            match engine.handle_incoming(&pk, &text) {
+                Incoming::Persisted(env) => match env {
+                    Envelope::Post(p) => println!(
+                        "[post   {:.8}] {}: {}",
+                        &p.id,
+                        &p.author[..8.min(p.author.len())],
+                        p.text
+                    ),
+                    Envelope::Comment(c) => println!(
+                        "[comment {:.8} -> {:.8}] {}: {}",
+                        &c.id,
+                        &c.reply_to,
+                        &c.author[..8.min(c.author.len())],
+                        c.text
+                    ),
+                    Envelope::Reaction(r) => println!(
+                        "[reaction {:.8} -> {:.8}] {}: {}",
+                        &r.id,
+                        &r.reply_to,
+                        &r.author[..8.min(r.author.len())],
+                        r.emoji
+                    ),
+                    _ => {}
+                },
+                Incoming::Profile(p) => println!(
+                    "[profile {:.8}] name={} bio={}",
+                    &p.author[..8.min(p.author.len())],
+                    p.name,
+                    p.bio
+                ),
+                Incoming::Rejected(_) => println!("[chat    #{friend_number}] {text}"),
+            }
+        }
+        Event::FriendConnection {
+            friend_number,
+            connection,
+        } => {
+            let state = match connection {
+                Connection::None => "offline",
+                Connection::Tcp => "online (tcp)",
+                Connection::Udp => "online (udp)",
+            };
+            println!("[conn    #{friend_number}] {state}");
+        }
+        Event::FriendName {
+            friend_number,
+            name,
+        } => println!("[name    #{friend_number}] {name}"),
+        Event::FriendStatusMessage {
+            friend_number,
+            status_message,
+        } => println!("[status  #{friend_number}] {status_message}"),
+        Event::FriendStatus {
+            friend_number,
+            status,
+        } => println!("[state   #{friend_number}] {status:?}"),
+    }
+    Ok(())
+}
+
+/// Command file path: <save>.cmd
+fn cmd_path(save: &Path) -> PathBuf {
+    let mut p = save.as_os_str().to_os_string();
+    p.push(".cmd");
+    PathBuf::from(p)
+}
+
+/// Read and clear the command file (returns each non-empty line).
+fn read_commands(path: &Path) -> Vec<String> {
+    let Ok(content) = std::fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    // Clear the file so commands are executed exactly once.
+    let _ = std::fs::write(path, "");
+    // Strip a UTF-8 BOM that some editors / PowerShell add.
+    let content = content.trim_start_matches('\u{FEFF}');
+    content.lines().map(|l| l.to_string()).collect()
 }
 
 // ---------------------------------------------------------------------------

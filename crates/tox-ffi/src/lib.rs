@@ -164,8 +164,16 @@ extern "C" {
         friend_number: u32,
         error: *mut u32,
     ) -> usize;
-    pub fn tox_friend_get_connection_status(tox: *const Tox, friend_number: u32) -> Tox_Connection;
-    pub fn tox_friend_get_last_online(tox: *const Tox, friend_number: u32) -> u64;
+    pub fn tox_friend_get_connection_status(
+        tox: *const Tox,
+        friend_number: u32,
+        error: *mut u32,
+    ) -> Tox_Connection;
+    pub fn tox_friend_get_last_online(
+        tox: *const Tox,
+        friend_number: u32,
+        error: *mut u32,
+    ) -> u64;
     pub fn tox_self_get_friend_list_size(tox: *const Tox) -> usize;
     pub fn tox_self_get_friend_list(tox: *const Tox, list: *mut u32);
 
