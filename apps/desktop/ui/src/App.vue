@@ -18,6 +18,19 @@ const loading = ref(true);
 const searchQuery = ref("");
 const searchResults = ref<TimelineItem[]>([]);
 const searching = ref(false);
+const notifications = ref<{ id: number; text: string; time: number }[]>([]);
+const unread = ref(0);
+const showNotifications = ref(false);
+let notificationId = 0;
+
+function notify(text: string) {
+  notifications.value.unshift({ id: ++notificationId, text, time: Date.now() });
+  unread.value++;
+}
+
+function markAllRead() {
+  unread.value = 0;
+}
 
 async function refreshOwn() {
   own.value = await api.getOwnInfo();
@@ -49,27 +62,37 @@ onMounted(async () => {
   loading.value = false;
 
   // Live updates from the backend.
-  onEvent("feed:post", () => refreshTimeline());
+  onEvent("feed:post", () => {
+    refreshTimeline();
+    notify("收到新帖子");
+  });
   onEvent("feed:comment", () => {
     refreshTimeline();
     if (threadPostId.value) refreshThread();
+    notify("收到新评论");
   });
   onEvent("feed:reaction", () => {
     refreshTimeline();
     if (threadPostId.value) refreshThread();
+    notify("收到新反应");
   });
   onEvent("friend:connection", () => {
     refreshFriends();
     refreshOwn();
+    notify("好友连接状态变化");
   });
   onEvent("friend:request", () => {
     refreshFriends();
     refreshOwn();
+    notify("收到好友请求");
   });
   onEvent("friend:name", () => {
     refreshFriends();
     refreshTimeline();
+    notify("好友更新了昵称");
   });
+  onEvent("channel:message", () => notify("收到频道消息"));
+  onEvent("channel:connected", () => notify("已连接频道"));
 });
 
 const threadItems = ref<TimelineItem[]>([]);
@@ -113,8 +136,22 @@ async function runSearch() {
           关注 <span v-if="own" class="count">{{ own.friendCount }}</span>
         </button>
         <button :class="{ active: view === 'channels' }" @click="view = 'channels'">频道</button>
+        <button @click="showNotifications = !showNotifications">
+          通知 <span v-if="unread" class="count">{{ unread }}</span>
+        </button>
         <button :class="{ active: view === 'settings' }" @click="view = 'settings'">设置</button>
       </nav>
+      <div v-if="showNotifications" class="notif-panel">
+        <div class="notif-head">
+          <span>通知</span>
+          <button class="mini" @click="markAllRead">全部已读</button>
+        </div>
+        <div v-if="notifications.length === 0" class="empty">暂无通知</div>
+        <div v-for="n in notifications" :key="n.id" class="notif-item">
+          <span>{{ n.text }}</span>
+          <span class="time">{{ new Date(n.time).toLocaleTimeString() }}</span>
+        </div>
+      </div>
       <div class="sidebar-foot" v-if="own">
         <div class="dot" :class="{ online: own.friendCount > 0 }"></div>
         <span>{{ own.name || "未设置昵称" }}</span>
@@ -251,6 +288,42 @@ nav button.active {
 }
 .search-box {
   margin-bottom: 12px;
+}
+.notif-panel {
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px;
+  max-height: 260px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.notif-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-weight: 600;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+.notif-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  background: var(--bg-2);
+}
+.notif-item .time {
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+button.mini {
+  padding: 2px 8px;
+  font-size: 11px;
 }
 
 .me-panel {
