@@ -48,3 +48,27 @@ id = "你的OUTBOX_KV_ID"
 - 这只是**可选增强**
 - 没有它，ToxSocial 也能通过好友网络进行 P2P 目录查找和公开内容分发
 - 有它之后，搜索和发现会更快、更稳定
+
+## 当前部署状态（2026-08-16）
+- Worker 名称：`toxsocial-relay`
+- Workers.dev 地址：`https://toxsocial-relay.339148983.workers.dev`
+- 已绑定路由：
+  - `vcst.top/*`
+  - `www.vcst.top/*`
+
+### 让 vcst.top 生效
+如果访问 `https://vcst.top` 仍失败，请在 Cloudflare Dashboard 为 `vcst.top` 添加 DNS 记录：
+
+1. 进入域名 `vcst.top` → DNS → Records
+2. 添加：
+   - Type: `CNAME`
+   - Name: `@`
+   - Target: `toxsocial-relay.339148983.workers.dev`
+   - Proxy: `Proxied`（橙色云）
+3. 再添加一条：
+   - Type: `CNAME`
+   - Name: `www`
+   - Target: `toxsocial-relay.339148983.workers.dev`
+   - Proxy: `Proxied`
+
+保存后等待几分钟即可通过 `https://vcst.top` 访问。
