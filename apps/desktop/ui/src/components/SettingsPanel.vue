@@ -15,6 +15,10 @@ const saved = ref("");
 const imgurClientId = ref("");
 const mediaConfigured = ref(false);
 const mediaSaved = ref("");
+const deviceToxid = ref("");
+const deviceMsg = ref("你好，这是我的另一台设备");
+const syncResult = ref("");
+const syncing = ref(false);
 
 onMounted(async () => {
   if (props.own) {
@@ -41,6 +45,32 @@ async function saveMedia() {
     mediaSaved.value = "已保存 Imgur Client ID";
   } catch (e) {
     alert(String(e));
+  }
+}
+
+async function addDevice() {
+  if (!deviceToxid.value.trim()) return;
+  try {
+    await api.addFriend(deviceToxid.value.trim(), deviceMsg.value);
+    deviceToxid.value = "";
+    syncResult.value = "已发送设备好友请求；对方接受后会自动开始同步。";
+    emit("saved");
+  } catch (e) {
+    syncResult.value = String(e);
+  }
+}
+
+async function syncNow() {
+  if (syncing.value) return;
+  syncing.value = true;
+  syncResult.value = "";
+  try {
+    const n = await api.requestSyncAll();
+    syncResult.value = `已向 ${n} 个在线设备/好友发送同步请求`;
+  } catch (e) {
+    syncResult.value = String(e);
+  } finally {
+    syncing.value = false;
   }
 }
 
@@ -71,6 +101,28 @@ async function save() {
       <textarea v-model="bio" rows="2" maxlength="500" placeholder="一句话介绍自己"></textarea>
       <button class="primary" :disabled="busy" @click="save">保存并广播</button>
       <p v-if="saved" class="ok">{{ saved }}</p>
+    </div>
+
+    <div class="card">
+      <label>多设备同步</label>
+      <p class="tip">
+        每台设备使用独立 Tox 身份，设备之间互加好友后，通过现有 TSP 同步协议自动补齐帖子/评论/反应。
+        在另一台设备上也打开 ToxSocial，把下方 ToxID 填到对方“添加好友”，再把对方 ToxID 填到这里。
+      </p>
+      <div class="mono toxid">{{ own?.toxid }}</div>
+      <input
+        v-model="deviceToxid"
+        class="mono"
+        placeholder="对方设备的 ToxID（76 位十六进制）"
+      />
+      <input v-model="deviceMsg" placeholder="设备好友请求附言" />
+      <div class="row">
+        <button :disabled="deviceToxid.trim().length < 70" @click="addDevice">添加设备</button>
+        <button class="primary" :disabled="syncing" @click="syncNow">
+          {{ syncing ? "同步中…" : "立即同步" }}
+        </button>
+      </div>
+      <p v-if="syncResult" class="ok">{{ syncResult }}</p>
     </div>
 
     <div class="card">

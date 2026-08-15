@@ -4,7 +4,7 @@ use serde::Serialize;
 use tauri::State;
 
 use tox_core::Connection;
-use tox_social::envelope::{Comment, Envelope, Post, Profile, Reaction};
+use tox_social::envelope::{Comment, Envelope, Post, Profile, Reaction, SyncReq};
 use tox_store::PostKind;
 
 use crate::events;
@@ -404,6 +404,46 @@ pub fn conference_peers(
         });
     }
     Ok(peers)
+}
+
+#[tauri::command]
+pub fn request_sync_all(state: State<AppState>) -> Result<usize, String> {
+    let me = state.session.lock().unwrap().self_public_key();
+    let targets: Vec<(u32, String)> = {
+        let session = state.session.lock().unwrap();
+        session
+            .friend_list()
+            .into_iter()
+            .filter_map(|n| {
+                if session.friend_connection(n) == Connection::None {
+                    return None;
+                }
+                let pk = session.friend_public_key(n).ok()?;
+                Some((n, pk))
+            })
+            .collect()
+    };
+    let mut sent = 0;
+    for (friend_number, pk) in targets {
+        let since = state
+            .engine
+            .lock()
+            .unwrap()
+            .latest_ts_for_author(&pk)
+            .unwrap_or(0);
+        let req = Envelope::SyncReq(SyncReq {
+            v: tox_social::envelope::PROTOCOL_VERSION,
+            author: me.clone(),
+            ts: now_ms(),
+            since,
+        });
+        let wire = req.encode();
+        let session = state.session.lock().unwrap();
+        if session.send_message(friend_number, &wire).is_ok() {
+            sent += 1;
+        }
+    }
+    Ok(sent)
 }
 
 // ---------------------------------------------------------------------------

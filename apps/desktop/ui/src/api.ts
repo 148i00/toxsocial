@@ -27,6 +27,7 @@ export const api = {
     invoke<void>("conference_send", { conferenceNumber, text }),
   conferencePeers: (conferenceNumber: number) =>
     invoke<ConferencePeerInfo[]>("conference_peers", { conferenceNumber }),
+  requestSyncAll: () => invoke<number>("request_sync_all"),
 };
 
 export function onEvent<T>(event: string, cb: (payload: T) => void): Promise<UnlistenFn> {
