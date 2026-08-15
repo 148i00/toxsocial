@@ -78,6 +78,7 @@ CLI 双实例联调（M1/M2 验证方法，全部跑通过）：
 5. ✅ 收到 `sync_posts` 自动校验并持久化，CLI/Desktop 均会打印/emit
 6. ✅ CLI 双实例 E2E：Alice 离线期间发帖，Bob 重连后自动收到缺失帖子
 7. ✅ Desktop 取关功能可用：新增 `remove_friend_by_toxid` 命令并接入 FriendsPanel
+8. ✅ ThreadView 反应展示增强：按 emoji 分组计数显示
 
 **下一步（M4 剩余）**：
 - 长文/图片附件（Tox 文件传输）

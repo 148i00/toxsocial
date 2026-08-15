@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { api, formatTime } from "../api";
 import type { TimelineItem } from "../types";
 
@@ -11,6 +11,17 @@ const comments = ref<TimelineItem[]>([]);
 const reactions = ref<TimelineItem[]>([]);
 const commentText = ref("");
 const busy = ref(false);
+
+const reactionSummary = computed(() => {
+  const counts = new Map<string, number>();
+  for (const r of reactions.value) {
+    const e = r.emoji || "?";
+    counts.set(e, (counts.get(e) ?? 0) + 1);
+  }
+  return Array.from(counts.entries())
+    .map(([emoji, count]) => (count > 1 ? `${emoji} ${count}` : emoji))
+    .join("  ");
+});
 
 async function load() {
   const items = await api.fetchThread(props.postId);
@@ -49,7 +60,7 @@ onMounted(load);
       <div class="body">{{ post.text }}</div>
       <div class="stats">
         <span>💬 {{ comments.length }} 评论</span>
-        <span>⚡ {{ reactions.length }} 反应：{{ reactions.map((r) => r.emoji).join(" ") }}</span>
+        <span>⚡ {{ reactions.length }} 反应：{{ reactionSummary || "暂无" }}</span>
       </div>
     </article>
 
