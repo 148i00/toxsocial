@@ -1,0 +1,12 @@
+[package]
+name = "tox-core"
+description = "Safe Rust wrapper around c-toxcore (session lifecycle, event loop, callbacks to channel)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+tox-ffi = { path = "../tox-ffi" }
+hex = "0.4"
+
+[dev-dependencies]

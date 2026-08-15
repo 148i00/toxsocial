@@ -1,0 +1,20 @@
+# Rust
+/target
+**/*.rs.bk
+
+# c-toxcore build artifacts
+third_party/c-toxcore/build/
+third_party/c-toxcore/_build/
+third_party/c-toxcore/CMakeFiles/
+
+# Local identity / data files
+*.tox-save
+*.tox-save.db
+!docs/**
+
+# IDE / OS
+.idea/
+.vscode/
+*.iml
+Thumbs.db
+.DS_Store

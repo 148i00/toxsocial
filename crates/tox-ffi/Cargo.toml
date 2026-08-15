@@ -1,0 +1,11 @@
+[package]
+name = "tox-ffi"
+description = "Raw FFI bindings to c-toxcore (hand-written subset, ABI-safe accessors)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+build = "build.rs"
+
+[dependencies]
+
+[build-dependencies]

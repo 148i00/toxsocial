@@ -1,0 +1,18 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/tox-ffi",
+    "crates/tox-core",
+    "crates/tox-social",
+    "crates/tox-store",
+    "crates/tox-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/example/toxsocial"
+
+[profile.release]
+lto = true
