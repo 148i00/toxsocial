@@ -26,7 +26,10 @@ async function react(emoji: string) {
     <div class="body">{{ item.text }}</div>
     <div class="foot">
       <span class="stat">💬 {{ item.commentCount }}</span>
-      <span class="stat">⚡ {{ item.reactionCount }}</span>
+      <span class="stat">⚡
+        <template v-if="item.reactions.length">{{ item.reactions.map((r) => r.count > 1 ? `${r.emoji} ${r.count}` : r.emoji).join(" ") }}</template>
+        <template v-else>{{ item.reactionCount }}</template>
+      </span>
       <span class="actions" @click.stop>
         <button
           v-for="e in EMOJIS"

@@ -12,7 +12,7 @@ use tox_social::feed::Incoming;
 use tox_social::MAX_ENVELOPE_BYTES;
 use tox_store::{FriendRow, PostKind, PostRow, PostSource};
 
-use crate::commands::TimelineItem;
+use crate::commands::{ReactionSummary, TimelineItem};
 use crate::state::AppState;
 
 pub fn spawn_event_pump(app: AppHandle) {
@@ -357,8 +357,17 @@ pub(crate) fn item_from_row(
     row: &PostRow,
 ) -> TimelineItem {
     let me = state.session.lock().unwrap().self_public_key();
-    let (comment_count, reaction_count) = if row.kind == PostKind::Post {
+    let (comment_count, reaction_count, reactions) = if row.kind == PostKind::Post {
         let thread = engine.store().thread_for(&row.id).unwrap_or_default();
+        let mut counts: Vec<(String, usize)> = Vec::new();
+        for c in thread.iter().filter(|c| c.kind == PostKind::Reaction) {
+            let emoji = c.emoji.clone().unwrap_or_default();
+            if let Some(entry) = counts.iter_mut().find(|(e, _)| *e == emoji) {
+                entry.1 += 1;
+            } else {
+                counts.push((emoji, 1));
+            }
+        }
         (
             thread
                 .iter()
@@ -368,9 +377,13 @@ pub(crate) fn item_from_row(
                 .iter()
                 .filter(|c| c.kind == PostKind::Reaction)
                 .count(),
+            counts
+                .into_iter()
+                .map(|(emoji, count)| ReactionSummary { emoji, count })
+                .collect(),
         )
     } else {
-        (0, 0)
+        (0, 0, Vec::new())
     };
     TimelineItem {
         id: row.id.clone(),
@@ -395,6 +408,7 @@ pub(crate) fn item_from_row(
         parent_id: row.parent_id.clone(),
         comment_count,
         reaction_count,
+        reactions,
         is_own: row.author == me,
         source: match row.source {
             PostSource::SelfPublished => "self",

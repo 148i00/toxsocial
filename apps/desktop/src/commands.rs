@@ -26,6 +26,13 @@ pub struct OwnInfo {
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
+pub struct ReactionSummary {
+    pub emoji: String,
+    pub count: usize,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct TimelineItem {
     pub id: String,
     pub author: String,
@@ -37,6 +44,7 @@ pub struct TimelineItem {
     pub parent_id: Option<String>,
     pub comment_count: usize,
     pub reaction_count: usize,
+    pub reactions: Vec<ReactionSummary>,
     pub is_own: bool,
     pub source: String,
 }

@@ -6,6 +6,11 @@ export interface OwnInfo {
   friendCount: number;
 }
 
+export interface ReactionSummary {
+  emoji: string;
+  count: number;
+}
+
 export interface TimelineItem {
   id: string;
   author: string;
@@ -17,6 +22,7 @@ export interface TimelineItem {
   parentId: string | null;
   commentCount: number;
   reactionCount: number;
+  reactions: ReactionSummary[];
   isOwn: boolean;
   source: string;
 }
