@@ -29,6 +29,9 @@ export const api = {
     invoke<void>("conference_send", { conferenceNumber, text }),
   conferencePeers: (conferenceNumber: number) =>
     invoke<ConferencePeerInfo[]>("conference_peers", { conferenceNumber }),
+  getConferenceId: (conferenceNumber: number) =>
+    invoke<string>("get_conference_id", { conferenceNumber }),
+  listConferences: () => invoke<number[]>("list_conferences"),
   requestSyncAll: () => invoke<number>("request_sync_all"),
   searchPosts: (query: string, limit?: number) =>
     invoke<TimelineItem[]>("search_posts", { query, limit }),

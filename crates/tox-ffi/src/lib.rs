@@ -54,6 +54,7 @@ pub type Tox_Message_Type = u32;
 pub const TOX_MESSAGE_TYPE_NORMAL: Tox_Message_Type = 0;
 pub const TOX_MESSAGE_TYPE_ACTION: Tox_Message_Type = 1;
 
+pub const TOX_CONFERENCE_ID_SIZE: usize = 32;
 pub type Tox_Conference_Number = u32;
 pub type Tox_Conference_Peer_Number = u32;
 pub type Tox_Conference_Type = u32;
@@ -187,6 +188,10 @@ extern "C" {
     pub fn tox_conference_new(tox: *mut Tox, error: *mut u32) -> Tox_Conference_Number;
     pub fn tox_conference_delete(tox: *mut Tox, conference_number: u32, error: *mut u32) -> bool;
     pub fn tox_conference_peer_count(tox: *const Tox, conference_number: u32, error: *mut u32) -> u32;
+    pub fn tox_conference_get_id(tox: *const Tox, conference_number: u32, id: *mut u8) -> bool;
+    pub fn tox_conference_by_id(tox: *const Tox, id: *const u8, error: *mut u32) -> u32;
+    pub fn tox_conference_get_chatlist_size(tox: *const Tox) -> usize;
+    pub fn tox_conference_get_chatlist(tox: *const Tox, chatlist: *mut u32);
     pub fn tox_conference_peer_get_name_size(
         tox: *const Tox,
         conference_number: u32,

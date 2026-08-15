@@ -629,6 +629,37 @@ impl ToxSession {
         Ok(hex::encode(buf))
     }
 
+    /// Return the stable unique ID of a conference (64 hex chars).
+    pub fn conference_get_id(&self, conference_number: u32) -> Result<String, ToxError> {
+        let mut buf = [0u8; TOX_CONFERENCE_ID_SIZE];
+        let ok = unsafe { tox_conference_get_id(self.tox, conference_number, buf.as_mut_ptr()) };
+        if !ok {
+            return Err(ToxError::Conference(0));
+        }
+        Ok(hex::encode(buf))
+    }
+
+    /// Find a conference by its stable unique ID.
+    pub fn conference_by_id(&self, id: &str) -> Result<u32, ToxError> {
+        let bytes = hex_to_bytes(id, TOX_CONFERENCE_ID_SIZE)?;
+        let mut err: u32 = 0;
+        let n = unsafe { tox_conference_by_id(self.tox, bytes.as_ptr(), &mut err) };
+        if err != 0 {
+            return Err(ToxError::Conference(err));
+        }
+        Ok(n)
+    }
+
+    /// List all conference numbers currently known to this Tox instance.
+    pub fn conference_chatlist(&self) -> Vec<u32> {
+        let size = unsafe { tox_conference_get_chatlist_size(self.tox) };
+        let mut list = vec![0u32; size];
+        if size > 0 {
+            unsafe { tox_conference_get_chatlist(self.tox, list.as_mut_ptr()) };
+        }
+        list
+    }
+
     // --- events ---------------------------------------------------------------
 
     /// Non-blocking read of the next event.

@@ -428,6 +428,19 @@ fn handle_event(
             match session.add_friend_norequest(&public_key) {
                 Ok(n) => {
                     println!("  -> accepted as #{n}");
+                    if let Some(channel_id) = msg.strip_prefix("join_channel ") {
+                        let channel_id = channel_id.trim();
+                        if let Ok(conf) = session.conference_by_id(channel_id) {
+                            match session.conference_invite(n, conf) {
+                                Ok(()) => println!(
+                                    "  -> invited new friend #{n} to channel {channel_id}"
+                                ),
+                                Err(e) => eprintln!("  -> auto-invite failed: {e}"),
+                            }
+                        } else {
+                            eprintln!("  -> unknown channel {channel_id}");
+                        }
+                    }
                     persist(session, save)?;
                 }
                 Err(e) => println!("  -> accept failed: {e}"),

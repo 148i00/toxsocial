@@ -79,6 +79,21 @@ fn handle_event(app: &AppHandle, state: &State<AppState>, ev: Event) {
             match accepted {
                 Ok(n) => {
                     state.persist();
+                    if let Some(channel_id) = msg.strip_prefix("join_channel ") {
+                        let channel_id = channel_id.trim();
+                        let session = state.session.lock().unwrap();
+                        match session.conference_by_id(channel_id) {
+                            Ok(conf) => match session.conference_invite(n, conf) {
+                                Ok(()) => println!(
+                                    "[toxsocial] invited new friend #{n} to channel {channel_id}"
+                                ),
+                                Err(e) => eprintln!("[toxsocial] auto-invite failed: {e}"),
+                            },
+                            Err(e) => eprintln!(
+                                "[toxsocial] join_channel request for unknown channel {channel_id}: {e}"
+                            ),
+                        }
+                    }
                     let _ = app.emit(
                         "friend:request",
                         json!({ "publicKey": public_key, "message": msg, "accepted": true, "friendNumber": n }),

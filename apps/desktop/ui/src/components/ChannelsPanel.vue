@@ -4,6 +4,8 @@ import { api, onEvent } from "../api";
 import { t } from "../i18n";
 
 const conferenceNumber = ref<number | null>(null);
+const channelId = ref("");
+const ownToxid = ref("");
 const friendNumber = ref("0");
 const message = ref("");
 const messages = ref<{ peer: string; text: string }[]>([]);
@@ -50,12 +52,22 @@ async function joinPublic(ch: PublicChannel) {
   }
 }
 
+async function refreshChannelId() {
+  if (conferenceNumber.value === null) return;
+  try {
+    channelId.value = await api.getConferenceId(conferenceNumber.value);
+  } catch {
+    channelId.value = "";
+  }
+}
+
 async function create() {
   if (busy.value) return;
   busy.value = true;
   error.value = "";
   try {
     conferenceNumber.value = await api.conferenceNew();
+    await refreshChannelId();
     log.value.push(`已创建频道 #${conferenceNumber.value}`);
   } catch (e) {
     error.value = String(e);
@@ -93,14 +105,24 @@ async function send() {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
+  try {
+    const info = await api.getOwnInfo();
+    ownToxid.value = info.toxid;
+  } catch {
+    /* ignore */
+  }
   onEvent("channel:message", (e: { conferenceNumber: number; peerNumber: number; text: string }) => {
     messages.value.push({ peer: `#${e.peerNumber}`, text: e.text });
   });
-  onEvent("channel:connected", (e: { conferenceNumber: number }) => {
+  onEvent("channel:connected", async (e: { conferenceNumber: number }) => {
+    conferenceNumber.value = e.conferenceNumber;
+    await refreshChannelId();
     log.value.push(`已连接频道 #${e.conferenceNumber}`);
   });
-  onEvent("channel:joined", (e: { conferenceNumber: number; friendNumber: number }) => {
+  onEvent("channel:joined", async (e: { conferenceNumber: number; friendNumber: number }) => {
+    conferenceNumber.value = e.conferenceNumber;
+    await refreshChannelId();
     log.value.push(`已接受好友 #${e.friendNumber} 的邀请，加入频道 #${e.conferenceNumber}`);
   });
 });
@@ -117,6 +139,16 @@ onMounted(() => {
         <button class="primary" :disabled="busy" @click="create">{{ t("createChannel") }}</button>
       </div>
       <p v-if="error" class="error">{{ error }}</p>
+    </div>
+
+    <div class="card" v-if="conferenceNumber !== null">
+      <label>邀请链接 / 频道 ID</label>
+      <p class="tip">
+        把下面的 ToxID 和频道 ID 发给朋友，让对方添加你并在好友请求附言中写：
+        <code>join_channel {{ channelId }}</code>
+      </p>
+      <div class="mono toxid">ToxID: {{ ownToxid }}</div>
+      <div class="mono toxid">频道ID: {{ channelId }}</div>
     </div>
 
     <div class="card" v-if="conferenceNumber !== null">
@@ -242,5 +274,16 @@ h2 {
   color: var(--text-dim);
   font-size: 12px;
   line-height: 1.5;
+}
+.toxid {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px;
+}
+code {
+  background: var(--bg-3);
+  border-radius: 4px;
+  padding: 1px 5px;
 }
 </style>

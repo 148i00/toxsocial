@@ -86,6 +86,8 @@ pub fn run() {
             commands::conference_invite,
             commands::conference_send,
             commands::conference_peers,
+            commands::get_conference_id,
+            commands::list_conferences,
             commands::request_sync_all,
             commands::search_posts,
         ])
