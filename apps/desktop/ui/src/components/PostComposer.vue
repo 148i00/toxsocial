@@ -14,6 +14,14 @@ const uploading = ref(false);
 const mediaError = ref("");
 const fileInput = ref<HTMLInputElement | null>(null);
 
+function insertImageUrl() {
+  const url = prompt("输入图片 URL（http/https）：");
+  if (!url) return;
+  const md = `![图片](${url.trim()})`;
+  text.value = text.value ? `${text.value}
+${md}` : md;
+}
+
 async function onFileSelected(e: Event) {
   const input = e.target as HTMLInputElement;
   const file = input.files?.[0];
@@ -82,6 +90,7 @@ async function submit() {
       <button :disabled="uploading" @click="fileInput?.click()">
         {{ uploading ? t("uploading") : t("imageVideo") }}
       </button>
+      <button @click="insertImageUrl">图片 URL</button>
       <button class="primary" :disabled="busy || uploading || !text.trim()" @click="submit">
         {{ busy ? t("sending") : t("publish") }}
       </button>

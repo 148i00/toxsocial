@@ -200,6 +200,47 @@ pub async fn set_avatar(state: State<'_, AppState>, data_base64: String) -> Resu
 }
 
 #[tauri::command]
+pub fn set_avatar_url(state: State<AppState>, url: String) -> Result<(), String> {
+    let url = url.trim().to_string();
+    if !url.starts_with("http://") && !url.starts_with("https://") {
+        return Err("头像 URL 必须以 http:// 或 https:// 开头".to_string());
+    }
+    {
+        let engine = state.engine.lock().unwrap();
+        engine
+            .store()
+            .kv_set("avatar_url", &url)
+            .map_err(|e| e.to_string())?;
+    }
+    // Broadcast updated profile.
+    let me = state.session.lock().unwrap().self_public_key();
+    let name = state.session.lock().unwrap().self_name();
+    let bio = state
+        .session
+        .lock()
+        .unwrap()
+        .self_status_message()
+        .unwrap_or_default();
+    let profile = Profile {
+        v: tox_social::envelope::PROTOCOL_VERSION,
+        author: me,
+        ts: now_ms(),
+        name,
+        bio,
+        avatar: url.clone(),
+        avatar_len: url.len() as u64,
+    };
+    let wire = Envelope::Profile(profile).encode();
+    let session = state.session.lock().unwrap();
+    for n in session.friend_list() {
+        if session.friend_connection(n) != Connection::None {
+            let _ = session.send_message(n, &wire);
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
 pub fn add_friend(state: State<AppState>, toxid: String, message: String) -> Result<u32, String> {
     let n = {
         let mut session = state.session.lock().unwrap();

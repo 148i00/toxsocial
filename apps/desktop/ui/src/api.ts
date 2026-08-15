@@ -19,6 +19,7 @@ export const api = {
   uploadMedia: (dataBase64: string, filename: string) =>
     invoke<string>("upload_media", { dataBase64, filename }),
   setAvatar: (dataBase64: string) => invoke<string>("set_avatar", { dataBase64 }),
+  setAvatarUrl: (url: string) => invoke<void>("set_avatar_url", { url }),
   setImgurClientId: (clientId: string) => invoke<void>("set_imgur_client_id", { clientId }),
   getMediaConfig: () => invoke<MediaConfig>("get_media_config"),
   conferenceNew: () => invoke<number>("conference_new"),

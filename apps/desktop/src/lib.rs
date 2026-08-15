@@ -69,6 +69,7 @@ pub fn run() {
             commands::get_own_info,
             commands::set_profile,
             commands::set_avatar,
+            commands::set_avatar_url,
             commands::add_friend,
             commands::remove_friend,
             commands::remove_friend_by_toxid,

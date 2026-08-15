@@ -23,6 +23,7 @@ const syncResult = ref("");
 const syncing = ref(false);
 const avatarFile = ref<HTMLInputElement | null>(null);
 const avatarBusy = ref(false);
+const avatarUrl = ref("");
 
 onMounted(async () => {
   if (props.own) {
@@ -75,6 +76,19 @@ async function syncNow() {
     syncResult.value = String(e);
   } finally {
     syncing.value = false;
+  }
+}
+
+async function saveAvatarUrl() {
+  const url = avatarUrl.value.trim();
+  if (!url) return;
+  try {
+    await api.setAvatarUrl(url);
+    avatarUrl.value = "";
+    emit("saved");
+    alert("头像 URL 已保存并广播给好友");
+  } catch (e) {
+    alert(String(e));
   }
 }
 
@@ -146,7 +160,11 @@ async function save() {
           {{ avatarBusy ? "上传中…" : "上传头像" }}
         </button>
       </div>
-      <p class="tip">头像会通过 Imgur 上传并随资料广播给好友。</p>
+      <div class="row">
+        <input v-model="avatarUrl" placeholder="或填写图片 URL（http/https）" />
+        <button :disabled="!avatarUrl.trim()" @click="saveAvatarUrl">使用 URL</button>
+      </div>
+      <p class="tip">头像可上传到 Imgur，也可直接使用其他图床的图片 URL。</p>
     </div>
 
     <div class="card">
