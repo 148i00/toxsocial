@@ -1,5 +1,7 @@
 # ToxSocial
 
+> GitHub: https://github.com/148i00/toxsocial
+
 基于 [c-toxcore](https://github.com/TokTok/c-toxcore)（Tox 协议）构建的**去中心化社交软件（类推特）**：
 无服务器、端到端加密，身份即公钥（ToxID），关注即 Tox 好友，帖子加密广播给所有好友，时间线本地聚合。
 
