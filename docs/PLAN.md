@@ -167,14 +167,14 @@ cargo build   # build.rs: 定位静态库 + 调用 bindgen（或读取检入的 
 - [x] `tox-cli` 冒烟：`tox_new` → 打印 ToxID → save → load 验证
 - [x] 双实例端到端联调：好友请求/接受 → UDP 加密连接 → 帖子/评论广播 → SQLite 持久化 → 时间线查询
 
-## 9. 实际进度记录（M0/M1/M2 已超额完成）
+## 9. 实际进度记录（M0-M3 已完成）
 
 | 里程碑 | 状态 | 证据 |
 |---|---|---|
 | **M0** 环境与构建管线 | ✅ 完成 | cmake 4.4.2 + LLVM 22.1.8 + vcpkg(libsodium 1.0.22) + c-toxcore 0.2.23 静态库；`cargo check` 全绿；20 个单测通过；bindgen 0.72.1 生成 1491 行绑定 |
 | **M1** 身份与连接 | ✅ 核心验证 | 双实例经公共 DHT bootstrap，好友请求/自动接受，`online (udp)` 加密连接，名字交换 |
 | **M2** 社交协议核心 | ✅ 核心验证 | `TSP/1 ` 信封（post/comment/reaction/profile），发帖 fan-out 到在线好友，收端作者校验+SQLite 持久化+时间线聚合+评论线程 |
-| **M3** Tauri 桌面 MVP | ⏳ 未开始 | 下一步 |
+| **M3** Tauri 桌面 MVP | ✅ 核心验证 | Tauri v2 应用可启动；与 `tox-cli` Carol 完成好友请求/自动接受 → UDP 连接 → 发帖/评论 E2E；修复 3 处 Mutex 死锁 |
 
 ### 关键经验（踩坑记录）
 
@@ -185,3 +185,4 @@ cargo build   # build.rs: 定位静态库 + 调用 bindgen（或读取检入的 
 5. **c-toxcore 目标名是 `toxcore_static`**（VS 生成器），静态库位于 `build/c-toxcore/Release/toxcore_static.lib`；Windows 链接需 `pthreadVC3.lib`（vcpkg pthreads4w）。
 6. **edition 2021 精确捕获**：闭包内 `tox.0` 只捕获字段（raw pointer）导致 Send 检查失败；先 `let tox = tox` 重绑定强制整体捕获。
 7. **toxcore 非线程安全**（默认）：所有 FFI 调用集中在单线程（事件循环线程内），外部只经 channel 收事件 —— tox-core 已按此设计。
+8. **`std::sync::Mutex` 不可重入**：持有 session/engine 锁时不要调用 `state.persist()` / `state.name_for()`；M3 E2E 发现 3 处死锁，修复方式为缩小锁作用域或从已持有的 `engine.store()` 直接读好友名。

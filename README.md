@@ -15,11 +15,12 @@ Rust (workspace) + Tauri v2 + Vue3 + SQLite，底层 c-toxcore（GPLv3）经 bin
 
 ## 状态
 
-**M0 ✅ / M1 ✅ / M2 ✅（核心链路已端到端验证）** → 下一步：M3 Tauri 桌面端。
+**M0 ✅ / M1 ✅ / M2 ✅ / M3 ✅**（M3：Tauri 桌面端跨进程 E2E 已跑通）。
 
 已完成：构建管线（CMake + vcpkg + c-toxcore 0.2.23 静态库 + bindgen）、`ToxSession` 安全封装、
 `TSP/1` 社交协议（帖子/评论/点赞信封 + Feed 引擎 + SQLite 持久化）、`tox-cli` 双实例联调
-（DHT bootstrap → 好友请求/接受 → UDP 加密连接 → 发帖 fan-out → 时间线聚合）。
+（DHT bootstrap → 好友请求/接受 → UDP 加密连接 → 发帖 fan-out → 时间线聚合）、
+Tauri v2 桌面端（Vue3 三栏 UI + Rust 命令/事件泵，已验证 App ↔ CLI 好友请求/发帖/评论）。
 
 ```powershell
 # 构建（c-toxcore 静态库已就绪，无需重新编译）

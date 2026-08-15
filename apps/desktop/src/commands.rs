@@ -109,20 +109,24 @@ pub fn set_profile(
 
 #[tauri::command]
 pub fn add_friend(state: State<AppState>, toxid: String, message: String) -> Result<u32, String> {
-    let mut session = state.session.lock().unwrap();
-    let n = session
-        .add_friend(toxid.trim(), message.trim())
-        .map_err(|e| format!("add friend failed: {e}"))?;
+    let n = {
+        let mut session = state.session.lock().unwrap();
+        session
+            .add_friend(toxid.trim(), message.trim())
+            .map_err(|e| format!("add friend failed: {e}"))?
+    };
     state.persist();
     Ok(n)
 }
 
 #[tauri::command]
 pub fn remove_friend(state: State<AppState>, friend_number: u32) -> Result<(), String> {
-    let mut session = state.session.lock().unwrap();
-    session
-        .delete_friend(friend_number)
-        .map_err(|e| format!("remove friend failed: {e}"))?;
+    {
+        let mut session = state.session.lock().unwrap();
+        session
+            .delete_friend(friend_number)
+            .map_err(|e| format!("remove friend failed: {e}"))?;
+    }
     state.persist();
     Ok(())
 }

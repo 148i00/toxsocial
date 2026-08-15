@@ -71,8 +71,11 @@ fn handle_event(app: &AppHandle, state: &State<AppState>, ev: Event) {
         Event::FriendRequest { public_key, message } => {
             let msg = String::from_utf8_lossy(&message).into_owned();
             println!("[toxsocial] friend request from {public_key}: {msg}");
-            let mut session = state.session.lock().unwrap();
-            match session.add_friend_norequest(&public_key) {
+            let accepted = {
+                let mut session = state.session.lock().unwrap();
+                session.add_friend_norequest(&public_key)
+            };
+            match accepted {
                 Ok(n) => {
                     state.persist();
                     let _ = app.emit(
@@ -97,10 +100,13 @@ fn handle_event(app: &AppHandle, state: &State<AppState>, ev: Event) {
             if pk.is_empty() {
                 return;
             }
-            let engine = state.engine.lock().unwrap();
-            match engine.handle_incoming(&pk, &text) {
+            let outcome = {
+                let engine = state.engine.lock().unwrap();
+                engine.handle_incoming(&pk, &text)
+            };
+            let name = state.name_for(&pk);
+            match outcome {
                 Incoming::Persisted(env) => {
-                    let name = state.name_for(&pk);
                     match env {
                         Envelope::Post(p) => {
                             println!("[toxsocial] post received from {name}: {}", p.text);
@@ -130,7 +136,6 @@ fn handle_event(app: &AppHandle, state: &State<AppState>, ev: Event) {
                 }
                 Incoming::Rejected(_) => {
                     // Plain chat message — not part of the social protocol yet.
-                    let name = state.name_for(&pk);
                     let _ = app.emit(
                         "chat:message",
                         json!({ "author": pk, "authorName": name, "text": text }),
@@ -237,7 +242,14 @@ pub(crate) fn item_from_row(
     TimelineItem {
         id: row.id.clone(),
         author: row.author.clone(),
-        author_name: state.name_for(&row.author),
+        author_name: engine
+            .store()
+            .friend_list()
+            .unwrap_or_default()
+            .into_iter()
+            .find(|f| f.toxid == row.author && !f.name.is_empty())
+            .map(|f| f.name)
+            .unwrap_or_else(|| short(&row.author).to_string()),
         kind: match row.kind {
             PostKind::Post => "post",
             PostKind::Comment => "comment",

@@ -7,7 +7,7 @@
 
 > 基于 Tox 协议（c-toxcore + Rust FFI）开发一个去中心化的类推特社交软件：先完成规划文档，再按阶段实现（身份/连接 → 帖子广播与时间线 → 评论 → Tauri 桌面端 MVP）。技术栈已选定：Tauri v2 前端 + Rust 后端 + 自建 c-toxcore（CMake）+ bindgen 绑定。
 
-**当前进度**：M0 ✅ / M1 ✅ / M2 ✅（核心链路已端到端验证）／ **M3 Tauri 桌面端：代码全部写完、编译通过、应用可启动（窗口正常、身份创建/加载、DHT bootstrap、事件泵心跳均正常），但"GUI 内交互 + 跨进程发帖收帖"的完整 E2E 尚未跑完**（上一 session 最后一步：应用已在后台启动等待 Carol 的好友请求时被用户手动关闭窗口，E2E 验证中断）。
+**当前进度**：M0 ✅ / M1 ✅ / M2 ✅（核心链路已端到端验证）／ **M3 Tauri 桌面端 ✅：跨进程 E2E 已跑通**（App 自动接受好友请求 → 与 `tox-cli` 建立 UDP 连接 → 收到并持久化帖子/评论；期间修复了 3 处 Mutex 非重入导致的死锁）。
 
 ## 1. 环境事实（重要，勿重复踩坑）
 
@@ -70,10 +70,17 @@ CLI 双实例联调（M1/M2 验证方法，全部跑通过）：
 
 **验证过的运行时行为**：启动 → 自动创建/加载身份 → 打印 ToxID → bootstrap 到 4 个 DHT 节点 → 心跳日志每 10s（friends/online 计数）。**应用退出码 0 是用户手动关窗口，非 bug。**
 
-**下一步（M3 收尾）**：
-1. 启动应用 + `tox-cli` 端 Carol 实例，Carol `add <App的ToxID>`（App ToxID 见启动日志 `[toxsocial] identity: ...`），验证 App 自动接受（日志 `[toxsocial] friend request from ...`）、连接建立（`pump alive: friends=1 online=1`）、Carol 发帖后 App 日志出现 `[toxsocial] post received from ...`（此日志已埋点）
-2. 确认 GUI 交互正常（用户可肉眼确认窗口）
-3. 之后进入 M4：离线回补（sync_req/sync_posts 已定协议未实现）、长文/图片附件（Tox 文件传输）、频道（conference 群聊）、评论/反应计数 UI 增强
+**M3 收尾已完成**：
+1. ✅ 启动 App + `tox-cli` Carol 实例，Carol `add <App的ToxID>`，App 自动接受（日志 `[toxsocial] friend request from ...`）
+2. ✅ 连接建立：`pump alive: friends=1 online=1`，Carol 端 `online (udp)`
+3. ✅ Carol 发帖后 App 日志出现 `[toxsocial] post received from ...`，评论也写入 App 的 SQLite（`tox-cli timeline` 可查到帖子+评论）
+4. ✅ 修复了 3 处 `Mutex` 非重入死锁（见 §5 新踩坑）
+
+**下一步（M4）**：
+- 离线回补（sync_req/sync_posts 已定协议未实现）
+- 长文/图片附件（Tox 文件传输）
+- 频道（conference 群聊）
+- 评论/反应计数 UI 增强
 
 ## 5. 关键技术事实与踩坑（务必先读 docs/PLAN.md §9）
 
@@ -87,10 +94,11 @@ CLI 双实例联调（M1/M2 验证方法，全部跑通过）：
 8. npm 的 allow-scripts 会拦 esbuild postinstall：`node node_modules/esbuild/install.js` 手动补
 9. `tauri icon` 命令必须从含 tauri.conf.json 的目录跑：`& .\ui\node_modules\.bin\tauri.cmd icon <png>`
 10. edition 2021 闭包精确捕获：raw pointer 字段需先 `let x = x;` 重绑定再进闭包（Send 检查）
+11. **`std::sync::Mutex` 不可重入**：持有 session/engine 锁时不要调用 `state.persist()`（会再锁 session）或 `state.name_for()`（会再锁 engine）。M3 E2E 中因此出现过 3 处死锁：好友请求自动接受后不持久化、收到帖子后不打印/不 emit、前端拉时间线时卡死。修复方式是先缩小锁作用域，或在已持 engine 锁时直接从 `engine.store()` 读好友名。
 
 ## 6. 约定与备忘
 
-- 提交规范：git 已用 `toxsocial-dev` 身份提交，工作树当前有未提交的 M3 改动（apps/ 整个目录 + bootstrap.rs 等），**交接前请先 commit**（上一位即将提交）
+- 提交规范：git 已用 `toxsocial-dev` 身份提交；M3 主体已在上一 session 提交，本 session 的 M3 E2E 死锁修复（`apps/desktop/src/commands.rs`、`apps/desktop/src/events.rs`）和本文档更新待提交
 - `.gitignore` 已忽略：target/、build/、ui/node_modules、ui/dist、test-*.tox/db/cmd
 - 许可证：c-toxcore GPLv3，本项目整体 GPL-3.0-or-later
 - 语言：用户用中文交流，回复用中文
