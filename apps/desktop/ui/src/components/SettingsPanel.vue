@@ -2,6 +2,7 @@
 import { onMounted, ref } from "vue";
 import QRCode from "qrcode";
 import { api } from "../api";
+import { locale, setLocale, t } from "../i18n";
 import type { OwnInfo } from "../types";
 
 const props = defineProps<{ own: OwnInfo | null }>();
@@ -92,7 +93,15 @@ async function save() {
 
 <template>
   <div class="panel">
-    <h2>设置</h2>
+    <h2>{{ t("settingsTitle") }}</h2>
+
+    <div class="card">
+      <label>语言 / Language</label>
+      <div class="row">
+        <button :class="{ active: locale === 'zh' }" @click="setLocale('zh')">中文</button>
+        <button :class="{ active: locale === 'en' }" @click="setLocale('en')">English</button>
+      </div>
+    </div>
 
     <div class="card">
       <label>昵称</label>
@@ -200,6 +209,10 @@ label {
 .state {
   color: var(--text-dim);
   font-size: 12px;
+}
+.row button.active {
+  background: var(--accent);
+  color: #fff;
 }
 .toxid {
   background: var(--bg);

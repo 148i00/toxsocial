@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from "vue";
 import { api } from "../api";
+import { t } from "../i18n";
 import type { FriendInfo } from "../types";
 
 defineProps<{ friends: FriendInfo[] }>();
@@ -43,14 +44,14 @@ async function remove(f: FriendInfo) {
 
 <template>
   <div class="panel">
-    <h2>关注管理</h2>
+    <h2>{{ t("friendsTitle") }}</h2>
     <div class="add-box">
       <input
         v-model="toxid"
         class="mono"
-        placeholder="粘贴好友的 ToxID（76 位十六进制）"
+        :placeholder="t('addFriendPlaceholder')"
       />
-      <input v-model="message" placeholder="好友请求附言" />
+      <input v-model="message" :placeholder="t('addFriendMsgPlaceholder')" />
       <button class="primary" :disabled="busy || toxid.trim().length < 70" @click="add">
         添加
       </button>
@@ -59,7 +60,7 @@ async function remove(f: FriendInfo) {
     </div>
 
     <div v-if="friends.length === 0" class="empty">
-      还没有好友。把上方输入框换成你的 ToxID 发给别人，或粘贴对方的 ToxID 添加。
+      {{ t("noFriends") }}
     </div>
     <div v-for="f in friends" :key="f.toxid" class="friend">
       <span class="dot" :class="{ online: f.online }"></span>
@@ -67,8 +68,8 @@ async function remove(f: FriendInfo) {
         <div class="name">{{ f.name || "未命名好友" }}</div>
         <div class="mono">{{ f.toxid }}</div>
       </div>
-      <span class="state">{{ f.online ? "在线" : "离线" }}</span>
-      <button class="danger" @click="remove(f)">取关</button>
+      <span class="state">{{ f.online ? t("online") : t("offline") }}</span>
+      <button class="danger" @click="remove(f)">{{ t("unfollow") }}</button>
     </div>
   </div>
 </template>

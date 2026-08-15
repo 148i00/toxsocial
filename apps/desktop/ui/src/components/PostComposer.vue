@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from "vue";
 import { api } from "../api";
+import { t } from "../i18n";
 import type { OwnInfo } from "../types";
 
 defineProps<{ own: OwnInfo | null }>();
@@ -70,19 +71,19 @@ async function submit() {
       v-model="text"
       rows="3"
       maxlength="50000"
-      placeholder="分享你的想法…（端到端加密广播给所有好友，支持 Markdown 和长文自动分片）"
+      :placeholder="t('composerPlaceholder')"
       @keydown.ctrl.enter="submit"
     ></textarea>
     <div class="row">
-      <span class="hint">Ctrl+Enter 发送 · 上限 50000 字符 · 支持 Markdown 与长文分片</span>
+      <span class="hint">{{ t("composerHint") }}</span>
       <span v-if="mediaError" class="error">{{ mediaError }}</span>
       <span v-if="error" class="error">{{ error }}</span>
       <input ref="fileInput" type="file" accept="image/*,video/*" hidden @change="onFileSelected" />
       <button :disabled="uploading" @click="fileInput?.click()">
-        {{ uploading ? "上传中…" : "图片/视频" }}
+        {{ uploading ? t("uploading") : t("imageVideo") }}
       </button>
       <button class="primary" :disabled="busy || uploading || !text.trim()" @click="submit">
-        {{ busy ? "发送中…" : "发布" }}
+        {{ busy ? t("sending") : t("publish") }}
       </button>
     </div>
   </div>

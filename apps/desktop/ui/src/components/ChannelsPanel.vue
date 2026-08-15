@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
 import { api, onEvent } from "../api";
+import { t } from "../i18n";
 
 const conferenceNumber = ref<number | null>(null);
 const friendNumber = ref("0");
@@ -68,24 +69,24 @@ onMounted(() => {
 
 <template>
   <div class="panel">
-    <h2>频道</h2>
+    <h2>{{ t("channelsTitle") }}</h2>
 
     <div class="card">
       <div class="row">
         <span class="state" v-if="conferenceNumber !== null">当前频道 #{{ conferenceNumber }}</span>
         <span class="state" v-else>尚未创建/加入频道</span>
-        <button class="primary" :disabled="busy" @click="create">创建频道</button>
+        <button class="primary" :disabled="busy" @click="create">{{ t("createChannel") }}</button>
       </div>
       <p v-if="error" class="error">{{ error }}</p>
     </div>
 
     <div class="card" v-if="conferenceNumber !== null">
-      <label>邀请好友（好友编号）</label>
+      <label>{{ t("inviteFriend") }}</label>
       <div class="row">
         <input v-model="friendNumber" type="number" min="0" />
-        <button :disabled="busy" @click="invite">邀请</button>
+        <button :disabled="busy" @click="invite">{{ t("add") }}</button>
       </div>
-      <label>发送消息</label>
+      <label>{{ t("sendMessage") }}</label>
       <div class="row">
         <input
           v-model="message"
@@ -93,7 +94,7 @@ onMounted(() => {
           placeholder="输入频道消息"
           @keydown.enter="send"
         />
-        <button class="primary" :disabled="busy || !message.trim()" @click="send">发送</button>
+        <button class="primary" :disabled="busy || !message.trim()" @click="send">{{ t("send") }}</button>
       </div>
     </div>
 

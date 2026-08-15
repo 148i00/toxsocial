@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
 import { api, onEvent } from "./api";
+import { t } from "./i18n";
 import type { FriendInfo, OwnInfo, TimelineItem } from "./types";
 import PostComposer from "./components/PostComposer.vue";
 import PostCard from "./components/PostCard.vue";
@@ -135,11 +136,11 @@ async function runSearch() {
         <button :class="{ active: view === 'friends' }" @click="view = 'friends'">
           关注 <span v-if="own" class="count">{{ own.friendCount }}</span>
         </button>
-        <button :class="{ active: view === 'channels' }" @click="view = 'channels'">频道</button>
+        <button :class="{ active: view === 'channels' }" @click="view = 'channels'">{{ t("channels") }}</button>
         <button @click="showNotifications = !showNotifications">
           通知 <span v-if="unread" class="count">{{ unread }}</span>
         </button>
-        <button :class="{ active: view === 'settings' }" @click="view = 'settings'">设置</button>
+        <button :class="{ active: view === 'settings' }" @click="view = 'settings'">{{ t("settings") }}</button>
       </nav>
       <div v-if="showNotifications" class="notif-panel">
         <div class="notif-head">
@@ -155,7 +156,7 @@ async function runSearch() {
       <div class="sidebar-foot" v-if="own">
         <div class="dot" :class="{ online: own.friendCount > 0 }"></div>
         <span>{{ own.name || "未设置昵称" }}</span>
-        <span class="tag">已连接 DHT</span>
+        <span class="tag">{{ t("connectedDht") }}</span>
       </div>
     </aside>
 
@@ -171,13 +172,13 @@ async function runSearch() {
           <div class="search-box">
             <input
               v-model="searchQuery"
-              placeholder="搜索帖子…"
+              :placeholder="t('searchPlaceholder')"
               @input="runSearch"
             />
           </div>
           <template v-if="searchQuery.trim()">
-            <div v-if="searching" class="empty">搜索中…</div>
-            <div v-else-if="searchResults.length === 0" class="empty">没有匹配的帖子</div>
+            <div v-if="searching" class="empty">{{ t("searching") }}</div>
+            <div v-else-if="searchResults.length === 0" class="empty">{{ t("noSearchResults") }}</div>
             <PostCard
               v-for="p in searchResults"
               :key="p.id"
@@ -188,9 +189,9 @@ async function runSearch() {
           </template>
           <template v-else>
             <PostComposer :own="own" @posted="refreshTimeline" />
-            <div v-if="loading" class="empty">加载中…</div>
+            <div v-if="loading" class="empty">{{ t("loading") }}</div>
             <div v-else-if="timeline.length === 0" class="empty">
-              时间线还是空的 — 添加好友并等待对方发帖吧。
+              {{ t("emptyTimeline") }}
             </div>
             <PostCard
               v-for="p in timeline"
