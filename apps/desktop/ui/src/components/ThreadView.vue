@@ -16,7 +16,7 @@ const post = ref<TimelineItem | null>(null);
 const comments = ref<TimelineItem[]>([]);
 const reactions = ref<TimelineItem[]>([]);
 const commentText = ref("");
-const commentInput = ref<HTMLInputElement | null>(null);
+const commentInput = ref<HTMLTextAreaElement | null>(null);
 const busy = ref(false);
 
 const reactionSummary = computed(() => {
@@ -78,13 +78,14 @@ onMounted(load);
     </article>
 
     <div class="composer">
-      <input
+      <textarea
         ref="commentInput"
         v-model="commentText"
-        maxlength="500"
-        placeholder="写下你的评论…"
-        @keydown.enter="submitComment"
-      />
+        rows="2"
+        maxlength="5000"
+        placeholder="写下你的评论…（Enter 发送，Shift+Enter 换行）"
+        @keydown.enter.exact.prevent="submitComment"
+      ></textarea>
       <button class="primary" :disabled="busy || !commentText.trim()" @click="submitComment">
         评论
       </button>
@@ -154,5 +155,14 @@ button.mini {
   display: flex;
   gap: 8px;
   margin-bottom: 12px;
+  align-items: flex-start;
+}
+.composer textarea {
+  flex: 1;
+  min-height: 42px;
+  resize: vertical;
+}
+.composer button {
+  align-self: flex-end;
 }
 </style>

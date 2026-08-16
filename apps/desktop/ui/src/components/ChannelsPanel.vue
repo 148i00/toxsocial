@@ -10,7 +10,7 @@ const conferenceNumber = ref<number | null>(null);
 const channelId = ref("");
 const peerCount = ref(0);
 const ownToxid = ref("");
-const subChannels = ref<{ name: string; conferenceNumber: number }[]>([]);
+const myChannels = ref<{ name: string; conferenceNumber: number }[]>([]);
 const subName = ref("");
 const friendNumber = ref("0");
 const inviteToxid = ref("");
@@ -32,6 +32,48 @@ async function loadPublicChannels() {
   } catch (e) {
     publicChannels.value = [];
     log.value.push(`加载公共频道失败：${e}`);
+  }
+}
+
+function saveChannelNames() {
+  try {
+    const saved = JSON.parse(localStorage.getItem("toxsocial_channel_names") || "{}");
+    for (const c of myChannels.value) {
+      saved[String(c.conferenceNumber)] = c.name;
+    }
+    localStorage.setItem("toxsocial_channel_names", JSON.stringify(saved));
+  } catch {
+    // ignore localStorage errors
+  }
+}
+
+function ensureMyChannel(n: number, name?: string) {
+  if (!myChannels.value.some((c) => c.conferenceNumber === n)) {
+    myChannels.value.push({ name: name || `频道 #${n}`, conferenceNumber: n });
+    saveChannelNames();
+  }
+}
+
+async function loadMyChannels() {
+  try {
+    const nums = await api.listConferences();
+    const saved = JSON.parse(localStorage.getItem("toxsocial_channel_names") || "{}");
+    const merged: { name: string; conferenceNumber: number }[] = [];
+    for (const n of nums) {
+      const existing = myChannels.value.find((c) => c.conferenceNumber === n);
+      let name = existing?.name || "";
+      if (!name) {
+        name = saved[String(n)] || `频道 #${n}`;
+      }
+      merged.push({ name, conferenceNumber: n });
+    }
+    myChannels.value = merged;
+    saveChannelNames();
+    if (conferenceNumber.value === null && nums.length > 0) {
+      await switchChannel(nums[0]);
+    }
+  } catch (e) {
+    log.value.push(`加载我的频道失败：${e}`);
   }
 }
 
@@ -93,9 +135,10 @@ async function enterOwnChannel(channelId: string) {
 
 function isOwnChannel(ch: PublicChannelInfo): boolean {
   const host = ch.hostToxid ? String(ch.hostToxid) : "";
-  const me = ownToxid ? String(ownToxid) : "";
+  const me = ownToxid.value ? String(ownToxid.value) : "";
+  const myPub = me.slice(0, 64);
   if (!host || !me) return false;
-  return host === me || host.startsWith(me.slice(0, 64));
+  return host === me || host === myPub || host.startsWith(myPub) || me.startsWith(host.slice(0, 64));
 }
 
 function isFriendHost(ch: PublicChannelInfo): boolean {
@@ -205,10 +248,12 @@ async function createSubChannel() {
   error.value = "";
   try {
     const n = await api.conferenceNew();
-    subChannels.value.push({ name: subName.value.trim(), conferenceNumber: n });
+    const name = subName.value.trim();
+    myChannels.value.push({ name, conferenceNumber: n });
+    saveChannelNames();
     subName.value = "";
     await switchChannel(n);
-    log.value.push(`已创建子频道 #${n}`);
+    log.value.push(`已创建频道「${name}」#${n}`);
   } catch (e) {
     error.value = String(e);
   } finally {
@@ -229,7 +274,8 @@ async function create() {
   try {
     const n = await api.conferenceNew();
     const name = newChannelName.value.trim() || "未命名频道";
-    subChannels.value.push({ name, conferenceNumber: n });
+    myChannels.value.push({ name, conferenceNumber: n });
+    saveChannelNames();
     newChannelName.value = "";
     conferenceNumber.value = n;
     await refreshChannelId();
@@ -308,6 +354,7 @@ onMounted(async () => {
   } catch {
     /* ignore */
   }
+  await loadMyChannels();
   await loadPublicChannels();
   publicTimer = setInterval(() => {
     loadPublicChannels();
@@ -316,12 +363,14 @@ onMounted(async () => {
     messages.value.push({ peer: `#${e.peerNumber}`, text: e.text });
   });
   onEvent("channel:connected", async (e: { conferenceNumber: number }) => {
+    ensureMyChannel(e.conferenceNumber);
     conferenceNumber.value = e.conferenceNumber;
     await refreshChannelId();
     await refreshPeerCount();
     log.value.push(`已连接频道 #${e.conferenceNumber}`);
   });
   onEvent("channel:joined", async (e: { conferenceNumber: number; friendNumber: number }) => {
+    ensureMyChannel(e.conferenceNumber);
     conferenceNumber.value = e.conferenceNumber;
     await refreshChannelId();
     await refreshPeerCount();
@@ -353,13 +402,14 @@ onBeforeUnmount(() => {
       <p v-if="error" class="error">{{ error }}</p>
     </div>
 
-    <div class="card" v-if="conferenceNumber !== null">
-      <div class="log-title">子频道</div>
+    <div class="card">
+      <div class="log-title">我的频道</div>
       <div class="row">
-        <input v-model="subName" placeholder="子频道名称" />
-        <button :disabled="busy || !subName.trim()" @click="createSubChannel">创建子频道</button>
+        <input v-model="subName" placeholder="新频道名称" />
+        <button :disabled="busy || !subName.trim()" @click="createSubChannel">创建频道</button>
       </div>
-      <div v-for="sub in subChannels" :key="sub.conferenceNumber" class="pub-channel">
+      <div v-if="myChannels.length === 0" class="empty">还没有频道，先创建一个吧。</div>
+      <div v-for="sub in myChannels" :key="sub.conferenceNumber" class="pub-channel">
         <div class="pub-info">
           <div class="pub-name">{{ sub.name }}</div>
           <div class="pub-desc">#{{ sub.conferenceNumber }}</div>

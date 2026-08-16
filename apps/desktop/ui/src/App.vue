@@ -139,6 +139,11 @@ async function requestPublic() {
   await refreshPublicTimeline();
 }
 
+async function openPublic() {
+  view.value = "public";
+  await requestPublic();
+}
+
 async function viewFriend(pubkey: string) {
   const f = friends.value.find((x) => x.pubkey === pubkey);
   profileUser.value = {
@@ -263,7 +268,7 @@ onBeforeUnmount(() => {
           关注 <span v-if="own" class="count">{{ own.friendCount }}</span>
         </button>
         <button :class="{ active: view === 'channels' }" @click="view = 'channels'">{{ t("channels") }}</button>
-        <button :class="{ active: view === 'public' }" @click="view = 'public'">公共</button>
+        <button :class="{ active: view === 'public' }" @click="openPublic">公共</button>
         <button @click="showNotifications = !showNotifications">
           通知 <span v-if="unread" class="count">{{ unread }}</span>
         </button>
