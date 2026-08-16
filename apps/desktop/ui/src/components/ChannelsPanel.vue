@@ -320,7 +320,7 @@ onMounted(async () => {
           <div class="pub-desc">{{ ch.desc }}</div>
         </div>
         <button :disabled="busy" @click="joinPublic(ch)">加入</button>
-        <button class="danger" :disabled="busy" @click="deletePublic(ch)">删除</button>
+        <button v-if="ch.hostToxid === ownToxid" class="danger" :disabled="busy" @click="deletePublic(ch)">删除</button>
       </div>
     </div>
 
