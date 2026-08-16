@@ -4,6 +4,7 @@ import type { ConferencePeerInfo, DirectoryEntryInfo, FriendInfo, MediaConfig, N
 
 export const api = {
   getOwnInfo: () => invoke<OwnInfo>("get_own_info"),
+  getAppVersion: () => invoke<string>("get_app_version"),
   getNetworkStatus: () => invoke<NetworkStatus>("get_network_status"),
   setProfile: (name: string, bio: string) => invoke<void>("set_profile", { name, bio }),
   addFriend: (toxid: string, message: string) => invoke<number>("add_friend", { toxid, message }),

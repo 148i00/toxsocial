@@ -91,19 +91,22 @@ async function enterOwnChannel(channelId: string) {
 }
 
 function isOwnChannel(ch: PublicChannelInfo): boolean {
+  if (!ch.hostToxid || !ownToxid) return false;
   return (
     ch.hostToxid === ownToxid ||
-    (ownToxid && ch.hostToxid.startsWith(ownToxid.slice(0, 64)))
+    ch.hostToxid.startsWith(ownToxid.slice(0, 64))
   );
 }
 
 function isFriendHost(ch: PublicChannelInfo): boolean {
+  if (!ch.hostToxid) return false;
   return props.friends.some(
     (f) => f.toxid === ch.hostToxid || f.pubkey === ch.hostToxid || f.toxid.startsWith(ch.hostToxid.slice(0, 64)),
   );
 }
 
 async function joinPublic(ch: PublicChannelInfo) {
+  try {
   if (isOwnChannel(ch)) {
     await enterOwnChannel(ch.channelId);
     return;
@@ -131,6 +134,9 @@ async function joinPublic(ch: PublicChannelInfo) {
     } else {
       log.value.push(`加入「${ch.name}」失败：${e}`);
     }
+  }
+  } catch (e) {
+    log.value.push(`加入「${ch.name}」发生错误：${e}`);
   }
 }
 

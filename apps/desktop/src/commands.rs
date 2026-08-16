@@ -116,6 +116,11 @@ pub struct PublicChannelInfo {
 // ---------------------------------------------------------------------------
 
 #[tauri::command]
+pub fn get_app_version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}
+
+#[tauri::command]
 pub fn get_own_info(state: State<AppState>) -> OwnInfo {
     let session = state.session.lock().unwrap();
     let avatar = {
