@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { api, onEvent } from "../api";
 import { t } from "../i18n";
 import type { ConferencePeerInfo, FriendInfo, PublicChannelInfo } from "../types";
@@ -26,15 +26,6 @@ const currentChannelName = computed(() => {
   const n = conferenceNumber.value;
   if (n === null) return "";
   return myChannels.value.find((c) => c.conferenceNumber === n)?.name || `频道 #${n}`;
-});
-const currentMessages = computed(() =>
-  messages.value.filter((m) => m.conferenceNumber === conferenceNumber.value),
-);
-const showManage = ref(false);
-const chatMessagesRef = ref<HTMLElement | null>(null);
-watch(currentMessages, async () => {
-  await nextTick();
-  chatMessagesRef.value?.scrollTo({ top: chatMessagesRef.value.scrollHeight });
 });
 
 const publicChannels = ref<PublicChannelInfo[]>([]);
@@ -488,382 +479,258 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="channels-layout">
-    <!-- Left: channel list / public channels -->
-    <div class="channels-sidebar">
-      <div class="sidebar-section">
-        <div class="sidebar-title">我的频道</div>
-        <div class="row">
-          <input v-model="newChannelName" placeholder="新频道名称（可选）" @keydown.enter="create" />
-          <button class="primary" :disabled="busy" @click="create">＋</button>
-        </div>
-        <div v-if="myChannels.length === 0" class="empty">暂无频道，先创建一个吧</div>
-        <div
-          v-for="sub in myChannels"
-          :key="sub.conferenceNumber"
-          class="channel-item"
-          :class="{ active: conferenceNumber === sub.conferenceNumber }"
-          @click="switchChannel(sub.conferenceNumber)"
-        >
-          <div class="channel-item-info">
-            <div class="channel-item-name">{{ sub.name }}</div>
-            <div class="channel-item-desc">#{{ sub.conferenceNumber }}</div>
-          </div>
-          <button class="mini danger" :disabled="busy" @click.stop="deleteChannel(sub.conferenceNumber)">删</button>
-        </div>
-      </div>
+  <div class="panel">
+    <h2>{{ t("channelsTitle") }}</h2>
 
-      <div class="sidebar-section">
-        <div class="sidebar-title">公共频道</div>
-        <div v-if="publicChannels.length === 0" class="empty">暂无公共频道</div>
-        <div v-for="ch in publicChannels" :key="ch.channelId" class="public-item">
-          <div class="public-item-info" @click="joinPublic(ch)">
-            <div class="channel-item-name">{{ ch.name }}</div>
-            <div class="channel-item-desc">{{ ch.desc || "暂无简介" }}</div>
-          </div>
-          <div class="public-item-actions">
-            <button class="mini" :disabled="busy || joiningChannelId === ch.channelId || isChannelActive(ch) || isRequested(ch)" @click="joinPublic(ch)">
-              {{ isChannelActive(ch) ? "已进入" : (isRequested(ch) ? "已申请" : "加入") }}
-            </button>
-            <button class="mini" @click="copyPublicInvite(ch)" title="复制邀请">复制</button>
-            <button v-if="ch.hosts && ch.hosts.includes(ownToxid)" class="mini danger" @click="deletePublic(ch)">删</button>
-          </div>
-          <details v-if="ch.hosts && ch.hosts.includes(ownToxid)" class="host-manage">
-            <summary>管理 host</summary>
-            <div class="row">
-              <input v-model="hostInput" placeholder="添加 co-host ToxID" />
-              <button class="mini" :disabled="busy || !hostInput.trim()" @click="addHost(ch)">添加</button>
-            </div>
-            <div v-for="h in ch.hosts" :key="h" class="host-row">
-              <span class="mono">{{ h.slice(0, 12) }}…</span>
-              <button class="mini danger" :disabled="busy || h === ownToxid" @click="removeHost(ch, h)">移除</button>
-            </div>
-          </details>
-        </div>
+    <div class="card">
+      <div class="row">
+        <span class="state" v-if="conferenceNumber !== null">当前频道 #{{ conferenceNumber }} · 成员 {{ peerCount }}</span>
+        <span class="state" v-else>尚未创建/加入频道</span>
       </div>
+      <div class="row">
+        <input v-model="newChannelName" placeholder="新频道名称（可选）" @keydown.enter="create" />
+        <button class="primary" :disabled="busy" @click="create">创建/加入频道</button>
+      </div>
+      <p v-if="error" class="error">{{ error }}</p>
+    </div>
 
-      <div class="sidebar-section log-section">
-        <div class="sidebar-title">系统日志</div>
-        <div v-if="log.length === 0" class="empty">暂无日志</div>
-        <div v-for="(l, i) in log" :key="'l' + i" class="log-line">{{ l }}</div>
+    <div class="card">
+      <div class="log-title">我的频道</div>
+      <div class="row">
+        <input v-model="subName" placeholder="新频道名称" />
+        <button :disabled="busy || !subName.trim()" @click="createSubChannel">创建频道</button>
+      </div>
+      <div v-if="myChannels.length === 0" class="empty">还没有频道，先创建一个吧。</div>
+      <div v-for="sub in myChannels" :key="sub.conferenceNumber" class="pub-channel">
+        <div class="pub-info">
+          <div class="pub-name">{{ sub.name }}</div>
+          <div class="pub-desc">#{{ sub.conferenceNumber }}</div>
+        </div>
+        <button :disabled="conferenceNumber === sub.conferenceNumber" @click="switchChannel(sub.conferenceNumber)">切换</button>
+        <button class="danger" :disabled="busy" @click="deleteChannel(sub.conferenceNumber)">删除</button>
       </div>
     </div>
 
-    <!-- Right: chat main -->
-    <div class="chat-main">
-      <template v-if="conferenceNumber !== null">
-        <div class="chat-header">
-          <div class="chat-title">
-            <span class="chat-name">{{ currentChannelName || ('#' + conferenceNumber) }}</span>
-            <span class="chat-meta">#{{ conferenceNumber }} · {{ peerCount }} 人</span>
-          </div>
-          <div class="chat-actions">
-            <button class="mini" @click="copyInvite">复制邀请</button>
-            <button class="mini" @click="pasteInvite">粘贴加入</button>
-            <button class="mini" @click="showManage = !showManage">{{ showManage ? "收起管理" : "频道管理" }}</button>
-          </div>
-        </div>
-
-        <div ref="chatMessagesRef" class="chat-messages">
-          <div v-if="currentMessages.length === 0" class="empty chat-empty">还没有消息，来发第一条吧</div>
-          <div v-for="(m, i) in currentMessages" :key="'m' + i" class="chat-msg" :class="{ mine: m.peer === '我' }">
-            <div class="bubble">
-              <div class="bubble-peer">{{ m.peer === '我' ? '我' : m.peer }}</div>
-              <div class="bubble-text">{{ m.text }}</div>
-            </div>
-          </div>
-        </div>
-
-        <div class="chat-composer">
-          <textarea
-            v-model="message"
-            rows="2"
-            maxlength="1372"
-            placeholder="输入消息…（Enter 发送，Shift+Enter 换行）"
-            @keydown.enter.exact.prevent="send"
-          ></textarea>
-          <button class="primary" :disabled="busy || !message.trim()" @click="send">发送</button>
-        </div>
-
-        <div v-if="showManage" class="manage-panel">
-          <div class="manage-grid">
-            <div class="card">
-              <div class="log-title">邀请好友（ToxID）</div>
-              <div class="row">
-                <input v-model="inviteToxid" class="mono" placeholder="好友 ToxID 或公钥" />
-                <button :disabled="busy || !inviteToxid.trim()" @click="inviteByToxid">邀请</button>
-              </div>
-              <div class="row">
-                <input v-model="friendNumber" type="number" min="0" />
-                <button :disabled="busy" @click="invite">邀请编号好友</button>
-              </div>
-            </div>
-            <div class="card">
-              <div class="log-title">发布为公共频道</div>
-              <input v-model="channelName" placeholder="频道名称" />
-              <input v-model="channelDesc" placeholder="频道简介（可选）" />
-              <button class="primary" :disabled="busy || !channelName.trim()" @click="publishChannel">发布</button>
-            </div>
-            <div class="card">
-              <div class="log-title">频道成员</div>
-              <div v-if="peers.length === 0" class="empty">暂无成员</div>
-              <div v-for="p in peers" :key="p.peerNumber" class="member-row">
-                <span>{{ p.name || "未知成员" }}</span>
-                <span class="mono">{{ p.publicKey.slice(0, 10) }}…</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </template>
-      <div v-else class="chat-placeholder">
-        <div class="empty">请选择或创建一个频道开始群聊</div>
+    <div class="card" v-if="conferenceNumber !== null">
+      <label>邀请链接 / 频道 ID</label>
+      <p class="tip">
+        把下面的 ToxID 和频道 ID 发给朋友，让对方添加你并在好友请求附言中写：
+        <code>join_channel {{ channelId }}</code>
+      </p>
+      <div class="mono toxid">ToxID: {{ ownToxid }}</div>
+      <div class="mono toxid">频道ID: {{ channelId }}</div>
+      <div class="row">
+        <button @click="copyInvite">复制邀请信息</button>
+        <button @click="pasteInvite">粘贴邀请并加入</button>
       </div>
+    </div>
+
+    <div class="card" v-if="conferenceNumber !== null">
+      <div class="log-title">向当前频道发内容</div>
+      <p class="tip">当前频道：{{ currentChannelName || ('#' + conferenceNumber) }}</p>
+      <textarea
+        v-model="message"
+        rows="2"
+        maxlength="1372"
+        placeholder="输入频道内容…（Enter 发送，Shift+Enter 换行）"
+        @keydown.enter.exact.prevent="send"
+      ></textarea>
+      <div class="row">
+        <button class="primary" :disabled="busy || !message.trim()" @click="send">{{ t("send") }}</button>
+      </div>
+    </div>
+
+    <div class="card" v-if="conferenceNumber !== null">
+      <label>邀请好友（ToxID）</label>
+      <div class="row">
+        <input v-model="inviteToxid" class="mono" placeholder="好友 ToxID 或公钥" />
+        <button :disabled="busy || !inviteToxid.trim()" @click="inviteByToxid">邀请</button>
+      </div>
+      <label>{{ t("inviteFriend") }}（好友编号，备用）</label>
+      <div class="row">
+        <input v-model="friendNumber" type="number" min="0" />
+        <button :disabled="busy" @click="invite">{{ t("add") }}</button>
+      </div>
+    </div>
+
+    <div class="card" v-if="conferenceNumber !== null">
+      <div class="log-title">发布为公共频道</div>
+      <input v-model="channelName" placeholder="频道名称" />
+      <input v-model="channelDesc" placeholder="频道简介（可选）" />
+      <button class="primary" :disabled="busy || !channelName.trim()" @click="publishChannel">发布到公共频道列表</button>
+    </div>
+
+    <div class="card" v-if="conferenceNumber !== null">
+      <div class="log-title">频道成员</div>
+      <p class="tip">当前频道里的用户列表，来自 Tox 会议成员信息。</p>
+      <div v-if="peers.length === 0" class="empty">暂无成员信息</div>
+      <div v-for="p in peers" :key="p.peerNumber" class="pub-channel">
+        <div class="pub-info">
+          <div class="pub-name">{{ p.name || "未知成员" }}</div>
+          <div class="pub-desc mono">{{ p.publicKey.slice(0, 12) }}…</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="log-title">公共频道</div>
+      <p class="tip">发现并加入公共频道。加入后会向频道 host 发送好友请求/加入申请，host 接受后邀请你进入。</p>
+      <div v-if="publicChannels.length === 0" class="empty">暂无公共频道，成为第一个 host 吧。</div>
+      <div v-for="ch in publicChannels" :key="ch.channelId" class="pub-channel">
+        <div class="pub-info">
+          <div class="pub-name">{{ ch.name }}</div>
+          <div class="pub-desc">{{ ch.desc }}</div>
+        </div>
+        <button :disabled="busy || joiningChannelId === ch.channelId || isChannelActive(ch) || isRequested(ch)" @click="joinPublic(ch)">
+          {{ isChannelActive(ch) ? "已进入" : (isRequested(ch) ? "已申请" : (joiningChannelId === ch.channelId ? "加入中…" : "加入")) }}
+        </button>
+        <button @click="copyPublicInvite(ch)">复制邀请</button>
+        <button v-if="ch.hosts && ch.hosts.includes(ownToxid)" class="danger" :disabled="busy" @click="deletePublic(ch)">删除</button>
+        <div v-if="ch.hosts && ch.hosts.includes(ownToxid)" class="host-manage">
+          <input v-model="hostInput" placeholder="添加 co-host ToxID" />
+          <button :disabled="busy || !hostInput.trim()" @click="addHost(ch)">添加</button>
+          <div v-for="h in ch.hosts" :key="h" class="host-row">
+            <span class="mono">{{ h.slice(0, 12) }}…</span>
+            <button class="mini" :disabled="busy || h === ownToxid" @click="removeHost(ch, h)">移除</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card log-card">
+      <div class="log-title">频道消息 / 帖子 / 日志</div>
+      <div v-if="log.length === 0 && messages.length === 0" class="empty">还没有频道活动</div>
+      <div v-for="(m, i) in messages" :key="'m' + i" class="msg">
+        <span class="channel-tag">{{ m.channelName || ('#' + m.conferenceNumber) }}</span>
+        <span class="peer">{{ m.peer }}</span>
+        <span>{{ m.text }}</span>
+      </div>
+      <div v-for="(l, i) in log" :key="'l' + i" class="log-line">{{ l }}</div>
     </div>
   </div>
 </template>
 
-
 <style scoped>
-.channels-layout {
-  display: flex;
-  gap: 12px;
-  height: 100%;
-  min-height: 600px;
-}
-.channels-sidebar {
-  width: 260px;
-  flex-shrink: 0;
+.panel {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  overflow-y: auto;
-  max-height: 100%;
+  gap: 14px;
+  max-width: 640px;
 }
-.sidebar-section {
+h2 {
+  font-size: 18px;
+}
+.card {
   background: var(--bg-2);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.sidebar-title {
-  font-weight: 700;
-  font-size: 13px;
-  color: var(--text-dim);
-}
-.channel-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
-  border-radius: 8px;
-  cursor: pointer;
-  border: 1px solid transparent;
-}
-.channel-item:hover {
-  background: var(--bg-3);
-}
-.channel-item.active {
-  background: var(--bg-3);
-  border-color: var(--accent);
-}
-.channel-item-info {
-  flex: 1;
-  min-width: 0;
-}
-.channel-item-name {
-  font-weight: 600;
-  font-size: 13px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.channel-item-desc {
-  font-size: 11px;
-  color: var(--text-dim);
-}
-.public-item {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 6px 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.public-item-info {
-  cursor: pointer;
-}
-.public-item-actions {
-  display: flex;
-  gap: 4px;
-  flex-wrap: wrap;
-}
-.host-manage {
-  margin-top: 4px;
-  font-size: 12px;
-}
-.host-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px;
-  padding: 2px 0;
-}
-.log-section {
-  max-height: 180px;
-  overflow-y: auto;
-}
-.log-line {
-  font-size: 11px;
-  color: var(--text-dim);
-  padding: 2px 0;
-  border-bottom: 1px dashed var(--border);
-}
-.chat-main {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  background: var(--bg-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  height: 100%;
-  overflow: hidden;
-}
-.chat-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--border);
-}
-.chat-title {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-.chat-name {
-  font-size: 16px;
-  font-weight: 700;
-}
-.chat-meta {
-  font-size: 12px;
-  color: var(--text-dim);
-}
-.chat-actions {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-.chat-messages {
-  flex: 1;
-  overflow-y: auto;
   padding: 14px;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  min-height: 0;
-}
-.chat-empty {
-  text-align: center;
-  padding: 40px 0;
-}
-.chat-msg {
-  display: flex;
-}
-.chat-msg.mine {
-  justify-content: flex-end;
-}
-.bubble {
-  max-width: 70%;
-  background: var(--bg-3);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 8px 12px;
-}
-.chat-msg.mine .bubble {
-  background: var(--accent);
-  color: #fff;
-  border-color: var(--accent);
-}
-.bubble-peer {
-  font-size: 11px;
-  opacity: 0.8;
-  margin-bottom: 2px;
-}
-.bubble-text {
-  white-space: pre-wrap;
-  word-break: break-word;
-  font-size: 14px;
-  line-height: 1.5;
-}
-.chat-composer {
-  display: flex;
-  gap: 8px;
-  padding: 10px 14px;
-  border-top: 1px solid var(--border);
-  align-items: flex-end;
-}
-.chat-composer textarea {
-  flex: 1;
-  min-height: 42px;
-  resize: vertical;
-}
-.manage-panel {
-  border-top: 1px solid var(--border);
-  padding: 10px 14px;
-  max-height: 40%;
-  overflow-y: auto;
-}
-.manage-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 10px;
-}
-.chat-placeholder {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.member-row {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  font-size: 12px;
-  padding: 4px 0;
-  border-bottom: 1px dashed var(--border);
 }
 .row {
   display: flex;
-  gap: 6px;
+  gap: 8px;
+  align-items: center;
 }
-.card {
-  background: var(--bg-3);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 10px;
+.state {
+  color: var(--text-dim);
+  font-size: 12px;
+  flex: 1;
+}
+.error {
+  color: var(--danger);
+  font-size: 12px;
+}
+.log-card {
+  min-height: 200px;
+}
+.log-title {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+.msg {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+  align-items: baseline;
 }
-.empty {
+.channel-tag {
+  color: var(--text-dim);
+  font-size: 11px;
+  background: var(--bg-3);
+  border-radius: 4px;
+  padding: 1px 6px;
+  white-space: nowrap;
+}
+.peer {
+  color: var(--accent);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.log-line {
+  color: var(--text-dim);
+  font-size: 12px;
+  padding: 2px 0;
+}
+.card textarea {
+  width: 100%;
+  min-height: 44px;
+  resize: vertical;
+  box-sizing: border-box;
+}
+.pub-channel {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+}
+.pub-info {
+  flex: 1;
+  min-width: 0;
+}
+.pub-name {
+  font-weight: 600;
+}
+.pub-desc {
   color: var(--text-dim);
   font-size: 12px;
 }
-.mono {
-  font-family: monospace;
+.tip {
+  color: var(--text-dim);
+  font-size: 12px;
+  line-height: 1.5;
 }
-.mini {
-  padding: 2px 8px;
+.host-manage {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+}
+.host-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+button.mini {
+  padding: 2px 6px;
   font-size: 11px;
 }
-.danger {
-  color: var(--danger);
+.toxid {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px;
+}
+code {
+  background: var(--bg-3);
+  border-radius: 4px;
+  padding: 1px 5px;
 }
 </style>
-
