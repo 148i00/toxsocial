@@ -59,4 +59,4 @@ bash scripts/upload-release.sh v0.1.1 "ToxSocial v0.1.1" "更新说明" \
   target/release/bundle/msi/ToxSocial_0.1.0_x64_en-US.msi \
   target/release/bundle/nsis/ToxSocial_0.1.0_x64-setup.exe
 ```
-脚本使用 Windows 已保存的 Git 凭据，不会弹出浏览器登录（前提是凭据已缓存）。
+脚本优先读取环境变量 `GITHUB_TOKEN`，其次读取 `~/.toxsocial_gh_token`，不会调用 Git 凭据弹窗。

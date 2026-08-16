@@ -20,9 +20,12 @@ NAME="${2:?release name required}"
 BODY="${3:?body required}"
 shift 3
 
-TOKEN=$(printf 'protocol=https\nhost=github.com\n\n' | git credential fill | sed -n 's/^password=//p')
-if [ -z "$TOKEN" ]; then
-  echo "No GitHub token found in credential store." >&2
+if [ -n "${GITHUB_TOKEN:-}" ]; then
+  TOKEN="$GITHUB_TOKEN"
+elif [ -f "$HOME/.toxsocial_gh_token" ]; then
+  TOKEN=$(cat "$HOME/.toxsocial_gh_token")
+else
+  echo "No GitHub token found. Set GITHUB_TOKEN or create ~/.toxsocial_gh_token" >&2
   exit 1
 fi
 
