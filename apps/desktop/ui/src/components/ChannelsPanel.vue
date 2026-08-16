@@ -280,7 +280,7 @@ onMounted(async () => {
   await loadPublicChannels();
   publicTimer = setInterval(() => {
     loadPublicChannels();
-  }, 5_000);
+  }, 15_000);
   onEvent("channel:message", (e: { conferenceNumber: number; peerNumber: number; text: string }) => {
     messages.value.push({ peer: `#${e.peerNumber}`, text: e.text });
   });

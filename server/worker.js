@@ -1,9 +1,10 @@
 // ToxSocial optional directory + relay (Cloudflare Worker)
-// Deploy on Cloudflare Workers free tier; no server needed.
+// Uses a single KV key per collection to avoid daily list-operation limits.
 //
 // KV bindings:
-//   DIRECTORY - key: pubkey -> JSON profile
-//   OUTBOX    - key: `${pubkey}:${ts}:${id}` -> JSON post
+//   DIRECTORY - key "all" -> JSON array of profiles
+//   OUTBOX    - key "all" -> JSON array of posts
+//   CHANNELS  - key "all" -> JSON array of channels
 
 export default {
   async fetch(request, env) {
@@ -12,15 +13,11 @@ export default {
 
     if (path === '/api/directory' && request.method === 'GET') {
       const q = (url.searchParams.get('q') || '').toLowerCase();
-      const list = await env.DIRECTORY.list();
-      const items = [];
-      for (const key of list.keys) {
-        const val = await env.DIRECTORY.get(key.name, 'json');
-        if (!val) continue;
-        if (!q || (val.name || '').toLowerCase().includes(q) || val.pubkey.includes(q)) {
-          items.push(val);
-        }
-      }
+      const all = (await env.DIRECTORY.get('all', 'json')) || [];
+      const items = all.filter((val) => {
+        if (!q) return true;
+        return (val.name || '').toLowerCase().includes(q) || val.pubkey.includes(q);
+      });
       return json({ items });
     }
 
@@ -35,18 +32,44 @@ export default {
         relay: body.relay || '',
         updated_at: Date.now(),
       };
-      await env.DIRECTORY.put(body.pubkey, JSON.stringify(profile));
+      const all = (await env.DIRECTORY.get('all', 'json')) || [];
+      const idx = all.findIndex((x) => x.pubkey === profile.pubkey);
+      if (idx >= 0) all[idx] = profile; else all.push(profile);
+      await env.DIRECTORY.put('all', JSON.stringify(all));
+      return json({ ok: true });
+    }
+
+    if (path === '/api/outbox' && request.method === 'GET') {
+      const pubkey = url.searchParams.get('pubkey');
+      const since = Number(url.searchParams.get('since') || 0);
+      const all = (await env.OUTBOX.get('all', 'json')) || [];
+      let items = all.filter((x) => x.ts > since);
+      if (pubkey) items = items.filter((x) => x.pubkey === pubkey);
+      items.sort((a, b) => a.ts - b.ts);
+      return json({ items });
+    }
+
+    if (path === '/api/outbox' && request.method === 'POST') {
+      const body = await request.json();
+      if (!body.pubkey || !body.id) return json({ error: 'pubkey and id required' }, 400);
+      const all = (await env.OUTBOX.get('all', 'json')) || [];
+      if (!all.some((x) => x.id === body.id && x.pubkey === body.pubkey)) {
+        all.push({
+          pubkey: body.pubkey,
+          id: body.id,
+          ts: body.ts || Date.now(),
+          text: body.text || '',
+          sig: body.sig || '',
+          type: body.type || 'post',
+        });
+        await env.OUTBOX.put('all', JSON.stringify(all));
+      }
       return json({ ok: true });
     }
 
     if (path === '/api/channels' && request.method === 'GET') {
-      const list = await env.CHANNELS.list();
-      const items = [];
-      for (const key of list.keys) {
-        const val = await env.CHANNELS.get(key.name, 'json');
-        if (val) items.push(val);
-      }
-      return json({ items });
+      const all = (await env.CHANNELS.get('all', 'json')) || [];
+      return json({ items: all });
     }
 
     if (path === '/api/channels' && request.method === 'POST') {
@@ -54,16 +77,18 @@ export default {
       if (!body.name || !body.hostToxid || !body.channelId) {
         return json({ error: 'name, hostToxid and channelId required' }, 400);
       }
-      const key = body.channelId;
+      const all = (await env.CHANNELS.get('all', 'json')) || [];
       const channel = {
         name: body.name,
         desc: body.desc || '',
         hostToxid: body.hostToxid,
-        hosts: [body.hostToxid],
+        hosts: body.hosts && body.hosts.length ? body.hosts : [body.hostToxid],
         channelId: body.channelId,
         updated_at: Date.now(),
       };
-      await env.CHANNELS.put(key, JSON.stringify(channel));
+      const idx = all.findIndex((x) => x.channelId === channel.channelId);
+      if (idx >= 0) all[idx] = channel; else all.push(channel);
+      await env.CHANNELS.put('all', JSON.stringify(all));
       return json({ ok: true });
     }
 
@@ -73,13 +98,14 @@ export default {
       if (!channelId || !requesterToxid || !newHostToxid) {
         return json({ error: 'channelId, requesterToxid and newHostToxid required' }, 400);
       }
-      const existing = await env.CHANNELS.get(channelId, 'json');
-      if (!existing) return json({ error: 'channel not found' }, 404);
-      const hosts = existing.hosts || [existing.hostToxid];
+      const all = (await env.CHANNELS.get('all', 'json')) || [];
+      const ch = all.find((x) => x.channelId === channelId);
+      if (!ch) return json({ error: 'channel not found' }, 404);
+      const hosts = ch.hosts || [ch.hostToxid];
       if (!hosts.includes(requesterToxid)) return json({ error: 'not authorized' }, 403);
       if (!hosts.includes(newHostToxid)) hosts.push(newHostToxid);
-      existing.hosts = hosts;
-      await env.CHANNELS.put(channelId, JSON.stringify(existing));
+      ch.hosts = hosts;
+      await env.CHANNELS.put('all', JSON.stringify(all));
       return json({ ok: true });
     }
 
@@ -89,16 +115,17 @@ export default {
       if (!channelId || !requesterToxid || !removeHostToxid) {
         return json({ error: 'channelId, requesterToxid and removeHostToxid required' }, 400);
       }
-      const existing = await env.CHANNELS.get(channelId, 'json');
-      if (!existing) return json({ error: 'channel not found' }, 404);
-      const hosts = existing.hosts || [existing.hostToxid];
+      const all = (await env.CHANNELS.get('all', 'json')) || [];
+      const ch = all.find((x) => x.channelId === channelId);
+      if (!ch) return json({ error: 'channel not found' }, 404);
+      const hosts = ch.hosts || [ch.hostToxid];
       if (!hosts.includes(requesterToxid)) return json({ error: 'not authorized' }, 403);
-      existing.hosts = hosts.filter((h) => h !== removeHostToxid);
-      if (existing.hosts.length === 0) {
-        await env.CHANNELS.delete(channelId);
-      } else {
-        await env.CHANNELS.put(channelId, JSON.stringify(existing));
+      ch.hosts = hosts.filter((h) => h !== removeHostToxid);
+      if (ch.hosts.length === 0) {
+        const idx = all.findIndex((x) => x.channelId === channelId);
+        if (idx >= 0) all.splice(idx, 1);
       }
+      await env.CHANNELS.put('all', JSON.stringify(all));
       return json({ ok: true });
     }
 
@@ -107,34 +134,14 @@ export default {
       const channelId = body.channelId;
       const hostToxid = body.hostToxid;
       if (!channelId || !hostToxid) return json({ error: 'channelId and hostToxid required' }, 400);
-      const existing = await env.CHANNELS.get(channelId, 'json');
-      if (!existing) return json({ error: 'channel not found' }, 404);
-      const hosts = existing.hosts || [existing.hostToxid];
+      const all = (await env.CHANNELS.get('all', 'json')) || [];
+      const ch = all.find((x) => x.channelId === channelId);
+      if (!ch) return json({ error: 'channel not found' }, 404);
+      const hosts = ch.hosts || [ch.hostToxid];
       if (!hosts.includes(hostToxid)) return json({ error: 'not authorized' }, 403);
-      await env.CHANNELS.delete(channelId);
-      return json({ ok: true });
-    }
-
-    if (path === '/api/outbox' && request.method === 'GET') {
-      const pubkey = url.searchParams.get('pubkey');
-      const since = Number(url.searchParams.get('since') || 0);
-      if (!pubkey) return json({ error: 'pubkey required' }, 400);
-      const prefix = `${pubkey}:`;
-      const list = await env.OUTBOX.list({ prefix });
-      const items = [];
-      for (const key of list.keys) {
-        const val = await env.OUTBOX.get(key.name, 'json');
-        if (val && val.ts > since) items.push(val);
-      }
-      items.sort((a, b) => a.ts - b.ts);
-      return json({ items });
-    }
-
-    if (path === '/api/outbox' && request.method === 'POST') {
-      const body = await request.json();
-      if (!body.pubkey || !body.id) return json({ error: 'pubkey and id required' }, 400);
-      const key = `${body.pubkey}:${body.ts || Date.now()}:${body.id}`;
-      await env.OUTBOX.put(key, JSON.stringify(body));
+      const idx = all.findIndex((x) => x.channelId === channelId);
+      if (idx >= 0) all.splice(idx, 1);
+      await env.CHANNELS.put('all', JSON.stringify(all));
       return json({ ok: true });
     }
 
