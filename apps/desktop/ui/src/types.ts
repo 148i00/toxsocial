@@ -3,6 +3,8 @@ export interface NetworkStatus {
   connection: string;
   friends: number;
   onlineFriends: number;
+  dhtNodes: number;
+  relayOk: boolean;
 }
 
 export interface OwnInfo {

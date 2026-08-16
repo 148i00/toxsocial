@@ -23,6 +23,8 @@ pub struct NetworkStatus {
     pub connection: String,
     pub friends: usize,
     pub online_friends: usize,
+    pub dht_nodes: usize,
+    pub relay_ok: bool,
 }
 
 #[derive(Serialize, Clone)]
@@ -137,24 +139,32 @@ pub fn get_own_info(state: State<AppState>) -> OwnInfo {
 }
 
 #[tauri::command]
-pub fn get_network_status(state: State<AppState>) -> NetworkStatus {
-    let session = state.session.lock().unwrap();
-    let connection = session.self_connection();
-    let friends = session.friend_list();
-    let online = friends
-        .iter()
-        .filter(|n| session.friend_connection(**n) != Connection::None)
-        .count();
-    NetworkStatus {
+pub async fn get_network_status(state: State<'_, AppState>) -> Result<NetworkStatus, String> {
+    let (connection, friends, online) = {
+        let session = state.session.lock().unwrap();
+        let connection = session.self_connection();
+        let friends = session.friend_list();
+        let online = friends
+            .iter()
+            .filter(|n| session.friend_connection(**n) != Connection::None)
+            .count();
+        (connection, friends.len(), online)
+    };
+    let relay_ok = crate::relay::check_relay(crate::relay::DEFAULT_RELAY)
+        .await
+        .unwrap_or(false);
+    Ok(NetworkStatus {
         connected: connection != Connection::None,
         connection: match connection {
             Connection::None => "offline".to_string(),
             Connection::Tcp => "tcp".to_string(),
             Connection::Udp => "udp".to_string(),
         },
-        friends: friends.len(),
+        friends,
         online_friends: online,
-    }
+        dht_nodes: tox_core::DEFAULT_BOOTSTRAP_NODES.len(),
+        relay_ok,
+    })
 }
 
 #[tauri::command]

@@ -4,7 +4,7 @@ import QRCode from "qrcode";
 import { api } from "../api";
 import { locale, setLocale, t } from "../i18n";
 import Avatar from "./Avatar.vue";
-import type { OwnInfo } from "../types";
+import type { NetworkStatus, OwnInfo } from "../types";
 
 const props = defineProps<{ own: OwnInfo | null }>();
 const emit = defineEmits<{ saved: [] }>();
@@ -15,6 +15,7 @@ const qrUrl = ref("");
 const busy = ref(false);
 const saved = ref("");
 const imgurClientId = ref("");
+const networkStatus = ref<NetworkStatus | null>(null);
 const mediaConfigured = ref(false);
 const mediaSaved = ref("");
 const deviceToxid = ref("");
@@ -39,7 +40,22 @@ onMounted(async () => {
   } catch {
     /* ignore */
   }
+  try {
+    networkStatus.value = await api.getNetworkStatus();
+  } catch {
+    networkStatus.value = null;
+  }
 });
+
+async function copyToxid() {
+  if (!props.own?.toxid) return;
+  try {
+    await navigator.clipboard.writeText(props.own.toxid);
+    saved.value = "ToxID 已复制";
+  } catch {
+    saved.value = "复制失败，请手动复制";
+  }
+}
 
 async function saveMedia() {
   if (!imgurClientId.value.trim()) return;
@@ -144,6 +160,17 @@ async function save() {
     <h2>{{ t("settingsTitle") }}</h2>
 
     <div class="card">
+      <label>连接状态</label>
+      <div class="conn-row">
+        <span class="dot" :class="{ online: networkStatus?.connected }"></span>
+        <span>{{ networkStatus ? (networkStatus.connected ? (networkStatus.connection === "udp" ? "UDP 已连接" : "TCP 已连接") : "未连接") : "检测中…" }}</span>
+      </div>
+      <div class="conn-detail">DHT 节点：{{ networkStatus?.dhtNodes ?? "…" }}</div>
+      <div class="conn-detail">Relay：{{ networkStatus ? (networkStatus.relayOk ? "可用" : "不可用") : "检测中…" }}</div>
+      <div class="conn-detail">好友：{{ networkStatus?.friends ?? "…" }} / 在线：{{ networkStatus?.onlineFriends ?? "…" }}</div>
+    </div>
+
+    <div class="card">
       <label>语言 / Language</label>
       <div class="row">
         <button :class="{ active: locale === 'zh' }" @click="setLocale('zh')">中文</button>
@@ -183,6 +210,7 @@ async function save() {
         在另一台设备上也打开 ToxSocial，把下方 ToxID 填到对方“添加好友”，再把对方 ToxID 填到这里。
       </p>
       <div class="mono toxid">{{ own?.toxid }}</div>
+      <button @click="copyToxid">复制 ToxID</button>
       <input
         v-model="deviceToxid"
         class="mono"
@@ -282,6 +310,15 @@ label {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+.conn-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.conn-detail {
+  color: var(--text-dim);
+  font-size: 12px;
 }
 .toxid {
   background: var(--bg);

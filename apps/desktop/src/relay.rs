@@ -258,3 +258,15 @@ pub async fn remove_channel_host(
     }
     Ok(())
 }
+
+pub async fn check_relay(relay: &str) -> Result<bool, String> {
+    let url = format!("{}/api/directory?q=", relay.trim_end_matches('/'));
+    let client = reqwest::Client::new();
+    let resp = client
+        .get(url)
+        .timeout(std::time::Duration::from_secs(5))
+        .send()
+        .await
+        .map_err(|e| format!("relay unreachable: {e}"))?;
+    Ok(resp.status().is_success())
+}
