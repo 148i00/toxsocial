@@ -5,6 +5,7 @@ export async function onRequest(context) {
   const url = new URL(request.url);
   const path = url.pathname;
   const db = env.toxsocial_db;
+  if (!db) return json({ error: 'D1 binding not configured' }, 500);
 
   // Directory
   if (path === '/api/directory' && request.method === 'GET') {
