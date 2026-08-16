@@ -101,6 +101,7 @@ CLI 双实例联调：
 - Relay 公共频道新增 `members` 字段和 `POST /api/channels/members/report`：客户端定期上报“我在哪些公共频道”，Relay 5 分钟 TTL 过滤在线成员。
 - 客户端加入公共频道时不再只找 host，而是按 host → co-host → 任意在线成员依次尝试 `join_channel` 申请。
 - 评论回复支持嵌套：`thread_for` 改为递归 CTE，评论可以回复到某条评论（`reply_to` 指向评论 id），前端按缩进展示层级。
+- 修复删除频道后重启又出现：创建/删除/加入频道后都会立即 `state.persist()` 保存 Tox 会话。
 
 ### 4.5 发布历史
 - v0.2.13：频道创建命名、String slice 修复

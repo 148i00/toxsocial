@@ -252,6 +252,7 @@ fn handle_event(app: &AppHandle, state: &State<AppState>, ev: Event) {
                 };
                 match joined {
                     Ok(n) => {
+                        state.persist();
                         let _ = app.emit(
                             "channel:joined",
                             json!({ "conferenceNumber": n, "friendNumber": friend_number }),

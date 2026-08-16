@@ -794,18 +794,26 @@ pub fn get_media_config(state: State<AppState>) -> Result<MediaConfig, String> {
 
 #[tauri::command]
 pub fn conference_new(state: State<AppState>) -> Result<u32, String> {
-    let mut session = state.session.lock().unwrap();
-    session
-        .conference_new()
-        .map_err(|e| format!("create conference failed: {e}"))
+    let n = {
+        let mut session = state.session.lock().unwrap();
+        session
+            .conference_new()
+            .map_err(|e| format!("create conference failed: {e}"))?
+    };
+    state.persist();
+    Ok(n)
 }
 
 #[tauri::command]
 pub fn conference_delete(state: State<AppState>, conference_number: u32) -> Result<(), String> {
-    let mut session = state.session.lock().unwrap();
-    session
-        .conference_delete(conference_number)
-        .map_err(|e| format!("delete conference failed: {e}"))
+    {
+        let mut session = state.session.lock().unwrap();
+        session
+            .conference_delete(conference_number)
+            .map_err(|e| format!("delete conference failed: {e}"))?;
+    }
+    state.persist();
+    Ok(())
 }
 
 #[tauri::command]
