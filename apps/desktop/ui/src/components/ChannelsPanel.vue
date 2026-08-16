@@ -23,6 +23,7 @@ const error = ref("");
 const publicChannels = ref<PublicChannelInfo[]>([]);
 const channelName = ref("");
 const channelDesc = ref("");
+const newChannelName = ref("");
 const hostInput = ref("");
 
 async function loadPublicChannels() {
@@ -91,17 +92,17 @@ async function enterOwnChannel(channelId: string) {
 }
 
 function isOwnChannel(ch: PublicChannelInfo): boolean {
-  if (!ch.hostToxid || !ownToxid) return false;
-  return (
-    ch.hostToxid === ownToxid ||
-    ch.hostToxid.startsWith(ownToxid.slice(0, 64))
-  );
+  const host = ch.hostToxid ? String(ch.hostToxid) : "";
+  const me = ownToxid ? String(ownToxid) : "";
+  if (!host || !me) return false;
+  return host === me || host.startsWith(me.slice(0, 64));
 }
 
 function isFriendHost(ch: PublicChannelInfo): boolean {
-  if (!ch.hostToxid) return false;
+  const host = ch.hostToxid ? String(ch.hostToxid) : "";
+  if (!host) return false;
   return props.friends.some(
-    (f) => f.toxid === ch.hostToxid || f.pubkey === ch.hostToxid || f.toxid.startsWith(ch.hostToxid.slice(0, 64)),
+    (f) => f.toxid === host || f.pubkey === host || f.toxid.startsWith(host.slice(0, 64)),
   );
 }
 
@@ -226,10 +227,14 @@ async function create() {
   busy.value = true;
   error.value = "";
   try {
-    conferenceNumber.value = await api.conferenceNew();
+    const n = await api.conferenceNew();
+    const name = newChannelName.value.trim() || "未命名频道";
+    subChannels.value.push({ name, conferenceNumber: n });
+    newChannelName.value = "";
+    conferenceNumber.value = n;
     await refreshChannelId();
     await refreshPeerCount();
-    log.value.push(`已创建频道 #${conferenceNumber.value}`);
+    log.value.push(`已创建频道「${name}」#${n}`);
   } catch (e) {
     error.value = String(e);
   } finally {
@@ -340,6 +345,9 @@ onBeforeUnmount(() => {
       <div class="row">
         <span class="state" v-if="conferenceNumber !== null">当前频道 #{{ conferenceNumber }} · 成员 {{ peerCount }}</span>
         <span class="state" v-else>尚未创建/加入频道</span>
+      </div>
+      <div class="row">
+        <input v-model="newChannelName" placeholder="新频道名称（可选）" @keydown.enter="create" />
         <button class="primary" :disabled="busy" @click="create">创建/加入频道</button>
       </div>
       <p v-if="error" class="error">{{ error }}</p>
