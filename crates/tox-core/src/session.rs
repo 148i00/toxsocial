@@ -324,6 +324,15 @@ impl ToxSession {
         hex::encode(buf)
     }
 
+    /// Sign arbitrary bytes with this Tox identity's Ed25519 secret key.
+    pub fn sign_data(&self, data: &[u8]) -> Result<Vec<u8>, ToxError> {
+        use ed25519_dalek::Signer;
+        let mut secret = [0u8; TOX_SECRET_KEY_SIZE];
+        unsafe { tox_self_get_secret_key(self.tox, secret.as_mut_ptr()) };
+        let signing_key = ed25519_dalek::SigningKey::from_bytes(&secret);
+        Ok(signing_key.sign(data).to_bytes().to_vec())
+    }
+
     pub fn self_name(&self) -> String {
         let size = unsafe { tox_self_get_name_size(self.tox) };
         let mut buf = vec![0u8; size];

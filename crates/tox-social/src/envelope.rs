@@ -21,6 +21,8 @@ pub struct Post {
     pub text: String,
     #[serde(rename = "public", default)]
     pub public: bool,
+    #[serde(rename = "sig", default)]
+    pub sig: String,
 }
 
 /// A comment attached to a post.
@@ -241,6 +243,14 @@ impl Envelope {
 }
 
 impl Post {
+    /// Canonical string that is signed for public posts.
+    pub fn signing_string(&self) -> String {
+        format!(
+            "{}|{}|{}|{}|{}",
+            self.id, self.author, self.ts, self.text, self.public
+        )
+    }
+
     pub fn new(author: &str, text: &str) -> Self {
         Post {
             v: PROTOCOL_VERSION,
@@ -249,6 +259,7 @@ impl Post {
             ts: now_ms(),
             text: text.to_string(),
             public: false,
+            sig: String::new(),
         }
     }
 }

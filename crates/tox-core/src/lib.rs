@@ -19,3 +19,15 @@ pub use session::{ToxSession, MAX_NAME_LENGTH, MAX_STATUS_MESSAGE_LENGTH};
 pub mod ffi {
     pub use tox_ffi::*;
 }
+
+/// Verify an Ed25519 signature against a Tox public key (32 bytes).
+pub fn verify_signature(public_key: &[u8; 32], data: &[u8], signature: &[u8]) -> bool {
+    use ed25519_dalek::Verifier;
+    let Ok(pk) = ed25519_dalek::VerifyingKey::from_bytes(public_key) else {
+        return false;
+    };
+    let Ok(sig) = ed25519_dalek::Signature::from_slice(signature) else {
+        return false;
+    };
+    pk.verify(data, &sig).is_ok()
+}

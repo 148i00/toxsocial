@@ -372,7 +372,7 @@ pub async fn publish_post(
     let me = state.session.lock().unwrap().self_public_key();
     let text = text.trim().to_string();
     let is_public = public.unwrap_or(false);
-    let (post, envelopes) = {
+    let (mut post, mut envelopes) = {
         let engine = state.engine.lock().unwrap();
         if text.chars().count() > tox_social::MAX_POST_CHARS {
             if is_public {
@@ -396,6 +396,21 @@ pub async fn publish_post(
             (post.clone(), vec![Envelope::Post(post)])
         }
     };
+    // Sign short public posts with our Ed25519 identity.
+    if is_public && text.chars().count() <= tox_social::MAX_POST_CHARS {
+        let session = state.session.lock().unwrap();
+        let sig = session
+            .sign_data(post.signing_string().as_bytes())
+            .map_err(|e| e.to_string())?;
+        let sig_hex = hex::encode(sig);
+        post.sig = sig_hex.clone();
+        let engine = state.engine.lock().unwrap();
+        engine
+            .store()
+            .post_update_sig(&post.id, &sig_hex)
+            .map_err(|e| e.to_string())?;
+        envelopes = vec![Envelope::Post(post.clone())];
+    }
     for env in envelopes {
         fan_out(&state, env)?;
     }
@@ -405,7 +420,7 @@ pub async fn publish_post(
         let id = post.id.clone();
         let ts = post.ts;
         let text = post.text.clone();
-        if let Err(e) = crate::relay::publish_post(relay, &pubkey, &id, ts, &text).await {
+        if let Err(e) = crate::relay::publish_post(relay, &pubkey, &id, ts, &text, &post.sig).await {
             eprintln!("[toxsocial] relay publish failed: {e}");
         }
     }
@@ -899,6 +914,7 @@ pub async fn fetch_relay_public_posts(state: State<'_, AppState>, since: Option<
         let pubkey = item["pubkey"].as_str().unwrap_or("").to_string();
         let text = item["text"].as_str().unwrap_or("").to_string();
         let ts = item["ts"].as_i64().unwrap_or(0);
+        let sig = item["sig"].as_str().unwrap_or("").to_string();
         if id.is_empty() || pubkey.is_empty() {
             continue;
         }
@@ -909,6 +925,7 @@ pub async fn fetch_relay_public_posts(state: State<'_, AppState>, since: Option<
             ts,
             text,
             public: true,
+            sig,
         };
         let env = Envelope::Post(post);
         if engine.persist(&env, &pubkey, received_at) {

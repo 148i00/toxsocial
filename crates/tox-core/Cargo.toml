@@ -8,5 +8,6 @@ license.workspace = true
 [dependencies]
 tox-ffi = { path = "../tox-ffi" }
 hex = "0.4"
+ed25519-dalek = "2"
 
 [dev-dependencies]

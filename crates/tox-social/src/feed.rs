@@ -17,6 +17,7 @@ pub enum Reject {
     Malformed,
     AuthorMismatch,
     TooLarge,
+    BadSignature,
 }
 
 /// Outcome of processing one incoming friend message.
@@ -67,6 +68,11 @@ impl FeedEngine {
         if env.author() != sender_pk {
             return Incoming::Rejected(Reject::AuthorMismatch);
         }
+        if let Envelope::Post(p) = &env {
+            if !post_signature_valid(p) {
+                return Incoming::Rejected(Reject::BadSignature);
+            }
+        }
         let received_at = now_ms();
         match env.clone() {
             Envelope::Profile(p) => Incoming::Profile(p),
@@ -90,6 +96,11 @@ impl FeedEngine {
 
     /// Write an envelope to the timeline store. Returns `false` on duplicate.
     pub fn persist(&self, env: &Envelope, author: &str, received_at: i64) -> bool {
+        if let Envelope::Post(p) = env {
+            if !post_signature_valid(p) {
+                return false;
+            }
+        }
         let row = match env {
             Envelope::Post(p) => Some(PostRow {
                 id: p.id.clone(),
@@ -103,6 +114,7 @@ impl FeedEngine {
                 source: PostSource::FriendDirect,
                 channel_id: None,
                 is_public: p.public,
+                sig: p.sig.clone(),
             }),
             Envelope::Comment(c) => Some(PostRow {
                 id: c.id.clone(),
@@ -116,6 +128,7 @@ impl FeedEngine {
                 source: PostSource::FriendDirect,
                 channel_id: None,
                 is_public: false,
+                sig: String::new(),
             }),
             Envelope::Reaction(r) => {
                 let _ = self.store.delete_reaction(author, &r.reply_to);
@@ -131,6 +144,7 @@ impl FeedEngine {
                     source: PostSource::FriendDirect,
                     channel_id: None,
                     is_public: false,
+                    sig: String::new(),
                 })
             }
             Envelope::Profile(_)
@@ -173,6 +187,7 @@ impl FeedEngine {
             source: PostSource::SelfPublished,
             channel_id: None,
             is_public: post.public,
+            sig: post.sig.clone(),
         };
         self.store
             .post_upsert(&row)
@@ -205,6 +220,7 @@ impl FeedEngine {
             source: PostSource::SelfPublished,
             channel_id: None,
             is_public: true,
+            sig: post.sig.clone(),
         };
         self.store
             .post_upsert(&row)
@@ -234,6 +250,7 @@ impl FeedEngine {
             source: PostSource::SelfPublished,
             channel_id: None,
             is_public: post.public,
+            sig: post.sig.clone(),
         };
         self.store
             .post_upsert(&row)
@@ -268,6 +285,7 @@ impl FeedEngine {
             source: PostSource::SelfPublished,
             channel_id: None,
             is_public: true,
+            sig: post.sig.clone(),
         };
         self.store
             .post_upsert(&row)
@@ -301,6 +319,7 @@ impl FeedEngine {
             ts: c.ts,
             text,
             public: false,
+            sig: String::new(),
         };
         let row = PostRow {
             id: post.id.clone(),
@@ -314,6 +333,7 @@ impl FeedEngine {
             source: PostSource::FriendDirect,
             channel_id: None,
             is_public: post.public,
+            sig: post.sig.clone(),
         };
         let _ = self.store.post_upsert(&row);
         let _ = self.store.chunk_delete(&post.id, sender_pk);
@@ -346,6 +366,7 @@ impl FeedEngine {
             source: PostSource::SelfPublished,
             channel_id: None,
             is_public: false,
+            sig: String::new(),
         };
         self.store
             .post_upsert(&row)
@@ -376,6 +397,7 @@ impl FeedEngine {
             source: PostSource::SelfPublished,
             channel_id: None,
             is_public: false,
+            sig: String::new(),
         };
         self.store
             .post_upsert(&row)
@@ -469,6 +491,7 @@ fn row_to_envelope(row: PostRow) -> Option<Envelope> {
             ts: row.ts,
             text: row.text.unwrap_or_default(),
             public: row.is_public,
+            sig: row.sig,
         })),
         PostKind::Comment => Some(Envelope::Comment(Comment {
             v: 1,
@@ -505,6 +528,24 @@ impl Envelope {
             Envelope::SyncPosts(s) => &s.author,
         }
     }
+}
+
+fn post_signature_valid(post: &Post) -> bool {
+    if !post.public || post.sig.is_empty() {
+        return true;
+    }
+    let Ok(pk_bytes) = hex::decode(&post.author) else {
+        return false;
+    };
+    if pk_bytes.len() != 32 {
+        return false;
+    }
+    let mut pk = [0u8; 32];
+    pk.copy_from_slice(&pk_bytes);
+    let Ok(sig_bytes) = hex::decode(&post.sig) else {
+        return false;
+    };
+    tox_core::verify_signature(&pk, post.signing_string().as_bytes(), &sig_bytes)
 }
 
 fn split_post_chunks(post: &Post) -> Vec<Envelope> {

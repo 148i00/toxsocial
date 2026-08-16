@@ -43,6 +43,7 @@ pub struct PostRow {
     pub source: PostSource,
     pub channel_id: Option<String>,
     pub is_public: bool,
+    pub sig: String,
 }
 
 /// A row in the `friends` table (a friend == someone you follow).
@@ -94,6 +95,7 @@ CREATE TABLE IF NOT EXISTS posts (
   source       INTEGER NOT NULL DEFAULT 1,
   channel_id   TEXT,
   is_public    INTEGER NOT NULL DEFAULT 0,
+  sig          TEXT DEFAULT '',
   UNIQUE(id, author)
 );
 CREATE INDEX IF NOT EXISTS idx_posts_author ON posts(author);
@@ -285,8 +287,8 @@ impl Store {
     pub fn post_upsert(&self, p: &PostRow) -> Result<bool> {
         let n = self.conn.execute(
             "INSERT OR IGNORE INTO posts
-               (id, author, kind, parent_id, text, emoji, ts, received_at, source, channel_id, is_public)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+               (id, author, kind, parent_id, text, emoji, ts, received_at, source, channel_id, is_public, sig)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
                 p.id,
                 p.author,
@@ -299,6 +301,7 @@ impl Store {
                 p.source as i64,
                 p.channel_id,
                 p.is_public,
+                p.sig,
             ],
         )?;
         Ok(n > 0)
@@ -307,7 +310,7 @@ impl Store {
     pub fn post_get(&self, id: &str) -> Result<Option<PostRow>> {
         self.conn
             .query_row(
-                "SELECT id, author, kind, parent_id, text, emoji, ts, received_at, source, channel_id, is_public
+                "SELECT id, author, kind, parent_id, text, emoji, ts, received_at, source, channel_id, is_public, sig
                  FROM posts WHERE id = ?1",
                 params![id],
                 row_to_post,
@@ -318,7 +321,7 @@ impl Store {
     /// Timeline: newest-first posts by the given authors (following feed).
     pub fn timeline(&self, authors: &[String], limit: u32) -> Result<Vec<PostRow>> {
         let mut sql = String::from(
-            "SELECT id, author, kind, parent_id, text, emoji, ts, received_at, source, channel_id, is_public
+            "SELECT id, author, kind, parent_id, text, emoji, ts, received_at, source, channel_id, is_public, sig
              FROM posts WHERE kind = 0 AND author IN (",
         );
         let placeholders: Vec<String> = (1..=authors.len()).map(|i| format!("?{i}")).collect();
@@ -330,6 +333,15 @@ impl Store {
             authors.iter().map(|a| a as &dyn rusqlite::ToSql).collect();
         let rows = stmt.query_map(params.as_slice(), row_to_post)?;
         rows.collect()
+    }
+
+    /// Update the Ed25519 signature for a post.
+    pub fn post_update_sig(&self, id: &str, sig: &str) -> Result<()> {
+        self.conn.execute(
+            "UPDATE posts SET sig = ?1 WHERE id = ?2",
+            params![sig, id],
+        )?;
+        Ok(())
     }
 
     /// Remove all reactions by one author on one post (single-reaction rule).
@@ -344,7 +356,7 @@ impl Store {
     /// All comments/reactions attached to a post, oldest first.
     pub fn thread_for(&self, post_id: &str) -> Result<Vec<PostRow>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, author, kind, parent_id, text, emoji, ts, received_at, source, channel_id, is_public
+            "SELECT id, author, kind, parent_id, text, emoji, ts, received_at, source, channel_id, is_public, sig
              FROM posts WHERE parent_id = ?1 ORDER BY ts ASC",
         )?;
         let rows = stmt.query_map(params![post_id], row_to_post)?;
@@ -370,7 +382,7 @@ impl Store {
         limit: u32,
     ) -> Result<Vec<PostRow>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, author, kind, parent_id, text, emoji, ts, received_at, source, channel_id, is_public
+            "SELECT id, author, kind, parent_id, text, emoji, ts, received_at, source, channel_id, is_public, sig
              FROM posts WHERE author = ?1 AND ts > ?2
              ORDER BY ts ASC LIMIT ?3",
         )?;
@@ -381,7 +393,7 @@ impl Store {
     /// Public posts with `ts > since`, oldest first. Used for public outbox sync.
     pub fn public_posts_since(&self, since: i64, limit: u32) -> Result<Vec<PostRow>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, author, kind, parent_id, text, emoji, ts, received_at, source, channel_id, is_public
+            "SELECT id, author, kind, parent_id, text, emoji, ts, received_at, source, channel_id, is_public, sig
              FROM posts WHERE kind = 0 AND is_public = 1 AND ts > ?1
              ORDER BY ts ASC LIMIT ?2",
         )?;
@@ -392,7 +404,7 @@ impl Store {
     /// Posts authored by one user, newest first.
     pub fn posts_by_author(&self, author: &str, limit: u32) -> Result<Vec<PostRow>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, author, kind, parent_id, text, emoji, ts, received_at, source, channel_id, is_public
+            "SELECT id, author, kind, parent_id, text, emoji, ts, received_at, source, channel_id, is_public, sig
              FROM posts WHERE author = ?1 AND kind = 0
              ORDER BY ts DESC LIMIT ?2",
         )?;
@@ -404,7 +416,7 @@ impl Store {
     pub fn search_posts(&self, query: &str, limit: u32) -> Result<Vec<PostRow>> {
         let pattern = format!("%{}%", query.replace('%', "\\%").replace('_', "\\_"));
         let mut stmt = self.conn.prepare(
-            "SELECT id, author, kind, parent_id, text, emoji, ts, received_at, source, channel_id, is_public
+            "SELECT id, author, kind, parent_id, text, emoji, ts, received_at, source, channel_id, is_public, sig
              FROM posts WHERE kind = 0 AND text LIKE ?1 ESCAPE '\\'
              ORDER BY ts DESC LIMIT ?2",
         )?;
@@ -475,6 +487,7 @@ fn migrate_posts_is_public(conn: &Connection) {
         "ALTER TABLE posts ADD COLUMN is_public INTEGER NOT NULL DEFAULT 0",
         [],
     );
+    let _ = conn.execute("ALTER TABLE posts ADD COLUMN sig TEXT DEFAULT ''", []);
 }
 
 fn row_to_post(r: &rusqlite::Row) -> Result<PostRow> {
@@ -494,6 +507,7 @@ fn row_to_post(r: &rusqlite::Row) -> Result<PostRow> {
         },
         channel_id: r.get(9)?,
         is_public: r.get(10)?,
+        sig: r.get(11)?,
     })
 }
 
@@ -523,6 +537,7 @@ mod tests {
             source: PostSource::FriendDirect,
             channel_id: None,
             is_public: false,
+            sig: String::new(),
         };
         assert!(store.post_upsert(&p).unwrap());
         assert!(!store.post_upsert(&p).unwrap()); // duplicate
@@ -544,6 +559,7 @@ mod tests {
             source: PostSource::FriendDirect,
             channel_id: None,
             is_public: false,
+            sig: String::new(),
         };
         store.post_upsert(&mk("a", "x", 3)).unwrap();
         store.post_upsert(&mk("b", "y", 5)).unwrap();
@@ -568,6 +584,7 @@ mod tests {
             source: PostSource::FriendDirect,
             channel_id: None,
             is_public: false,
+            sig: String::new(),
         };
         store.post_upsert(&c).unwrap();
         let thread = store.thread_for("post-1").unwrap();
@@ -599,6 +616,7 @@ mod tests {
             source: PostSource::SelfPublished,
             channel_id: None,
             is_public: false,
+            sig: String::new(),
         };
         store.post_upsert(&mk("p1", "alice", PostKind::Post, 10)).unwrap();
         store.post_upsert(&mk("c1", "alice", PostKind::Comment, 20)).unwrap();
@@ -623,6 +641,7 @@ mod tests {
             source: PostSource::SelfPublished,
             channel_id: None,
             is_public: false,
+            sig: String::new(),
         };
         store.post_upsert(&mk("a", "x", PostKind::Post, 1)).unwrap();
         store.post_upsert(&mk("b", "x", PostKind::Comment, 2)).unwrap();
@@ -665,6 +684,7 @@ mod tests {
             source: PostSource::SelfPublished,
             channel_id: None,
             is_public: false,
+            sig: String::new(),
         };
         store.post_upsert(&mk("a", "x", "hello world", 3)).unwrap();
         store.post_upsert(&mk("b", "x", "ToxSocial is cool", 5)).unwrap();
