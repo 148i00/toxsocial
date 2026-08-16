@@ -529,7 +529,7 @@ fn author_meta(
 }
 
 #[tauri::command]
-pub fn fetch_timeline(state: State<AppState>, limit: Option<u32>) -> Result<Vec<TimelineItem>, String> {
+pub async fn fetch_timeline(state: State<'_, AppState>, limit: Option<u32>) -> Result<Vec<TimelineItem>, String> {
     let limit = limit.unwrap_or(50);
     let authors = {
         let session = state.session.lock().unwrap();
@@ -561,8 +561,8 @@ pub fn fetch_timeline(state: State<AppState>, limit: Option<u32>) -> Result<Vec<
 }
 
 #[tauri::command]
-pub fn search_posts(
-    state: State<AppState>,
+pub async fn search_posts(
+    state: State<'_, AppState>,
     query: String,
     limit: Option<u32>,
 ) -> Result<Vec<TimelineItem>, String> {
@@ -587,7 +587,7 @@ pub fn search_posts(
 }
 
 #[tauri::command]
-pub fn fetch_posts_by_author(state: State<AppState>, pubkey: String, limit: Option<u32>) -> Result<Vec<TimelineItem>, String> {
+pub async fn fetch_posts_by_author(state: State<'_, AppState>, pubkey: String, limit: Option<u32>) -> Result<Vec<TimelineItem>, String> {
     let limit = limit.unwrap_or(50);
     let engine = state.engine.lock().unwrap();
     let meta = author_meta(&state, &engine);
@@ -605,7 +605,7 @@ pub fn fetch_posts_by_author(state: State<AppState>, pubkey: String, limit: Opti
 }
 
 #[tauri::command]
-pub fn fetch_thread(state: State<AppState>, post_id: String) -> Result<Vec<TimelineItem>, String> {
+pub async fn fetch_thread(state: State<'_, AppState>, post_id: String) -> Result<Vec<TimelineItem>, String> {
     let engine = state.engine.lock().unwrap();
     let meta = author_meta(&state, &engine);
     let post = engine
@@ -899,7 +899,7 @@ pub fn request_directory_search(state: State<AppState>, query: String, depth: Op
 }
 
 #[tauri::command]
-pub fn fetch_public_timeline(state: State<AppState>, limit: Option<u32>) -> Result<Vec<TimelineItem>, String> {
+pub async fn fetch_public_timeline(state: State<'_, AppState>, limit: Option<u32>) -> Result<Vec<TimelineItem>, String> {
     let limit = limit.unwrap_or(50);
     let engine = state.engine.lock().unwrap();
     let meta = author_meta(&state, &engine);

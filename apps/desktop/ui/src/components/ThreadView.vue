@@ -16,6 +16,7 @@ const post = ref<TimelineItem | null>(null);
 const comments = ref<TimelineItem[]>([]);
 const reactions = ref<TimelineItem[]>([]);
 const commentText = ref("");
+const commentInput = ref<HTMLInputElement | null>(null);
 const busy = ref(false);
 
 const reactionSummary = computed(() => {
@@ -34,6 +35,11 @@ async function load() {
   post.value = items.find((i) => i.kind === "post") ?? null;
   comments.value = items.filter((i) => i.kind === "comment");
   reactions.value = items.filter((i) => i.kind === "reaction");
+}
+
+function replyTo(c: TimelineItem) {
+  commentText.value = `@${c.authorName} `;
+  commentInput.value?.focus();
 }
 
 async function submitComment() {
@@ -73,6 +79,7 @@ onMounted(load);
 
     <div class="composer">
       <input
+        ref="commentInput"
         v-model="commentText"
         maxlength="500"
         placeholder="写下你的评论…"
@@ -91,6 +98,9 @@ onMounted(load);
         <span class="time">{{ formatTime(c.ts) }}</span>
       </div>
       <div class="body markdown" v-html="md(c.text)"></div>
+      <div class="comment-actions">
+        <button class="mini" @click="replyTo(c)">回复</button>
+      </div>
     </article>
   </div>
 </template>
@@ -132,6 +142,13 @@ onMounted(load);
 }
 .comment {
   border-left: 3px solid var(--accent-2);
+}
+.comment-actions {
+  margin-top: 6px;
+}
+button.mini {
+  padding: 2px 8px;
+  font-size: 11px;
 }
 .composer {
   display: flex;

@@ -55,6 +55,10 @@ async function submitAddFriend() {
   try {
     // If it looks like a ToxID (76 hex), add directly.
     if (q.length >= 70) {
+      if (friends.value.some((f) => f.toxid === q || f.toxid.startsWith(q))) {
+        addError.value = "这个用户已经在你的关注列表里了";
+        return;
+      }
       await api.addFriend(q, addMsg.value);
       addToxid.value = "";
       showAddFriend.value = false;
@@ -88,6 +92,10 @@ async function submitAddFriend() {
 
 async function addFromSearch(d: DirectoryEntryInfo) {
   const toxid = d.toxid || d.pubkey;
+  if (friends.value.some((f) => f.toxid === toxid || f.pubkey === d.pubkey || f.toxid.startsWith(d.pubkey))) {
+    addError.value = "这个用户已经在你的关注列表里了";
+    return;
+  }
   try {
     await api.addFriend(toxid, addMsg.value);
     addToxid.value = "";
@@ -265,6 +273,7 @@ async function runSearch() {
         </div>
       </div>
       <div class="sidebar-foot" v-if="own">
+        <span class="dot" :class="{ online: networkStatus?.connected }"></span>
         <Avatar :src="own.avatar" :name="own.name" :size="28" />
         <div class="foot-info">
           <span class="foot-name">{{ own.name || "未设置昵称" }}</span>

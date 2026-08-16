@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { onBeforeUnmount, onMounted, ref } from "vue";
 import { api, onEvent } from "../api";
 import { t } from "../i18n";
 import type { PublicChannelInfo } from "../types";
@@ -238,6 +238,8 @@ async function send() {
   }
 }
 
+let publicTimer: ReturnType<typeof setInterval> | undefined;
+
 onMounted(async () => {
   try {
     const info = await api.getOwnInfo();
@@ -246,6 +248,9 @@ onMounted(async () => {
     /* ignore */
   }
   await loadPublicChannels();
+  publicTimer = setInterval(() => {
+    loadPublicChannels();
+  }, 30_000);
   onEvent("channel:message", (e: { conferenceNumber: number; peerNumber: number; text: string }) => {
     messages.value.push({ peer: `#${e.peerNumber}`, text: e.text });
   });
@@ -264,6 +269,10 @@ onMounted(async () => {
   onEvent("channel:peer_list_changed", async () => {
     await refreshPeerCount();
   });
+});
+
+onBeforeUnmount(() => {
+  if (publicTimer) clearInterval(publicTimer);
 });
 </script>
 
