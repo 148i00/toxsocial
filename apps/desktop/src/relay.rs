@@ -96,6 +96,7 @@ pub struct RelayChannel {
     pub desc: String,
     pub host_toxid: String,
     pub channel_id: String,
+    pub hosts: Vec<String>,
 }
 
 pub async fn list_channels(relay: &str) -> Result<Vec<RelayChannel>, String> {
@@ -119,6 +120,14 @@ pub async fn list_channels(relay: &str) -> Result<Vec<RelayChannel>, String> {
                 desc: item["desc"].as_str().unwrap_or("").to_string(),
                 host_toxid: item["hostToxid"].as_str().unwrap_or("").to_string(),
                 channel_id: item["channelId"].as_str().unwrap_or("").to_string(),
+                hosts: item["hosts"]
+                    .as_array()
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                            .collect()
+                    })
+                    .unwrap_or_default(),
             });
         }
     }
@@ -200,6 +209,51 @@ pub async fn delete_channel(relay: &str, channel_id: &str, host_toxid: &str) -> 
     if !status.is_success() {
         let text = resp.text().await.unwrap_or_default();
         return Err(format!("relay delete channel error {}: {}", status, text));
+    }
+    Ok(())
+}
+
+
+pub async fn add_channel_host(
+    relay: &str,
+    channel_id: &str,
+    requester_toxid: &str,
+    new_host_toxid: &str,
+) -> Result<(), String> {
+    let url = format!("{}/api/channels/hosts/add", relay.trim_end_matches('/'));
+    let body = serde_json::json!({
+        "channelId": channel_id,
+        "requesterToxid": requester_toxid,
+        "newHostToxid": new_host_toxid,
+    });
+    let client = reqwest::Client::new();
+    let resp = client.post(url).json(&body).send().await.map_err(|e| e.to_string())?;
+    let status = resp.status();
+    if !status.is_success() {
+        let text = resp.text().await.unwrap_or_default();
+        return Err(format!("relay add host error {}: {}", status, text));
+    }
+    Ok(())
+}
+
+pub async fn remove_channel_host(
+    relay: &str,
+    channel_id: &str,
+    requester_toxid: &str,
+    remove_host_toxid: &str,
+) -> Result<(), String> {
+    let url = format!("{}/api/channels/hosts/remove", relay.trim_end_matches('/'));
+    let body = serde_json::json!({
+        "channelId": channel_id,
+        "requesterToxid": requester_toxid,
+        "removeHostToxid": remove_host_toxid,
+    });
+    let client = reqwest::Client::new();
+    let resp = client.post(url).json(&body).send().await.map_err(|e| e.to_string())?;
+    let status = resp.status();
+    if !status.is_success() {
+        let text = resp.text().await.unwrap_or_default();
+        return Err(format!("relay remove host error {}: {}", status, text));
     }
     Ok(())
 }

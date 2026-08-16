@@ -59,10 +59,46 @@ export default {
         name: body.name,
         desc: body.desc || '',
         hostToxid: body.hostToxid,
+        hosts: [body.hostToxid],
         channelId: body.channelId,
         updated_at: Date.now(),
       };
       await env.CHANNELS.put(key, JSON.stringify(channel));
+      return json({ ok: true });
+    }
+
+    if (path === '/api/channels/hosts/add' && request.method === 'POST') {
+      const body = await request.json();
+      const { channelId, requesterToxid, newHostToxid } = body;
+      if (!channelId || !requesterToxid || !newHostToxid) {
+        return json({ error: 'channelId, requesterToxid and newHostToxid required' }, 400);
+      }
+      const existing = await env.CHANNELS.get(channelId, 'json');
+      if (!existing) return json({ error: 'channel not found' }, 404);
+      const hosts = existing.hosts || [existing.hostToxid];
+      if (!hosts.includes(requesterToxid)) return json({ error: 'not authorized' }, 403);
+      if (!hosts.includes(newHostToxid)) hosts.push(newHostToxid);
+      existing.hosts = hosts;
+      await env.CHANNELS.put(channelId, JSON.stringify(existing));
+      return json({ ok: true });
+    }
+
+    if (path === '/api/channels/hosts/remove' && request.method === 'POST') {
+      const body = await request.json();
+      const { channelId, requesterToxid, removeHostToxid } = body;
+      if (!channelId || !requesterToxid || !removeHostToxid) {
+        return json({ error: 'channelId, requesterToxid and removeHostToxid required' }, 400);
+      }
+      const existing = await env.CHANNELS.get(channelId, 'json');
+      if (!existing) return json({ error: 'channel not found' }, 404);
+      const hosts = existing.hosts || [existing.hostToxid];
+      if (!hosts.includes(requesterToxid)) return json({ error: 'not authorized' }, 403);
+      existing.hosts = hosts.filter((h) => h !== removeHostToxid);
+      if (existing.hosts.length === 0) {
+        await env.CHANNELS.delete(channelId);
+      } else {
+        await env.CHANNELS.put(channelId, JSON.stringify(existing));
+      }
       return json({ ok: true });
     }
 
@@ -73,7 +109,8 @@ export default {
       if (!channelId || !hostToxid) return json({ error: 'channelId and hostToxid required' }, 400);
       const existing = await env.CHANNELS.get(channelId, 'json');
       if (!existing) return json({ error: 'channel not found' }, 404);
-      if (existing.hostToxid !== hostToxid) return json({ error: 'not authorized' }, 403);
+      const hosts = existing.hosts || [existing.hostToxid];
+      if (!hosts.includes(hostToxid)) return json({ error: 'not authorized' }, 403);
       await env.CHANNELS.delete(channelId);
       return json({ ok: true });
     }

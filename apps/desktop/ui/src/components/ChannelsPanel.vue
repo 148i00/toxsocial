@@ -21,6 +21,7 @@ const error = ref("");
 const publicChannels = ref<PublicChannelInfo[]>([]);
 const channelName = ref("");
 const channelDesc = ref("");
+const hostInput = ref("");
 
 async function loadPublicChannels() {
   try {
@@ -39,6 +40,30 @@ async function deletePublic(ch: PublicChannelInfo) {
     log.value.push(`已删除公共频道「${ch.name}」`);
   } catch (e) {
     log.value.push(`删除失败：${e}`);
+  }
+}
+
+async function addHost(ch: PublicChannelInfo) {
+  const toxid = hostInput.value.trim();
+  if (!toxid) return;
+  try {
+    await api.addChannelHost(ch.channelId, toxid);
+    hostInput.value = "";
+    await loadPublicChannels();
+    log.value.push(`已添加 host: ${toxid.slice(0, 8)}…`);
+  } catch (e) {
+    log.value.push(`添加 host 失败：${e}`);
+  }
+}
+
+async function removeHost(ch: PublicChannelInfo, toxid: string) {
+  if (!confirm(`移除 host ${toxid.slice(0, 8)}…？`)) return;
+  try {
+    await api.removeChannelHost(ch.channelId, toxid);
+    await loadPublicChannels();
+    log.value.push(`已移除 host: ${toxid.slice(0, 8)}…`);
+  } catch (e) {
+    log.value.push(`移除 host 失败：${e}`);
   }
 }
 
@@ -246,7 +271,7 @@ onMounted(async () => {
       <div class="row">
         <span class="state" v-if="conferenceNumber !== null">当前频道 #{{ conferenceNumber }} · 成员 {{ peerCount }}</span>
         <span class="state" v-else>尚未创建/加入频道</span>
-        <button class="primary" :disabled="busy" @click="create">{{ t("createChannel") }}</button>
+        <button class="primary" :disabled="busy" @click="create">创建/加入频道</button>
       </div>
       <p v-if="error" class="error">{{ error }}</p>
     </div>
@@ -320,7 +345,15 @@ onMounted(async () => {
           <div class="pub-desc">{{ ch.desc }}</div>
         </div>
         <button :disabled="busy" @click="joinPublic(ch)">加入</button>
-        <button v-if="ch.hostToxid === ownToxid" class="danger" :disabled="busy" @click="deletePublic(ch)">删除</button>
+        <button v-if="ch.hosts && ch.hosts.includes(ownToxid)" class="danger" :disabled="busy" @click="deletePublic(ch)">删除</button>
+        <div v-if="ch.hosts && ch.hosts.includes(ownToxid)" class="host-manage">
+          <input v-model="hostInput" placeholder="添加 co-host ToxID" />
+          <button :disabled="busy || !hostInput.trim()" @click="addHost(ch)">添加</button>
+          <div v-for="h in ch.hosts" :key="h" class="host-row">
+            <span class="mono">{{ h.slice(0, 12) }}…</span>
+            <button class="mini" :disabled="busy || h === ownToxid" @click="removeHost(ch, h)">移除</button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -417,6 +450,21 @@ h2 {
   color: var(--text-dim);
   font-size: 12px;
   line-height: 1.5;
+}
+.host-manage {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+}
+.host-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+button.mini {
+  padding: 2px 6px;
+  font-size: 11px;
 }
 .toxid {
   background: var(--bg);

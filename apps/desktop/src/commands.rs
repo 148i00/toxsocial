@@ -97,6 +97,7 @@ pub struct PublicChannelInfo {
     pub desc: String,
     pub host_toxid: String,
     pub channel_id: String,
+    pub hosts: Vec<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -918,6 +919,44 @@ pub async fn fetch_relay_public_posts(state: State<'_, AppState>, since: Option<
 }
 
 #[tauri::command]
+pub async fn add_channel_host(
+    state: State<'_, AppState>,
+    channel_id: String,
+    new_host_toxid: String,
+) -> Result<(), String> {
+    let requester = {
+        let session = state.session.lock().unwrap();
+        session.self_address()
+    };
+    crate::relay::add_channel_host(
+        crate::relay::DEFAULT_RELAY,
+        &channel_id,
+        &requester,
+        new_host_toxid.trim(),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn remove_channel_host(
+    state: State<'_, AppState>,
+    channel_id: String,
+    remove_host_toxid: String,
+) -> Result<(), String> {
+    let requester = {
+        let session = state.session.lock().unwrap();
+        session.self_address()
+    };
+    crate::relay::remove_channel_host(
+        crate::relay::DEFAULT_RELAY,
+        &channel_id,
+        &requester,
+        remove_host_toxid.trim(),
+    )
+    .await
+}
+
+#[tauri::command]
 pub async fn delete_public_channel(state: State<'_, AppState>, channel_id: String) -> Result<(), String> {
     let host_toxid = {
         let session = state.session.lock().unwrap();
@@ -936,6 +975,7 @@ pub async fn list_public_channels() -> Result<Vec<PublicChannelInfo>, String> {
             desc: c.desc,
             host_toxid: c.host_toxid,
             channel_id: c.channel_id,
+            hosts: c.hosts,
         })
         .collect())
 }

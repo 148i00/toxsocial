@@ -59,6 +59,10 @@ export const api = {
     invoke<void>("register_public_channel", { conferenceNumber, name, desc }),
   deletePublicChannel: (channelId: string) =>
     invoke<void>("delete_public_channel", { channelId }),
+  addChannelHost: (channelId: string, newHostToxid: string) =>
+    invoke<void>("add_channel_host", { channelId, newHostToxid }),
+  removeChannelHost: (channelId: string, removeHostToxid: string) =>
+    invoke<void>("remove_channel_host", { channelId, removeHostToxid }),
 };
 
 export function onEvent<T>(event: string, cb: (payload: T) => void): Promise<UnlistenFn> {
