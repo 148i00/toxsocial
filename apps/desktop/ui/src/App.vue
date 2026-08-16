@@ -123,7 +123,10 @@ async function refreshPublicTimeline() {
 }
 
 async function requestPublic() {
-  await api.requestPublicPosts(0, 2);
+  await Promise.all([
+    api.requestPublicPosts(0, 2),
+    api.fetchRelayPublicPosts(0),
+  ]);
   await refreshPublicTimeline();
 }
 
