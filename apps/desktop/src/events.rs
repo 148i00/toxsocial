@@ -274,6 +274,10 @@ fn handle_event(app: &AppHandle, state: &State<AppState>, ev: Event) {
         }
         Event::ConferencePeerListChanged { conference_number } => {
             println!("[toxsocial] conference #{conference_number} peer list changed");
+            let _ = app.emit(
+                "channel:peer_list_changed",
+                json!({ "conferenceNumber": conference_number }),
+            );
         }
     }
 }

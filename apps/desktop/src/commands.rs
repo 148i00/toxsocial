@@ -585,6 +585,14 @@ pub fn conference_send(
 }
 
 #[tauri::command]
+pub fn get_conference_peer_count(state: State<AppState>, conference_number: u32) -> Result<u32, String> {
+    let session = state.session.lock().unwrap();
+    session
+        .conference_peer_count(conference_number)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn get_conference_id(state: State<AppState>, conference_number: u32) -> Result<String, String> {
     let session = state.session.lock().unwrap();
     session

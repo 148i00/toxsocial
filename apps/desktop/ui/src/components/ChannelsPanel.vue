@@ -6,7 +6,10 @@ import type { PublicChannelInfo } from "../types";
 
 const conferenceNumber = ref<number | null>(null);
 const channelId = ref("");
+const peerCount = ref(0);
 const ownToxid = ref("");
+const subChannels = ref<{ name: string; conferenceNumber: number }[]>([]);
+const subName = ref("");
 const friendNumber = ref("0");
 const inviteToxid = ref("");
 const message = ref("");
@@ -90,6 +93,38 @@ async function refreshChannelId() {
   }
 }
 
+async function refreshPeerCount() {
+  if (conferenceNumber.value === null) return;
+  try {
+    peerCount.value = await api.getConferencePeerCount(conferenceNumber.value);
+  } catch {
+    peerCount.value = 0;
+  }
+}
+
+async function createSubChannel() {
+  if (!subName.value.trim() || busy.value) return;
+  busy.value = true;
+  error.value = "";
+  try {
+    const n = await api.conferenceNew();
+    subChannels.value.push({ name: subName.value.trim(), conferenceNumber: n });
+    subName.value = "";
+    await switchChannel(n);
+    log.value.push(`已创建子频道 #${n}`);
+  } catch (e) {
+    error.value = String(e);
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function switchChannel(n: number) {
+  conferenceNumber.value = n;
+  await refreshChannelId();
+  await refreshPeerCount();
+}
+
 async function create() {
   if (busy.value) return;
   busy.value = true;
@@ -97,6 +132,7 @@ async function create() {
   try {
     conferenceNumber.value = await api.conferenceNew();
     await refreshChannelId();
+    await refreshPeerCount();
     log.value.push(`已创建频道 #${conferenceNumber.value}`);
   } catch (e) {
     error.value = String(e);
@@ -176,12 +212,17 @@ onMounted(async () => {
   onEvent("channel:connected", async (e: { conferenceNumber: number }) => {
     conferenceNumber.value = e.conferenceNumber;
     await refreshChannelId();
+    await refreshPeerCount();
     log.value.push(`已连接频道 #${e.conferenceNumber}`);
   });
   onEvent("channel:joined", async (e: { conferenceNumber: number; friendNumber: number }) => {
     conferenceNumber.value = e.conferenceNumber;
     await refreshChannelId();
+    await refreshPeerCount();
     log.value.push(`已接受好友 #${e.friendNumber} 的邀请，加入频道 #${e.conferenceNumber}`);
+  });
+  onEvent("channel:peer_list_changed", async () => {
+    await refreshPeerCount();
   });
 });
 </script>
@@ -192,11 +233,26 @@ onMounted(async () => {
 
     <div class="card">
       <div class="row">
-        <span class="state" v-if="conferenceNumber !== null">当前频道 #{{ conferenceNumber }}</span>
+        <span class="state" v-if="conferenceNumber !== null">当前频道 #{{ conferenceNumber }} · 成员 {{ peerCount }}</span>
         <span class="state" v-else>尚未创建/加入频道</span>
         <button class="primary" :disabled="busy" @click="create">{{ t("createChannel") }}</button>
       </div>
       <p v-if="error" class="error">{{ error }}</p>
+    </div>
+
+    <div class="card" v-if="conferenceNumber !== null">
+      <div class="log-title">子频道</div>
+      <div class="row">
+        <input v-model="subName" placeholder="子频道名称" />
+        <button :disabled="busy || !subName.trim()" @click="createSubChannel">创建子频道</button>
+      </div>
+      <div v-for="sub in subChannels" :key="sub.conferenceNumber" class="pub-channel">
+        <div class="pub-info">
+          <div class="pub-name">{{ sub.name }}</div>
+          <div class="pub-desc">#{{ sub.conferenceNumber }}</div>
+        </div>
+        <button :disabled="conferenceNumber === sub.conferenceNumber" @click="switchChannel(sub.conferenceNumber)">切换</button>
+      </div>
     </div>
 
     <div class="card" v-if="conferenceNumber !== null">

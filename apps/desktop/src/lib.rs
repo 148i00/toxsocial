@@ -89,6 +89,7 @@ pub fn run() {
             commands::conference_invite_by_toxid,
             commands::conference_peers,
             commands::get_conference_id,
+            commands::get_conference_peer_count,
             commands::list_conferences,
             commands::request_sync_all,
             commands::search_posts,

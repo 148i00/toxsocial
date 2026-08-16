@@ -34,6 +34,8 @@ export const api = {
     invoke<ConferencePeerInfo[]>("conference_peers", { conferenceNumber }),
   getConferenceId: (conferenceNumber: number) =>
     invoke<string>("get_conference_id", { conferenceNumber }),
+  getConferencePeerCount: (conferenceNumber: number) =>
+    invoke<number>("get_conference_peer_count", { conferenceNumber }),
   listConferences: () => invoke<number[]>("list_conferences"),
   requestSyncAll: () => invoke<number>("request_sync_all"),
   searchPosts: (query: string, limit?: number) =>
