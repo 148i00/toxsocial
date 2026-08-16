@@ -52,3 +52,11 @@ powershell -ExecutionPolicy Bypass -File scripts\bundle.ps1
 - 已部署 Relay：`https://toxsocial-relay.vcst.top`
 - 客户端已接入：公开帖子自动发布到 Relay，找人同时搜索本地/好友/Relay，公共页可拉取 Relay 内容
 - 部署/自建方法见 `server/README.md`
+
+## 发布 Release（免浏览器登录）
+```bash
+bash scripts/upload-release.sh v0.1.1 "ToxSocial v0.1.1" "更新说明" \
+  target/release/bundle/msi/ToxSocial_0.1.0_x64_en-US.msi \
+  target/release/bundle/nsis/ToxSocial_0.1.0_x64-setup.exe
+```
+脚本使用 Windows 已保存的 Git 凭据，不会弹出浏览器登录（前提是凭据已缓存）。
