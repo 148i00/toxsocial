@@ -173,7 +173,10 @@ function backToTimeline() {
 onMounted(async () => {
   await refreshAll();
   await refreshNetworkStatus();
-  statusTimer = setInterval(refreshNetworkStatus, 10_000);
+  statusTimer = setInterval(() => {
+    refreshNetworkStatus();
+    refreshFriends();
+  }, 10_000);
   loading.value = false;
 
   // Live updates from the backend.
@@ -371,7 +374,7 @@ onBeforeUnmount(() => {
         />
       </div>
       <FriendsPanel v-else-if="view === 'friends'" :friends="friends" @changed="refreshAll" @open="viewFriend" />
-      <ChannelsPanel v-else-if="view === 'channels'" />
+      <ChannelsPanel v-else-if="view === 'channels'" :friends="friends" />
       <div v-else-if="view === 'public'" class="public-page">
         <div class="row">
           <button class="primary" @click="requestPublic">请求公共内容</button>

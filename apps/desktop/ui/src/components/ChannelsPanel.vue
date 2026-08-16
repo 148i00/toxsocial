@@ -2,7 +2,9 @@
 import { onBeforeUnmount, onMounted, ref } from "vue";
 import { api, onEvent } from "../api";
 import { t } from "../i18n";
-import type { PublicChannelInfo } from "../types";
+import type { FriendInfo, PublicChannelInfo } from "../types";
+
+const props = defineProps<{ friends: FriendInfo[] }>();
 
 const conferenceNumber = ref<number | null>(null);
 const channelId = ref("");
@@ -88,8 +90,21 @@ async function enterOwnChannel(channelId: string) {
   }
 }
 
+function isOwnChannel(ch: PublicChannelInfo): boolean {
+  return (
+    ch.hostToxid === ownToxid ||
+    (ownToxid && ch.hostToxid.startsWith(ownToxid.slice(0, 64)))
+  );
+}
+
+function isFriendHost(ch: PublicChannelInfo): boolean {
+  return props.friends.some(
+    (f) => f.toxid === ch.hostToxid || f.pubkey === ch.hostToxid || f.toxid.startsWith(ch.hostToxid.slice(0, 64)),
+  );
+}
+
 async function joinPublic(ch: PublicChannelInfo) {
-  if (ch.hostToxid === ownToxid) {
+  if (isOwnChannel(ch)) {
     await enterOwnChannel(ch.channelId);
     return;
   }
@@ -97,17 +112,22 @@ async function joinPublic(ch: PublicChannelInfo) {
     log.value.push(`「${ch.name}」暂时没有可用的 host，等待频道管理员接入。`);
     return;
   }
+  if (isFriendHost(ch)) {
+    try {
+      await api.sendJoinChannel(ch.hostToxid, ch.channelId);
+      log.value.push(`已向「${ch.name}」host 发送加入申请。`);
+    } catch (e) {
+      log.value.push(`加入「${ch.name}」失败：${e}`);
+    }
+    return;
+  }
   try {
-    await api.sendJoinChannel(ch.hostToxid, ch.channelId);
-    log.value.push(`已向「${ch.name}」host 发送加入申请。`);
+    await api.addFriend(ch.hostToxid, `join_channel ${ch.channelId}`);
+    log.value.push(`已向「${ch.name}」host 发送好友请求/加入申请。`);
   } catch (e) {
-    if (String(e).includes("not_friend")) {
-      try {
-        await api.addFriend(ch.hostToxid, `join_channel ${ch.channelId}`);
-        log.value.push(`已向「${ch.name}」host 发送好友请求/加入申请。`);
-      } catch (e2) {
-        log.value.push(`加入「${ch.name}」失败：${e2}`);
-      }
+    const msg = String(e);
+    if (msg.includes("已发送") || msg.includes("already")) {
+      log.value.push(`加入「${ch.name}」：请求已发送，等待 host 接受。`);
     } else {
       log.value.push(`加入「${ch.name}」失败：${e}`);
     }
