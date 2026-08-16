@@ -66,6 +66,18 @@ export default {
       return json({ ok: true });
     }
 
+    if (path === '/api/channels/delete' && request.method === 'POST') {
+      const body = await request.json();
+      const channelId = body.channelId;
+      const hostToxid = body.hostToxid;
+      if (!channelId || !hostToxid) return json({ error: 'channelId and hostToxid required' }, 400);
+      const existing = await env.CHANNELS.get(channelId, 'json');
+      if (!existing) return json({ error: 'channel not found' }, 404);
+      if (existing.hostToxid !== hostToxid) return json({ error: 'not authorized' }, 403);
+      await env.CHANNELS.delete(channelId);
+      return json({ ok: true });
+    }
+
     if (path === '/api/outbox' && request.method === 'GET') {
       const pubkey = url.searchParams.get('pubkey');
       const since = Number(url.searchParams.get('since') || 0);

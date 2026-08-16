@@ -2,7 +2,7 @@
 import { onMounted, ref } from "vue";
 import { api, onEvent } from "./api";
 import { t } from "./i18n";
-import type { FriendInfo, OwnInfo, TimelineItem } from "./types";
+import type { DirectoryEntryInfo, FriendInfo, OwnInfo, TimelineItem } from "./types";
 import PostComposer from "./components/PostComposer.vue";
 import PostCard from "./components/PostCard.vue";
 import ThreadView from "./components/ThreadView.vue";
@@ -20,6 +20,8 @@ const loading = ref(true);
 const searchQuery = ref("");
 const searchResults = ref<TimelineItem[]>([]);
 const publicTimeline = ref<TimelineItem[]>([]);
+const friendFilter = ref<string | null>(null);
+const friendPosts = ref<TimelineItem[]>([]);
 const searching = ref(false);
 const notifications = ref<{ id: number; text: string; time: number }[]>([]);
 const unread = ref(0);
@@ -29,6 +31,8 @@ const addToxid = ref("");
 const addMsg = ref("你好，关注一下！");
 const addBusy = ref(false);
 const addError = ref("");
+const userSearchResults = ref<DirectoryEntryInfo[]>([]);
+const searchingUsers = ref(false);
 let notificationId = 0;
 
 function notify(text: string) {
@@ -41,18 +45,54 @@ function markAllRead() {
 }
 
 async function submitAddFriend() {
-  if (!addToxid.value.trim() || addBusy.value) return;
+  const q = addToxid.value.trim();
+  if (!q || addBusy.value) return;
   addBusy.value = true;
   addError.value = "";
+  userSearchResults.value = [];
   try {
-    await api.addFriend(addToxid.value.trim(), addMsg.value);
+    // If it looks like a ToxID (76 hex), add directly.
+    if (q.length >= 70) {
+      await api.addFriend(q, addMsg.value);
+      addToxid.value = "";
+      showAddFriend.value = false;
+      await refreshAll();
+      return;
+    }
+    // Otherwise search local + relay + friend network.
+    searchingUsers.value = true;
+    const local = await api.searchDirectory(q, 20);
+    let relay: DirectoryEntryInfo[] = [];
+    try {
+      relay = await api.searchRelayDirectory(q);
+    } catch {
+      // ignore relay errors
+    }
+    const seen = new Set<string>();
+    userSearchResults.value = [...local, ...relay].filter((d) => {
+      if (!d.pubkey || seen.has(d.pubkey)) return false;
+      seen.add(d.pubkey);
+      return true;
+    });
+    await api.requestDirectorySearch(q, 2);
+    addError.value = userSearchResults.value.length === 0 ? "没有找到匹配用户，可尝试完整 ToxID" : "";
+  } catch (e) {
+    addError.value = String(e);
+  } finally {
+    addBusy.value = false;
+    searchingUsers.value = false;
+  }
+}
+
+async function addFromSearch(d: DirectoryEntryInfo) {
+  const toxid = d.toxid || d.pubkey;
+  try {
+    await api.addFriend(toxid, addMsg.value);
     addToxid.value = "";
     showAddFriend.value = false;
     await refreshAll();
   } catch (e) {
     addError.value = String(e);
-  } finally {
-    addBusy.value = false;
   }
 }
 
@@ -75,6 +115,17 @@ async function refreshPublicTimeline() {
 async function requestPublic() {
   await api.requestPublicPosts(0, 2);
   await refreshPublicTimeline();
+}
+
+async function viewFriend(pubkey: string) {
+  friendFilter.value = pubkey;
+  friendPosts.value = await api.fetchPostsByAuthor(pubkey, 50);
+  view.value = "timeline";
+}
+
+function backFromFriend() {
+  friendFilter.value = null;
+  friendPosts.value = [];
 }
 
 async function refreshAll() {
@@ -169,7 +220,7 @@ async function runSearch() {
         <button :class="{ active: view === 'timeline' && !threadPostId }" @click="backToTimeline(); view = 'timeline'">
           首页
         </button>
-        <button @click="showAddFriend = true">＋ 添加好友</button>
+        <button @click="showAddFriend = true">搜索用户</button>
         <button :class="{ active: view === 'friends' }" @click="view = 'friends'">
           关注 <span v-if="own" class="count">{{ own.friendCount }}</span>
         </button>
@@ -209,18 +260,13 @@ async function runSearch() {
         </div>
         <ThreadView v-if="threadPostId" :post-id="threadPostId" @refresh="refreshThreadAndTimeline" />
         <template v-else>
-          <div class="search-box">
-            <input
-              v-model="searchQuery"
-              :placeholder="t('searchPlaceholder')"
-              @input="runSearch"
-            />
+          <div v-if="friendFilter" class="thread-header">
+            <button @click="backFromFriend()">← 返回时间线</button>
+            <span>正在查看该好友的帖子</span>
           </div>
-          <template v-if="searchQuery.trim()">
-            <div v-if="searching" class="empty">{{ t("searching") }}</div>
-            <div v-else-if="searchResults.length === 0" class="empty">{{ t("noSearchResults") }}</div>
+          <template v-if="friendFilter">
             <PostCard
-              v-for="p in searchResults"
+              v-for="p in friendPosts"
               :key="p.id"
               :item="p"
               :own="own"
@@ -229,24 +275,45 @@ async function runSearch() {
             />
           </template>
           <template v-else>
-            <PostComposer :own="own" @posted="refreshTimeline" />
-            <div v-if="loading" class="empty">{{ t("loading") }}</div>
-            <div v-else-if="timeline.length === 0" class="empty">
-              {{ t("emptyTimeline") }}
+            <div class="search-box">
+              <input
+                v-model="searchQuery"
+                :placeholder="t('searchPlaceholder')"
+                @input="runSearch"
+              />
             </div>
-            <PostCard
-              v-for="p in timeline"
-              :key="p.id"
-              :item="p"
-              :own="own"
-              @open="openThreadWithData"
-              @reacted="refreshTimeline"
-            />
+            <template v-if="searchQuery.trim()">
+              <div v-if="searching" class="empty">{{ t("searching") }}</div>
+              <div v-else-if="searchResults.length === 0" class="empty">{{ t("noSearchResults") }}</div>
+              <PostCard
+                v-for="p in searchResults"
+                :key="p.id"
+                :item="p"
+                :own="own"
+                @open="openThreadWithData"
+                @reacted="refreshTimeline"
+              />
+            </template>
+            <template v-else>
+              <PostComposer :own="own" @posted="refreshTimeline" />
+              <div v-if="loading" class="empty">{{ t("loading") }}</div>
+              <div v-else-if="timeline.length === 0" class="empty">
+                {{ t("emptyTimeline") }}
+              </div>
+              <PostCard
+                v-for="p in timeline"
+                :key="p.id"
+                :item="p"
+                :own="own"
+                @open="openThreadWithData"
+                @reacted="refreshTimeline"
+              />
+            </template>
           </template>
         </template>
       </template>
 
-      <FriendsPanel v-else-if="view === 'friends'" :friends="friends" @changed="refreshAll" />
+      <FriendsPanel v-else-if="view === 'friends'" :friends="friends" @changed="refreshAll" @open="viewFriend" />
       <ChannelsPanel v-else-if="view === 'channels'" />
       <div v-else-if="view === 'public'" class="public-page">
         <div class="row">
@@ -269,14 +336,20 @@ async function runSearch() {
     <!-- Add friend modal -->
     <div v-if="showAddFriend" class="modal-overlay" @click.self="showAddFriend = false">
       <div class="modal">
-        <h3>添加好友</h3>
-        <input v-model="addToxid" class="mono" placeholder="粘贴好友的 ToxID（76 位十六进制）" />
+        <h3>搜索用户</h3>
+        <input v-model="addToxid" class="mono" placeholder="粘贴 ToxID 或输入昵称搜索" />
         <input v-model="addMsg" placeholder="好友请求附言" />
         <p v-if="addError" class="error">{{ addError }}</p>
+        <div v-if="searchingUsers" class="empty">搜索中…</div>
+        <div v-for="d in userSearchResults" :key="d.pubkey" class="search-result">
+          <span>{{ d.name || "未命名" }}</span>
+          <span class="mono">{{ d.pubkey.slice(0, 12) }}…</span>
+          <button @click="addFromSearch(d)">添加</button>
+        </div>
         <div class="row">
           <button @click="showAddFriend = false">取消</button>
-          <button class="primary" :disabled="addBusy || addToxid.trim().length < 70" @click="submitAddFriend">
-            {{ addBusy ? "发送中…" : "发送请求" }}
+          <button class="primary" :disabled="addBusy || !addToxid.trim()" @click="submitAddFriend">
+            {{ addBusy ? "处理中…" : "搜索 / 添加" }}
           </button>
         </div>
       </div>
@@ -418,6 +491,19 @@ nav button.active {
 .modal .error {
   color: var(--danger);
   font-size: 12px;
+}
+.search-result {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.search-result span:first-child {
+  flex: 1;
+  font-weight: 600;
 }
 .notif-panel {
   background: var(--bg-3);

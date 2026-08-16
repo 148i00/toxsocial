@@ -79,6 +79,7 @@ pub fn run() {
             commands::publish_reaction,
             commands::fetch_timeline,
             commands::fetch_thread,
+            commands::fetch_posts_by_author,
             commands::get_friends,
             commands::upload_media,
             commands::set_imgur_client_id,
@@ -100,6 +101,7 @@ pub fn run() {
             commands::search_relay_directory,
             commands::fetch_relay_public_posts,
             commands::list_public_channels,
+            commands::delete_public_channel,
             commands::register_public_channel,
         ])
         .build(tauri::generate_context!())

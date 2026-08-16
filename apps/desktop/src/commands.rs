@@ -57,6 +57,7 @@ pub struct TimelineItem {
 #[serde(rename_all = "camelCase")]
 pub struct FriendInfo {
     pub toxid: String,
+    pub pubkey: String,
     pub name: String,
     pub avatar: String,
     pub online: bool,
@@ -525,6 +526,24 @@ pub fn search_posts(
 }
 
 #[tauri::command]
+pub fn fetch_posts_by_author(state: State<AppState>, pubkey: String, limit: Option<u32>) -> Result<Vec<TimelineItem>, String> {
+    let limit = limit.unwrap_or(50);
+    let engine = state.engine.lock().unwrap();
+    let meta = author_meta(&state, &engine);
+    let rows = engine.posts_by_author(pubkey.trim(), limit);
+    Ok(rows
+        .iter()
+        .map(|r| {
+            let (name, avatar) = meta
+                .get(&r.author)
+                .cloned()
+                .unwrap_or_else(|| (r.author.chars().take(8).collect(), String::new()));
+            events::item_from_row_with_meta(&state, &engine, r, &name, &avatar)
+        })
+        .collect())
+}
+
+#[tauri::command]
 pub fn fetch_thread(state: State<AppState>, post_id: String) -> Result<Vec<TimelineItem>, String> {
     let engine = state.engine.lock().unwrap();
     let meta = author_meta(&state, &engine);
@@ -559,7 +578,8 @@ pub fn get_friends(state: State<AppState>) -> Result<Vec<FriendInfo>, String> {
     Ok(friends
         .into_iter()
         .map(|f| FriendInfo {
-            toxid: f.toxid,
+            toxid: f.toxid.clone(),
+            pubkey: f.toxid.chars().take(64).collect(),
             name: f.name,
             avatar: f.avatar,
             online: f.status == 1,
@@ -895,6 +915,15 @@ pub async fn fetch_relay_public_posts(state: State<'_, AppState>, since: Option<
         }
     }
     Ok(count)
+}
+
+#[tauri::command]
+pub async fn delete_public_channel(state: State<'_, AppState>, channel_id: String) -> Result<(), String> {
+    let host_toxid = {
+        let session = state.session.lock().unwrap();
+        session.self_address()
+    };
+    crate::relay::delete_channel(crate::relay::DEFAULT_RELAY, &channel_id, &host_toxid).await
 }
 
 #[tauri::command]

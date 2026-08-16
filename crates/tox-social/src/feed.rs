@@ -393,6 +393,11 @@ impl FeedEngine {
         self.store.search_posts(query, limit).unwrap_or_default()
     }
 
+    /// Posts authored by one user, newest first.
+    pub fn posts_by_author(&self, author: &str, limit: u32) -> Vec<PostRow> {
+        self.store.posts_by_author(author, limit).unwrap_or_default()
+    }
+
     /// Latest timestamp we have seen from `author` (posts/comments/reactions).
     pub fn latest_ts_for_author(&self, author: &str) -> Option<i64> {
         self.store.latest_ts_for_author(author).unwrap_or(None)

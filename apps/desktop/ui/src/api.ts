@@ -16,6 +16,8 @@ export const api = {
     invoke<TimelineItem>("publish_reaction", { postId, emoji }),
   fetchTimeline: (limit?: number) => invoke<TimelineItem[]>("fetch_timeline", { limit }),
   fetchThread: (postId: string) => invoke<TimelineItem[]>("fetch_thread", { postId }),
+  fetchPostsByAuthor: (pubkey: string, limit?: number) =>
+    invoke<TimelineItem[]>("fetch_posts_by_author", { pubkey, limit }),
   getFriends: () => invoke<FriendInfo[]>("get_friends"),
   uploadMedia: (dataBase64: string, filename: string) =>
     invoke<string>("upload_media", { dataBase64, filename }),
@@ -55,6 +57,8 @@ export const api = {
   listPublicChannels: () => invoke<PublicChannelInfo[]>("list_public_channels"),
   registerPublicChannel: (conferenceNumber: number, name: string, desc: string) =>
     invoke<void>("register_public_channel", { conferenceNumber, name, desc }),
+  deletePublicChannel: (channelId: string) =>
+    invoke<void>("delete_public_channel", { channelId }),
 };
 
 export function onEvent<T>(event: string, cb: (payload: T) => void): Promise<UnlistenFn> {

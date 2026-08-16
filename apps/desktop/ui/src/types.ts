@@ -31,6 +31,7 @@ export interface TimelineItem {
 
 export interface FriendInfo {
   toxid: string;
+  pubkey: string;
   name: string;
   avatar: string;
   online: boolean;

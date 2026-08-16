@@ -182,3 +182,24 @@ pub async fn register_profile(
     }
     Ok(())
 }
+
+pub async fn delete_channel(relay: &str, channel_id: &str, host_toxid: &str) -> Result<(), String> {
+    let url = format!("{}/api/channels/delete", relay.trim_end_matches('/'));
+    let body = serde_json::json!({
+        "channelId": channel_id,
+        "hostToxid": host_toxid,
+    });
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(url)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("relay delete channel failed: {e}"))?;
+    let status = resp.status();
+    if !status.is_success() {
+        let text = resp.text().await.unwrap_or_default();
+        return Err(format!("relay delete channel error {}: {}", status, text));
+    }
+    Ok(())
+}

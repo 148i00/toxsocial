@@ -389,6 +389,17 @@ impl Store {
         rows.collect()
     }
 
+    /// Posts authored by one user, newest first.
+    pub fn posts_by_author(&self, author: &str, limit: u32) -> Result<Vec<PostRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, author, kind, parent_id, text, emoji, ts, received_at, source, channel_id, is_public
+             FROM posts WHERE author = ?1 AND kind = 0
+             ORDER BY ts DESC LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(params![author, limit], row_to_post)?;
+        rows.collect()
+    }
+
     /// Search posts by text content (case-insensitive), newest first.
     pub fn search_posts(&self, query: &str, limit: u32) -> Result<Vec<PostRow>> {
         let pattern = format!("%{}%", query.replace('%', "\\%").replace('_', "\\_"));

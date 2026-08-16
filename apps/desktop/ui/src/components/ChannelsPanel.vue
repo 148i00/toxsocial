@@ -31,6 +31,17 @@ async function loadPublicChannels() {
   }
 }
 
+async function deletePublic(ch: PublicChannelInfo) {
+  if (!confirm(`删除公共频道「${ch.name}」？`)) return;
+  try {
+    await api.deletePublicChannel(ch.channelId);
+    await loadPublicChannels();
+    log.value.push(`已删除公共频道「${ch.name}」`);
+  } catch (e) {
+    log.value.push(`删除失败：${e}`);
+  }
+}
+
 async function joinPublic(ch: PublicChannelInfo) {
   if (!ch.hostToxid || ch.hostToxid.length < 70) {
     log.value.push(`「${ch.name}」暂时没有可用的 host，等待频道管理员接入。`);
@@ -309,6 +320,7 @@ onMounted(async () => {
           <div class="pub-desc">{{ ch.desc }}</div>
         </div>
         <button :disabled="busy" @click="joinPublic(ch)">加入</button>
+        <button v-if="ch.hostToxid === ownToxid" class="danger" :disabled="busy" @click="deletePublic(ch)">删除</button>
       </div>
     </div>
 
