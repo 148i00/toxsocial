@@ -3,7 +3,7 @@
 use serde::Serialize;
 use tauri::State;
 
-use tox_core::Connection;
+use tox_core::{Connection, ToxError};
 use tox_social::envelope::{Comment, Envelope, Post, Profile, Reaction, SyncReq};
 use tox_store::PostKind;
 
@@ -266,7 +266,12 @@ pub fn add_friend(state: State<AppState>, toxid: String, message: String) -> Res
         let mut session = state.session.lock().unwrap();
         session
             .add_friend(toxid.trim(), message.trim())
-            .map_err(|e| format!("add friend failed: {e}"))?
+            .map_err(|e| match e {
+                ToxError::FriendAdd(5) => {
+                    "好友请求已发送，等待对方接受（不能重复发送）".to_string()
+                }
+                other => format!("add friend failed: {other}"),
+            })?
     };
     state.persist();
     Ok(n)
