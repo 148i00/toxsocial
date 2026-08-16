@@ -165,7 +165,7 @@ async function save() {
         <span class="dot" :class="{ online: networkStatus?.connected }"></span>
         <span>{{ networkStatus ? (networkStatus.connected ? (networkStatus.connection === "udp" ? "UDP 已连接" : "TCP 已连接") : "未连接") : "检测中…" }}</span>
       </div>
-      <div class="conn-detail">DHT 节点：{{ networkStatus?.dhtNodes ?? "…" }}</div>
+      <div class="conn-detail">Bootstrap 节点：{{ networkStatus?.dhtNodes ?? "…" }}</div>
       <div class="conn-detail">Relay：{{ networkStatus ? (networkStatus.relayOk ? "可用" : "不可用") : "检测中…" }}</div>
       <div class="conn-detail">好友：{{ networkStatus?.friends ?? "…" }} / 在线：{{ networkStatus?.onlineFriends ?? "…" }}</div>
     </div>

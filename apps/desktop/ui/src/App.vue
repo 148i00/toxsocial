@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { onBeforeUnmount, onMounted, ref } from "vue";
 import { api, onEvent } from "./api";
 import { t } from "./i18n";
 import type { DirectoryEntryInfo, FriendInfo, NetworkStatus, OwnInfo, TimelineItem } from "./types";
@@ -36,6 +36,7 @@ const addError = ref("");
 const userSearchResults = ref<DirectoryEntryInfo[]>([]);
 const searchingUsers = ref(false);
 let notificationId = 0;
+let statusTimer: ReturnType<typeof setInterval> | undefined;
 
 function notify(text: string) {
   notifications.value.unshift({ id: ++notificationId, text, time: Date.now() });
@@ -172,6 +173,7 @@ function backToTimeline() {
 onMounted(async () => {
   await refreshAll();
   await refreshNetworkStatus();
+  statusTimer = setInterval(refreshNetworkStatus, 10_000);
   loading.value = false;
 
   // Live updates from the backend.
@@ -239,6 +241,9 @@ async function runSearch() {
     searching.value = false;
   }
 }
+onBeforeUnmount(() => {
+  if (statusTimer) clearInterval(statusTimer);
+});
 </script>
 
 <template>
