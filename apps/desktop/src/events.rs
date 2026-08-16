@@ -584,10 +584,46 @@ fn update_friend_meta(
 }
 
 /// Build a TimelineItem from a stored row (resolving display name).
+#[allow(dead_code)]
 pub(crate) fn item_from_row(
     state: &State<AppState>,
     engine: &tox_social::feed::FeedEngine,
     row: &PostRow,
+) -> TimelineItem {
+    let me = state.session.lock().unwrap().self_public_key();
+    let author_name = engine
+        .store()
+        .friend_list()
+        .unwrap_or_default()
+        .into_iter()
+        .find(|f| f.toxid == row.author && !f.name.is_empty())
+        .map(|f| f.name)
+        .unwrap_or_else(|| short(&row.author).to_string());
+    let author_avatar = if row.author == me {
+        engine
+            .store()
+            .kv_get("avatar_url")
+            .unwrap_or_default()
+            .unwrap_or_default()
+    } else {
+        engine
+            .store()
+            .friend_list()
+            .unwrap_or_default()
+            .into_iter()
+            .find(|f| f.toxid == row.author)
+            .map(|f| f.avatar)
+            .unwrap_or_default()
+    };
+    item_from_row_with_meta(state, engine, row, &author_name, &author_avatar)
+}
+
+pub(crate) fn item_from_row_with_meta(
+    state: &State<AppState>,
+    engine: &tox_social::feed::FeedEngine,
+    row: &PostRow,
+    author_name: &str,
+    author_avatar: &str,
 ) -> TimelineItem {
     let me = state.session.lock().unwrap().self_public_key();
     let (comment_count, reaction_count, reactions) = if row.kind == PostKind::Post {
@@ -621,30 +657,8 @@ pub(crate) fn item_from_row(
     TimelineItem {
         id: row.id.clone(),
         author: row.author.clone(),
-        author_name: engine
-            .store()
-            .friend_list()
-            .unwrap_or_default()
-            .into_iter()
-            .find(|f| f.toxid == row.author && !f.name.is_empty())
-            .map(|f| f.name)
-            .unwrap_or_else(|| short(&row.author).to_string()),
-        author_avatar: if row.author == me {
-            engine
-                .store()
-                .kv_get("avatar_url")
-                .unwrap_or_default()
-                .unwrap_or_default()
-        } else {
-            engine
-                .store()
-                .friend_list()
-                .unwrap_or_default()
-                .into_iter()
-                .find(|f| f.toxid == row.author)
-                .map(|f| f.avatar)
-                .unwrap_or_default()
-        },
+        author_name: author_name.to_string(),
+        author_avatar: author_avatar.to_string(),
         kind: match row.kind {
             PostKind::Post => "post",
             PostKind::Comment => "comment",

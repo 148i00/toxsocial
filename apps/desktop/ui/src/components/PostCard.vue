@@ -6,7 +6,7 @@ import Avatar from "./Avatar.vue";
 import type { OwnInfo, TimelineItem } from "../types";
 
 const props = defineProps<{ item: TimelineItem; own: OwnInfo | null }>();
-const emit = defineEmits<{ open: [id: string] }>();
+const emit = defineEmits<{ open: [id: string]; reacted: [] }>();
 
 const EMOJIS = ["👍", "❤️", "😂", "🔥", "🎉"];
 
@@ -15,6 +15,7 @@ const bodyHtml = computed(() => renderMarkdown(props.item.text || ""));
 async function react(emoji: string) {
   try {
     await api.publishReaction(props.item.id, emoji);
+    emit("reacted");
   } catch {
     /* ignore */
   }

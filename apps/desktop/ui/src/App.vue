@@ -134,6 +134,10 @@ async function refreshThread() {
   threadItems.value = await api.fetchThread(threadPostId.value);
 }
 
+async function refreshThreadAndTimeline() {
+  await Promise.all([refreshThread(), refreshTimeline()]);
+}
+
 async function openThreadWithData(id: string) {
   threadPostId.value = id;
   threadItems.value = await api.fetchThread(id);
@@ -203,7 +207,7 @@ async function runSearch() {
         <div v-if="threadPostId" class="thread-header">
           <button @click="backToTimeline()">← 返回时间线</button>
         </div>
-        <ThreadView v-if="threadPostId" :post-id="threadPostId" @refresh="refreshThread" />
+        <ThreadView v-if="threadPostId" :post-id="threadPostId" @refresh="refreshThreadAndTimeline" />
         <template v-else>
           <div class="search-box">
             <input
@@ -221,6 +225,7 @@ async function runSearch() {
               :item="p"
               :own="own"
               @open="openThreadWithData"
+              @reacted="refreshTimeline"
             />
           </template>
           <template v-else>
@@ -235,6 +240,7 @@ async function runSearch() {
               :item="p"
               :own="own"
               @open="openThreadWithData"
+              @reacted="refreshTimeline"
             />
           </template>
         </template>
@@ -254,6 +260,7 @@ async function runSearch() {
           :item="p"
           :own="own"
           @open="openThreadWithData"
+          @reacted="refreshPublicTimeline"
         />
       </div>
       <SettingsPanel v-else :own="own" @saved="refreshAll" />

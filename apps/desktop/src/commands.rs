@@ -1,11 +1,13 @@
 //! Tauri commands: the IPC surface exposed to the Vue frontend.
 
+use std::collections::HashMap;
+
 use serde::Serialize;
 use tauri::State;
 
 use tox_core::{Connection, ToxError};
 use tox_social::envelope::{Comment, Envelope, Post, Profile, Reaction, SyncReq};
-use tox_store::PostKind;
+use tox_store::{PostKind, PostRow};
 
 use crate::events;
 use crate::state::AppState;
@@ -408,6 +410,25 @@ pub fn publish_reaction(
     Ok(reaction)
 }
 
+fn author_meta(
+    state: &State<AppState>,
+    engine: &tox_social::feed::FeedEngine,
+) -> HashMap<String, (String, String)> {
+    let me = state.session.lock().unwrap().self_public_key();
+    let mut map = HashMap::new();
+    let friends = engine.store().friend_list().unwrap_or_default();
+    for f in friends {
+        map.insert(f.toxid, (f.name, f.avatar));
+    }
+    let avatar = engine
+        .store()
+        .kv_get("avatar_url")
+        .unwrap_or_default()
+        .unwrap_or_default();
+    map.insert(me, (state.session.lock().unwrap().self_name(), avatar));
+    map
+}
+
 #[tauri::command]
 pub fn fetch_timeline(state: State<AppState>, limit: Option<u32>) -> Result<Vec<TimelineItem>, String> {
     let limit = limit.unwrap_or(50);
@@ -422,6 +443,7 @@ pub fn fetch_timeline(state: State<AppState>, limit: Option<u32>) -> Result<Vec<
         a
     };
     let engine = state.engine.lock().unwrap();
+    let meta = author_meta(&state, &engine);
     let rows = engine
         .timeline(&authors, limit)
         .into_iter()
@@ -429,7 +451,13 @@ pub fn fetch_timeline(state: State<AppState>, limit: Option<u32>) -> Result<Vec<
         .collect::<Vec<_>>();
     Ok(rows
         .iter()
-        .map(|r| events::item_from_row(&state, &engine, r))
+        .map(|r| {
+            let (name, avatar) = meta
+                .get(&r.author)
+                .cloned()
+                .unwrap_or_else(|| (r.author.chars().take(8).collect(), String::new()));
+            events::item_from_row_with_meta(&state, &engine, r, &name, &avatar)
+        })
         .collect())
 }
 
@@ -445,28 +473,43 @@ pub fn search_posts(
         return Ok(Vec::new());
     }
     let engine = state.engine.lock().unwrap();
+    let meta = author_meta(&state, &engine);
     let rows = engine.search_posts(&query, limit);
     Ok(rows
         .iter()
-        .map(|r| events::item_from_row(&state, &engine, r))
+        .map(|r| {
+            let (name, avatar) = meta
+                .get(&r.author)
+                .cloned()
+                .unwrap_or_else(|| (r.author.chars().take(8).collect(), String::new()));
+            events::item_from_row_with_meta(&state, &engine, r, &name, &avatar)
+        })
         .collect())
 }
 
 #[tauri::command]
 pub fn fetch_thread(state: State<AppState>, post_id: String) -> Result<Vec<TimelineItem>, String> {
     let engine = state.engine.lock().unwrap();
+    let meta = author_meta(&state, &engine);
     let post = engine
         .store()
         .post_get(post_id.trim())
         .map_err(|e| e.to_string())?
         .ok_or_else(|| "post not found".to_string())?;
-    let mut items = vec![events::item_from_row(&state, &engine, &post)];
+    let map_item = |row: &PostRow| {
+        let (name, avatar) = meta
+            .get(&row.author)
+            .cloned()
+            .unwrap_or_else(|| (row.author.chars().take(8).collect(), String::new()));
+        events::item_from_row_with_meta(&state, &engine, row, &name, &avatar)
+    };
+    let mut items = vec![map_item(&post)];
     let thread = engine
         .store()
         .thread_for(post_id.trim())
         .map_err(|e| e.to_string())?;
     for row in thread {
-        items.push(events::item_from_row(&state, &engine, &row));
+        items.push(map_item(&row));
     }
     Ok(items)
 }
@@ -724,13 +767,20 @@ pub fn request_directory_search(state: State<AppState>, query: String, depth: Op
 pub fn fetch_public_timeline(state: State<AppState>, limit: Option<u32>) -> Result<Vec<TimelineItem>, String> {
     let limit = limit.unwrap_or(50);
     let engine = state.engine.lock().unwrap();
+    let meta = author_meta(&state, &engine);
     let rows = engine
         .store()
         .public_posts_since(0, limit)
         .map_err(|e| e.to_string())?;
     Ok(rows
         .iter()
-        .map(|r| events::item_from_row(&state, &engine, r))
+        .map(|r| {
+            let (name, avatar) = meta
+                .get(&r.author)
+                .cloned()
+                .unwrap_or_else(|| (r.author.chars().take(8).collect(), String::new()));
+            events::item_from_row_with_meta(&state, &engine, r, &name, &avatar)
+        })
         .collect())
 }
 
