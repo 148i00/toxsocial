@@ -126,8 +126,8 @@ pub fn get_own_info(state: State<AppState>) -> OwnInfo {
 }
 
 #[tauri::command]
-pub fn set_profile(
-    state: State<AppState>,
+pub async fn set_profile(
+    state: State<'_, AppState>,
     name: String,
     bio: String,
 ) -> Result<(), String> {
@@ -163,12 +163,25 @@ pub fn set_profile(
         avatar_len: if avatar.is_empty() { 0 } else { avatar.len() as u64 },
     };
     let wire = Envelope::Profile(profile).encode();
-    let session = state.session.lock().unwrap();
-    for n in session.friend_list() {
-        if session.friend_connection(n) != Connection::None {
-            let _ = session.send_message(n, &wire);
+    {
+        let session = state.session.lock().unwrap();
+        for n in session.friend_list() {
+            if session.friend_connection(n) != Connection::None {
+                let _ = session.send_message(n, &wire);
+            }
         }
     }
+    // Also publish public profile to Relay for discoverability.
+    let pubkey = state.session.lock().unwrap().self_public_key();
+    let toxid = state.session.lock().unwrap().self_address();
+    let _ = crate::relay::register_profile(
+        crate::relay::DEFAULT_RELAY,
+        name.trim(),
+        &pubkey,
+        &toxid,
+        &avatar,
+    )
+    .await;
     Ok(())
 }
 
@@ -206,23 +219,35 @@ pub async fn set_avatar(state: State<'_, AppState>, data_base64: String) -> Resu
         v: tox_social::envelope::PROTOCOL_VERSION,
         author: me,
         ts: now_ms(),
-        name,
+        name: name.clone(),
         bio,
         avatar: url.clone(),
         avatar_len: url.len() as u64,
     };
     let wire = Envelope::Profile(profile).encode();
-    let session = state.session.lock().unwrap();
-    for n in session.friend_list() {
-        if session.friend_connection(n) != Connection::None {
-            let _ = session.send_message(n, &wire);
+    {
+        let session = state.session.lock().unwrap();
+        for n in session.friend_list() {
+            if session.friend_connection(n) != Connection::None {
+                let _ = session.send_message(n, &wire);
+            }
         }
     }
+    let pubkey = state.session.lock().unwrap().self_public_key();
+    let toxid = state.session.lock().unwrap().self_address();
+    let _ = crate::relay::register_profile(
+        crate::relay::DEFAULT_RELAY,
+        &name,
+        &pubkey,
+        &toxid,
+        &url,
+    )
+    .await;
     Ok(url)
 }
 
 #[tauri::command]
-pub fn set_avatar_url(state: State<AppState>, url: String) -> Result<(), String> {
+pub async fn set_avatar_url(state: State<'_, AppState>, url: String) -> Result<(), String> {
     let url = url.trim().to_string();
     if !url.starts_with("http://") && !url.starts_with("https://") {
         return Err("头像 URL 必须以 http:// 或 https:// 开头".to_string());
@@ -247,18 +272,30 @@ pub fn set_avatar_url(state: State<AppState>, url: String) -> Result<(), String>
         v: tox_social::envelope::PROTOCOL_VERSION,
         author: me,
         ts: now_ms(),
-        name,
+        name: name.clone(),
         bio,
         avatar: url.clone(),
         avatar_len: url.len() as u64,
     };
     let wire = Envelope::Profile(profile).encode();
-    let session = state.session.lock().unwrap();
-    for n in session.friend_list() {
-        if session.friend_connection(n) != Connection::None {
-            let _ = session.send_message(n, &wire);
+    {
+        let session = state.session.lock().unwrap();
+        for n in session.friend_list() {
+            if session.friend_connection(n) != Connection::None {
+                let _ = session.send_message(n, &wire);
+            }
         }
     }
+    let pubkey = state.session.lock().unwrap().self_public_key();
+    let toxid = state.session.lock().unwrap().self_address();
+    let _ = crate::relay::register_profile(
+        crate::relay::DEFAULT_RELAY,
+        &name,
+        &pubkey,
+        &toxid,
+        &url,
+    )
+    .await;
     Ok(())
 }
 

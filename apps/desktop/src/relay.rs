@@ -153,3 +153,32 @@ pub async fn register_channel(
     }
     Ok(())
 }
+
+pub async fn register_profile(
+    relay: &str,
+    name: &str,
+    pubkey: &str,
+    toxid: &str,
+    avatar: &str,
+) -> Result<(), String> {
+    let url = format!("{}/api/directory", relay.trim_end_matches('/'));
+    let body = serde_json::json!({
+        "name": name,
+        "pubkey": pubkey,
+        "toxid": toxid,
+        "avatar": avatar,
+    });
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(url)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("relay register profile failed: {e}"))?;
+    let status = resp.status();
+    if !status.is_success() {
+        let text = resp.text().await.unwrap_or_default();
+        return Err(format!("relay register profile error {}: {}", status, text));
+    }
+    Ok(())
+}
