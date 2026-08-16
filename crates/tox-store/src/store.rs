@@ -131,6 +131,7 @@ impl Store {
         let conn = Connection::open(path)?;
         conn.execute_batch(SCHEMA)?;
         migrate_friends_avatar(&conn);
+        migrate_posts_is_public(&conn);
         Ok(Store { conn })
     }
 
@@ -139,6 +140,7 @@ impl Store {
         let conn = Connection::open_in_memory()?;
         conn.execute_batch(SCHEMA)?;
         migrate_friends_avatar(&conn);
+        migrate_posts_is_public(&conn);
         Ok(Store { conn })
     }
 
@@ -446,6 +448,13 @@ fn now_ms() -> i64 {
 
 fn migrate_friends_avatar(conn: &Connection) {
     let _ = conn.execute("ALTER TABLE friends ADD COLUMN avatar TEXT DEFAULT ''", []);
+}
+
+fn migrate_posts_is_public(conn: &Connection) {
+    let _ = conn.execute(
+        "ALTER TABLE posts ADD COLUMN is_public INTEGER NOT NULL DEFAULT 0",
+        [],
+    );
 }
 
 fn row_to_post(r: &rusqlite::Row) -> Result<PostRow> {
