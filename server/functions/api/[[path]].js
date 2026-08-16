@@ -61,6 +61,10 @@ export async function onRequest(context) {
   }
 
   // Channels
+  if (path.startsWith('/api/channels')) {
+    await ensureMembersColumn(db);
+  }
+
   if (path === '/api/channels' && request.method === 'GET') {
     const result = await db.prepare('SELECT * FROM channels').all();
     return json({ items: (result.results || []).map(parseChannel) });
@@ -72,16 +76,20 @@ export async function onRequest(context) {
       return json({ error: 'name, hostToxid and channelId required' }, 400);
     }
     const hosts = body.hosts && body.hosts.length ? body.hosts : [body.hostToxid];
+    const members = body.members && body.members.length
+      ? body.members.map((m) => ({ toxid: m, ts: Date.now() }))
+      : [{ toxid: body.hostToxid, ts: Date.now() }];
     await db.prepare(
-      `INSERT INTO channels (channel_id, name, desc, host_toxid, hosts, updated_at)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+      `INSERT INTO channels (channel_id, name, desc, host_toxid, hosts, members, updated_at)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
        ON CONFLICT(channel_id) DO UPDATE SET
          name = excluded.name,
          desc = excluded.desc,
          host_toxid = excluded.host_toxid,
          hosts = excluded.hosts,
+         members = excluded.members,
          updated_at = excluded.updated_at`
-    ).bind(body.channelId, body.name, body.desc || '', body.hostToxid, JSON.stringify(hosts), Date.now()).run();
+    ).bind(body.channelId, body.name, body.desc || '', body.hostToxid, JSON.stringify(hosts), JSON.stringify(members), Date.now()).run();
     return json({ ok: true });
   }
 
@@ -115,6 +123,21 @@ export async function onRequest(context) {
     return json({ ok: true });
   }
 
+  if (path === '/api/channels/members/report' && request.method === 'POST') {
+    const body = await request.json();
+    const { channelId, memberToxid } = body;
+    if (!channelId || !memberToxid) return json({ error: 'missing' }, 400);
+    const row = await db.prepare('SELECT * FROM channels WHERE channel_id = ?1').bind(channelId).first();
+    if (!row) return json({ error: 'channel not found' }, 404);
+    let members = JSON.parse(row.members || '[]');
+    members = members.filter((m) => m.toxid !== memberToxid);
+    members.push({ toxid: memberToxid, ts: Date.now() });
+    if (members.length > 500) members = members.slice(-500);
+    await db.prepare('UPDATE channels SET members = ?1 WHERE channel_id = ?2')
+      .bind(JSON.stringify(members), channelId).run();
+    return json({ ok: true });
+  }
+
   if (path === '/api/channels/delete' && request.method === 'POST') {
     const body = await request.json();
     const { channelId, hostToxid } = body;
@@ -137,8 +160,26 @@ function parseChannel(row) {
     hostToxid: row.host_toxid,
     channelId: row.channel_id,
     hosts: JSON.parse(row.hosts || '[]'),
+    members: parseMembers(row.members),
     updated_at: row.updated_at,
   };
+}
+
+function parseMembers(raw) {
+  const list = JSON.parse(raw || '[]');
+  const now = Date.now();
+  const ttl = 5 * 60 * 1000;
+  return list
+    .filter((m) => m && m.toxid && now - (m.ts || 0) < ttl)
+    .map((m) => m.toxid);
+}
+
+async function ensureMembersColumn(db) {
+  try {
+    await db.prepare("ALTER TABLE channels ADD COLUMN members TEXT DEFAULT '[]'").run();
+  } catch {
+    // Column already exists or migration is not needed.
+  }
 }
 
 function json(data, status = 200) {

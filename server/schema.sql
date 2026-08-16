@@ -23,5 +23,6 @@ CREATE TABLE IF NOT EXISTS channels (
   desc TEXT DEFAULT '',
   host_toxid TEXT DEFAULT '',
   hosts TEXT DEFAULT '[]',
+  members TEXT DEFAULT '[]',
   updated_at INTEGER DEFAULT 0
 );

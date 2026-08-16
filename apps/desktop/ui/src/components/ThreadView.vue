@@ -16,6 +16,7 @@ const post = ref<TimelineItem | null>(null);
 const comments = ref<TimelineItem[]>([]);
 const reactions = ref<TimelineItem[]>([]);
 const commentText = ref("");
+const replyTarget = ref<string | null>(null);
 const commentInput = ref<HTMLTextAreaElement | null>(null);
 const busy = ref(false);
 
@@ -30,6 +31,28 @@ const reactionSummary = computed(() => {
     .join("  ");
 });
 
+const commentDepth = computed(() => {
+  const depth = new Map<string, number>();
+  for (const c of comments.value) {
+    let d = 0;
+    let cur: string | null = c.parentId;
+    let guard = 0;
+    while (cur && cur !== props.postId && guard < 20) {
+      d++;
+      cur = comments.value.find((x) => x.id === cur)?.parentId ?? null;
+      guard++;
+    }
+    depth.set(c.id, d);
+  }
+  return depth;
+});
+
+function parentCommentName(c: TimelineItem): string {
+  if (!c.parentId || c.parentId === props.postId) return "";
+  const p = comments.value.find((x) => x.id === c.parentId);
+  return p?.authorName || "";
+}
+
 async function load() {
   const items = await api.fetchThread(props.postId);
   post.value = items.find((i) => i.kind === "post") ?? null;
@@ -38,7 +61,14 @@ async function load() {
 }
 
 function replyTo(c: TimelineItem) {
+  replyTarget.value = c.id;
   commentText.value = `@${c.authorName} `;
+  commentInput.value?.focus();
+}
+
+function replyToPost() {
+  replyTarget.value = null;
+  commentText.value = "";
   commentInput.value?.focus();
 }
 
@@ -47,8 +77,9 @@ async function submitComment() {
   if (!t || busy.value) return;
   busy.value = true;
   try {
-    await api.publishComment(props.postId, t);
+    await api.publishComment(props.postId, t, replyTarget.value ?? undefined);
     commentText.value = "";
+    replyTarget.value = null;
     await load();
     emit("refresh");
   } catch (e) {
@@ -77,13 +108,19 @@ onMounted(load);
       </div>
     </article>
 
+    <div v-if="replyTarget" class="reply-hint">
+      正在回复
+      <strong>{{ comments.find((c) => c.id === replyTarget)?.authorName || "该评论" }}</strong>
+      <button class="mini" @click="replyToPost">取消</button>
+    </div>
+
     <div class="composer">
       <textarea
         ref="commentInput"
         v-model="commentText"
         rows="2"
         maxlength="5000"
-        placeholder="写下你的评论…（Enter 发送，Shift+Enter 换行）"
+        :placeholder="replyTarget ? '回复该评论…（Enter 发送，Shift+Enter 换行）' : '写下你的评论…（Enter 发送，Shift+Enter 换行）'"
         @keydown.enter.exact.prevent="submitComment"
       ></textarea>
       <button class="primary" :disabled="busy || !commentText.trim()" @click="submitComment">
@@ -92,10 +129,16 @@ onMounted(load);
     </div>
 
     <div v-if="comments.length === 0" class="empty">还没有评论，来抢沙发 🛋️</div>
-    <article v-for="c in comments" :key="c.id" class="card comment">
+    <article
+      v-for="c in comments"
+      :key="c.id"
+      class="card comment"
+      :style="{ marginLeft: ((commentDepth.get(c.id) || 0) * 28) + 'px' }"
+    >
       <div class="head">
         <Avatar :src="c.authorAvatar" :name="c.authorName" :size="24" />
         <span class="author">{{ c.authorName }}</span>
+        <span v-if="parentCommentName(c)" class="reply-to">回复 @{{ parentCommentName(c) }}</span>
         <span class="time">{{ formatTime(c.ts) }}</span>
       </div>
       <div class="body markdown" v-html="md(c.text)"></div>
@@ -143,6 +186,21 @@ onMounted(load);
 }
 .comment {
   border-left: 3px solid var(--accent-2);
+}
+.reply-to {
+  color: var(--text-dim);
+  font-size: 12px;
+}
+.reply-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-dim);
+  background: var(--bg-3);
+  border-radius: 8px;
+  padding: 6px 10px;
+  margin-bottom: 8px;
 }
 .comment-actions {
   margin-top: 6px;

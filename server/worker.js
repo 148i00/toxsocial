@@ -69,7 +69,7 @@ export default {
 
     if (path === '/api/channels' && request.method === 'GET') {
       const all = (await env.CHANNELS.get('all', 'json')) || [];
-      return json({ items: all });
+      return json({ items: all.map(withActiveMembers) });
     }
 
     if (path === '/api/channels' && request.method === 'POST') {
@@ -83,6 +83,9 @@ export default {
         desc: body.desc || '',
         hostToxid: body.hostToxid,
         hosts: body.hosts && body.hosts.length ? body.hosts : [body.hostToxid],
+        members: body.members && body.members.length
+          ? body.members.map((m) => ({ toxid: m, ts: Date.now() }))
+          : [{ toxid: body.hostToxid, ts: Date.now() }],
         channelId: body.channelId,
         updated_at: Date.now(),
       };
@@ -129,6 +132,24 @@ export default {
       return json({ ok: true });
     }
 
+    if (path === '/api/channels/members/report' && request.method === 'POST') {
+      const body = await request.json();
+      const { channelId, memberToxid } = body;
+      if (!channelId || !memberToxid) {
+        return json({ error: 'channelId and memberToxid required' }, 400);
+      }
+      const all = (await env.CHANNELS.get('all', 'json')) || [];
+      const ch = all.find((x) => x.channelId === channelId);
+      if (!ch) return json({ error: 'channel not found' }, 404);
+      let members = ch.members || [];
+      members = members.filter((m) => m.toxid !== memberToxid);
+      members.push({ toxid: memberToxid, ts: Date.now() });
+      if (members.length > 500) members = members.slice(-500);
+      ch.members = members;
+      await env.CHANNELS.put('all', JSON.stringify(all));
+      return json({ ok: true });
+    }
+
     if (path === '/api/channels/delete' && request.method === 'POST') {
       const body = await request.json();
       const channelId = body.channelId;
@@ -154,4 +175,13 @@ function json(data, status = 200) {
     status,
     headers: { 'content-type': 'application/json' },
   });
+}
+
+function withActiveMembers(channel) {
+  const now = Date.now();
+  const ttl = 5 * 60 * 1000;
+  const members = (channel.members || [])
+    .filter((m) => m && m.toxid && now - (m.ts || 0) < ttl)
+    .map((m) => m.toxid);
+  return { ...channel, members };
 }

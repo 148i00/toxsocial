@@ -9,6 +9,7 @@
 - `GET /api/outbox?pubkey=...&since=...`：拉取公开帖子
 - `POST /api/channels`：发布公共频道
 - `GET /api/channels`：获取公共频道列表
+- `POST /api/channels/members/report`：上报当前在线频道成员（用于加入时找任意成员拉人）
 
 ## 部署步骤
 1. 注册 Cloudflare 账号（免费）

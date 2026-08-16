@@ -360,11 +360,17 @@ impl Store {
         Ok(())
     }
 
-    /// All comments/reactions attached to a post, oldest first.
+    /// All comments/reactions attached to a post, including nested comment
+    /// replies, oldest first.
     pub fn thread_for(&self, post_id: &str) -> Result<Vec<PostRow>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, author, kind, parent_id, text, emoji, ts, received_at, source, channel_id, is_public, sig
-             FROM posts WHERE parent_id = ?1 ORDER BY ts ASC",
+            "WITH RECURSIVE descendants(id) AS (
+               SELECT id FROM posts WHERE parent_id = ?1
+               UNION ALL
+               SELECT p.id FROM posts p JOIN descendants d ON p.parent_id = d.id
+             )
+             SELECT id, author, kind, parent_id, text, emoji, ts, received_at, source, channel_id, is_public, sig
+             FROM posts WHERE id IN (SELECT id FROM descendants) ORDER BY ts ASC",
         )?;
         let rows = stmt.query_map(params![post_id], row_to_post)?;
         rows.collect()
@@ -601,6 +607,31 @@ mod tests {
         let thread = store.thread_for("post-1").unwrap();
         assert_eq!(thread.len(), 1);
         assert_eq!(thread[0].id, "c1");
+    }
+
+    #[test]
+    fn thread_includes_nested_comment_replies() {
+        let store = Store::open_in_memory().unwrap();
+        let mk = |id: &str, parent: Option<&str>, ts: i64| PostRow {
+            id: id.into(),
+            author: "z".into(),
+            kind: PostKind::Comment,
+            parent_id: parent.map(|s| s.to_string()),
+            text: Some("reply".into()),
+            emoji: None,
+            ts,
+            received_at: ts,
+            source: PostSource::FriendDirect,
+            channel_id: None,
+            is_public: false,
+            sig: String::new(),
+        };
+        store.post_upsert(&mk("c1", Some("post-1"), 1)).unwrap();
+        store.post_upsert(&mk("c2", Some("c1"), 2)).unwrap();
+        store.post_upsert(&mk("c3", Some("c2"), 3)).unwrap();
+        let thread = store.thread_for("post-1").unwrap();
+        let ids: Vec<_> = thread.iter().map(|r| r.id.as_str()).collect();
+        assert_eq!(ids, ["c1", "c2", "c3"]);
     }
 
     #[test]

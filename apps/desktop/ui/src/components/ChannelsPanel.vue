@@ -60,6 +60,12 @@ async function loadPublicChannels() {
     publicChannels.value = [];
     pushLog(`加载公共频道失败：${e}`);
   }
+  // 定期向 Relay 上报“我在哪些公共频道”，让新成员可以找任意在线成员拉入。
+  try {
+    await api.reportChannelMemberships();
+  } catch {
+    // relay 上报失败不影响频道页使用
+  }
 }
 
 function saveChannelNames() {
@@ -172,12 +178,47 @@ function isOwnChannel(ch: PublicChannelInfo): boolean {
   return host === me || host === myPub || host.startsWith(myPub) || me.startsWith(host.slice(0, 64));
 }
 
-function isFriendHost(ch: PublicChannelInfo): boolean {
-  const host = ch.hostToxid ? String(ch.hostToxid) : "";
-  if (!host) return false;
+function channelContacts(ch: PublicChannelInfo): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const add = (t?: string) => {
+    if (!t || seen.has(t)) return;
+    seen.add(t);
+    out.push(t);
+  };
+  add(ch.hostToxid);
+  for (const h of ch.hosts || []) add(h);
+  for (const m of ch.members || []) add(m);
+  return out;
+}
+
+function isFriendToxid(t: string): boolean {
   return props.friends.some(
-    (f) => f.toxid === host || f.pubkey === host || f.toxid.startsWith(host.slice(0, 64)),
+    (f) => f.toxid === t || f.pubkey === t || f.toxid.startsWith(t.slice(0, 64)) || t.startsWith(f.pubkey),
   );
+}
+
+async function tryJoinViaContact(ch: PublicChannelInfo, contact: string): Promise<boolean> {
+  try {
+    if (isFriendToxid(contact)) {
+      await api.sendJoinChannel(contact, ch.channelId);
+      if (!requestedChannels.value.includes(ch.channelId)) requestedChannels.value.push(ch.channelId);
+      pushLog(`已向「${ch.name}」成员 ${contact.slice(0, 8)}… 发送加入申请。`);
+      return true;
+    }
+    await api.addFriend(contact, `join_channel ${ch.channelId}`);
+    if (!requestedChannels.value.includes(ch.channelId)) requestedChannels.value.push(ch.channelId);
+    pushLog(`已向「${ch.name}」成员 ${contact.slice(0, 8)}… 发送好友请求/加入申请。`);
+    return true;
+  } catch (e) {
+    const msg = String(e);
+    if (msg.includes("已发送") || msg.includes("already")) {
+      if (!requestedChannels.value.includes(ch.channelId)) requestedChannels.value.push(ch.channelId);
+      pushLog(`加入「${ch.name}」：已向 ${contact.slice(0, 8)}… 发送过申请，等待接受。`);
+      return true;
+    }
+    return false;
+  }
 }
 
 async function joinPublic(ch: PublicChannelInfo) {
@@ -188,39 +229,16 @@ async function joinPublic(ch: PublicChannelInfo) {
       await enterOwnChannel(ch.channelId);
       return;
     }
-    if (!ch.hostToxid || ch.hostToxid.length < 70) {
-      pushLog(`「${ch.name}」暂时没有可用的 host，等待频道管理员接入。`);
+    const contacts = channelContacts(ch);
+    if (contacts.length === 0) {
+      pushLog(`「${ch.name}」暂时没有可用的成员，等待频道管理员接入。`);
       return;
     }
-    if (isFriendHost(ch)) {
-      try {
-        await api.sendJoinChannel(ch.hostToxid, ch.channelId);
-        if (!requestedChannels.value.includes(ch.channelId)) {
-          requestedChannels.value.push(ch.channelId);
-        }
-        pushLog(`已向「${ch.name}」host 发送加入申请。`);
-      } catch (e) {
-        pushLog(`加入「${ch.name}」失败：${e}`);
-      }
-      return;
+    for (const contact of contacts) {
+      const ok = await tryJoinViaContact(ch, contact);
+      if (ok) return;
     }
-    try {
-      await api.addFriend(ch.hostToxid, `join_channel ${ch.channelId}`);
-      if (!requestedChannels.value.includes(ch.channelId)) {
-        requestedChannels.value.push(ch.channelId);
-      }
-      pushLog(`已向「${ch.name}」host 发送好友请求/加入申请。`);
-    } catch (e) {
-      const msg = String(e);
-      if (msg.includes("已发送") || msg.includes("already")) {
-        if (!requestedChannels.value.includes(ch.channelId)) {
-          requestedChannels.value.push(ch.channelId);
-        }
-        pushLog(`加入「${ch.name}」：请求已发送，等待 host 接受。`);
-      } else {
-        pushLog(`加入「${ch.name}」失败：${e}`);
-      }
-    }
+    pushLog(`加入「${ch.name}」失败：尝试了所有已知成员，均未成功。`);
   } catch (e) {
     pushLog(`加入「${ch.name}」发生错误：${e}`);
   } finally {

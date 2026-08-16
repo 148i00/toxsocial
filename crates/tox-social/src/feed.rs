@@ -673,6 +673,20 @@ mod tests {
     }
 
     #[test]
+    fn publish_nested_comment_reply_is_in_thread() {
+        let engine = FeedEngine::new(store());
+        let me = "me".to_string();
+        let post = engine.publish_post(&me, "主贴").unwrap();
+        let c1 = engine.publish_comment(&me, &post.id, "一楼").unwrap();
+        let c2 = engine.publish_comment(&me, &c1.id, "回复一楼").unwrap();
+        let thread = engine.store.thread_for(&post.id).unwrap();
+        assert_eq!(thread.len(), 2);
+        assert_eq!(thread[0].id, c1.id);
+        assert_eq!(thread[1].id, c2.id);
+        assert_eq!(thread[1].parent_id.as_deref(), Some(c1.id.as_str()));
+    }
+
+    #[test]
     fn self_posts_since_returns_self_authored_envelopes() {
         let engine = FeedEngine::new(store());
         let me = "me".to_string();

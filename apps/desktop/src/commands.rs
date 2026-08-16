@@ -110,6 +110,7 @@ pub struct PublicChannelInfo {
     pub host_toxid: String,
     pub channel_id: String,
     pub hosts: Vec<String>,
+    pub members: Vec<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -492,12 +493,17 @@ pub fn publish_comment(
     state: State<AppState>,
     post_id: String,
     text: String,
+    reply_to: Option<String>,
 ) -> Result<Comment, String> {
     let me = state.session.lock().unwrap().self_public_key();
+    let target = reply_to
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| post_id.trim().to_string());
     let comment = {
         let engine = state.engine.lock().unwrap();
         engine
-            .publish_comment(&me, post_id.trim(), text.trim())
+            .publish_comment(&me, &target, text.trim())
             .map_err(|e| e.to_string())?
     };
     fan_out(&state, Envelope::Comment(comment.clone()))?;
@@ -1140,8 +1146,41 @@ pub async fn list_public_channels() -> Result<Vec<PublicChannelInfo>, String> {
             host_toxid: c.host_toxid,
             channel_id: c.channel_id,
             hosts: c.hosts,
+            members: c.members,
         })
         .collect())
+}
+
+#[tauri::command]
+pub async fn report_channel_memberships(state: State<'_, AppState>) -> Result<usize, String> {
+    let own_toxid = {
+        let session = state.session.lock().unwrap();
+        session.self_address()
+    };
+    let conferences = {
+        let session = state.session.lock().unwrap();
+        session.conference_chatlist()
+    };
+    let public = crate::relay::list_channels(crate::relay::DEFAULT_RELAY).await?;
+    let public_ids: std::collections::HashSet<String> =
+        public.into_iter().map(|c| c.channel_id).collect();
+    let mut reported = 0;
+    for n in conferences {
+        let channel_id = {
+            let session = state.session.lock().unwrap();
+            session.conference_get_id(n).map_err(|e| e.to_string())?
+        };
+        if public_ids.contains(&channel_id) {
+            crate::relay::report_channel_membership(
+                crate::relay::DEFAULT_RELAY,
+                &channel_id,
+                &own_toxid,
+            )
+            .await?;
+            reported += 1;
+        }
+    }
+    Ok(reported)
 }
 
 #[tauri::command]

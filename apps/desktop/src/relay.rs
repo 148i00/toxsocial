@@ -98,6 +98,7 @@ pub struct RelayChannel {
     pub host_toxid: String,
     pub channel_id: String,
     pub hosts: Vec<String>,
+    pub members: Vec<String>,
 }
 
 pub async fn list_channels(relay: &str) -> Result<Vec<RelayChannel>, String> {
@@ -122,6 +123,14 @@ pub async fn list_channels(relay: &str) -> Result<Vec<RelayChannel>, String> {
                 host_toxid: item["hostToxid"].as_str().unwrap_or("").to_string(),
                 channel_id: item["channelId"].as_str().unwrap_or("").to_string(),
                 hosts: item["hosts"]
+                    .as_array()
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+                members: item["members"]
                     .as_array()
                     .map(|arr| {
                         arr.iter()
@@ -160,6 +169,32 @@ pub async fn register_channel(
     if !status.is_success() {
         let text = resp.text().await.unwrap_or_default();
         return Err(format!("relay register channel error {}: {}", status, text));
+    }
+    Ok(())
+}
+
+pub async fn report_channel_membership(
+    relay: &str,
+    channel_id: &str,
+    member_toxid: &str,
+) -> Result<(), String> {
+    let url = format!("{}/api/channels/members/report", relay.trim_end_matches('/'));
+    let body = serde_json::json!({
+        "channelId": channel_id,
+        "memberToxid": member_toxid,
+    });
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(url)
+        .json(&body)
+        .timeout(std::time::Duration::from_secs(10))
+        .send()
+        .await
+        .map_err(|e| format!("relay report membership failed: {e}"))?;
+    let status = resp.status();
+    if !status.is_success() {
+        let text = resp.text().await.unwrap_or_default();
+        return Err(format!("relay report membership error {}: {}", status, text));
     }
     Ok(())
 }

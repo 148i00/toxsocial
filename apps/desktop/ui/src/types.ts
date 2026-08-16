@@ -74,4 +74,5 @@ export interface PublicChannelInfo {
   hostToxid: string;
   channelId: string;
   hosts: string[];
+  members: string[];
 }

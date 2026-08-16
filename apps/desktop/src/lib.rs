@@ -108,6 +108,7 @@ pub fn run() {
             commands::search_relay_directory,
             commands::fetch_relay_public_posts,
             commands::list_public_channels,
+            commands::report_channel_memberships,
             commands::add_channel_host,
             commands::remove_channel_host,
             commands::delete_public_channel,

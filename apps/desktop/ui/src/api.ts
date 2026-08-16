@@ -12,8 +12,8 @@ export const api = {
   removeFriendByToxid: (toxid: string) => invoke<void>("remove_friend_by_toxid", { toxid }),
   publishPost: (text: string, isPublic?: boolean) =>
     invoke<TimelineItem>("publish_post", { text, public: isPublic }),
-  publishComment: (postId: string, text: string) =>
-    invoke<TimelineItem>("publish_comment", { postId, text }),
+  publishComment: (postId: string, text: string, replyTo?: string) =>
+    invoke<TimelineItem>("publish_comment", { postId, text, replyTo }),
   publishReaction: (postId: string, emoji: string) =>
     invoke<TimelineItem>("publish_reaction", { postId, emoji }),
   fetchTimeline: (limit?: number) => invoke<TimelineItem[]>("fetch_timeline", { limit }),
@@ -65,6 +65,7 @@ export const api = {
   fetchRelayPublicPosts: (since?: number) =>
     invoke<number>("fetch_relay_public_posts", { since }),
   listPublicChannels: () => invoke<PublicChannelInfo[]>("list_public_channels"),
+  reportChannelMemberships: () => invoke<number>("report_channel_memberships"),
   registerPublicChannel: (conferenceNumber: number, name: string, desc: string) =>
     invoke<void>("register_public_channel", { conferenceNumber, name, desc }),
   deletePublicChannel: (channelId: string) =>
