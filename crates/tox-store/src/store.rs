@@ -332,6 +332,15 @@ impl Store {
         rows.collect()
     }
 
+    /// Remove all reactions by one author on one post (single-reaction rule).
+    pub fn delete_reaction(&self, author: &str, parent_id: &str) -> Result<()> {
+        self.conn.execute(
+            "DELETE FROM posts WHERE author = ?1 AND parent_id = ?2 AND kind = 2",
+            params![author, parent_id],
+        )?;
+        Ok(())
+    }
+
     /// All comments/reactions attached to a post, oldest first.
     pub fn thread_for(&self, post_id: &str) -> Result<Vec<PostRow>> {
         let mut stmt = self.conn.prepare(

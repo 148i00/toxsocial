@@ -117,19 +117,22 @@ impl FeedEngine {
                 channel_id: None,
                 is_public: false,
             }),
-            Envelope::Reaction(r) => Some(PostRow {
-                id: r.id.clone(),
-                author: author.to_string(),
-                kind: PostKind::Reaction,
-                parent_id: Some(r.reply_to.clone()),
-                text: None,
-                emoji: Some(r.emoji.clone()),
-                ts: r.ts,
-                received_at,
-                source: PostSource::FriendDirect,
-                channel_id: None,
-                is_public: false,
-            }),
+            Envelope::Reaction(r) => {
+                let _ = self.store.delete_reaction(author, &r.reply_to);
+                Some(PostRow {
+                    id: r.id.clone(),
+                    author: author.to_string(),
+                    kind: PostKind::Reaction,
+                    parent_id: Some(r.reply_to.clone()),
+                    text: None,
+                    emoji: Some(r.emoji.clone()),
+                    ts: r.ts,
+                    received_at,
+                    source: PostSource::FriendDirect,
+                    channel_id: None,
+                    is_public: false,
+                })
+            }
             Envelope::Profile(_)
             | Envelope::PostChunk(_)
             | Envelope::SyncReq(_)
@@ -358,6 +361,9 @@ impl FeedEngine {
         emoji: &str,
     ) -> Result<Reaction, String> {
         let reaction = Reaction::new(author_pk, reply_to, emoji);
+        self.store
+            .delete_reaction(author_pk, reply_to)
+            .map_err(|e| format!("store error: {e}"))?;
         let row = PostRow {
             id: reaction.id.clone(),
             author: author_pk.to_string(),
@@ -643,6 +649,20 @@ mod tests {
         let tl = engine.timeline(&[friend.clone()], 10);
         assert_eq!(tl.len(), 1);
         assert_eq!(tl[0].id, valid.id);
+    }
+
+    #[test]
+    fn user_can_only_react_once_per_post() {
+        let engine = FeedEngine::new(store());
+        let me = "me".to_string();
+        let post = engine.publish_post(&me, "帖子").unwrap();
+        let _r1 = engine.publish_reaction(&me, &post.id, "👍").unwrap();
+        let r2 = engine.publish_reaction(&me, &post.id, "❤️").unwrap();
+        let thread = engine.store().thread_for(&post.id).unwrap();
+        let reactions: Vec<_> = thread.iter().filter(|r| r.kind == PostKind::Reaction).collect();
+        assert_eq!(reactions.len(), 1);
+        assert_eq!(reactions[0].id, r2.id);
+        assert_eq!(reactions[0].emoji.as_deref(), Some("❤️"));
     }
 
     #[test]
