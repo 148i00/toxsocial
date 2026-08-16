@@ -642,6 +642,28 @@ pub async fn fetch_thread(state: State<'_, AppState>, post_id: String) -> Result
 }
 
 #[tauri::command]
+pub fn send_join_channel(state: State<AppState>, toxid: String, channel_id: String) -> Result<(), String> {
+    let toxid = toxid.trim().to_string();
+    let friend_number = {
+        let session = state.session.lock().unwrap();
+        session
+            .friend_list()
+            .into_iter()
+            .find(|n| {
+                session
+                    .friend_public_key(*n)
+                    .map(|pk| toxid == pk || toxid.starts_with(&pk))
+                    .unwrap_or(false)
+            })
+            .ok_or_else(|| "not_friend".to_string())?
+    };
+    let session = state.session.lock().unwrap();
+    session
+        .send_message(friend_number, &format!("join_channel {channel_id}"))
+        .map_err(|e| format!("send join request failed: {e}"))
+}
+
+#[tauri::command]
 pub fn send_file_to_friend(
     state: State<AppState>,
     friend_number: u32,
@@ -663,15 +685,28 @@ pub fn get_friends(state: State<AppState>) -> Result<Vec<FriendInfo>, String> {
     let engine = state.engine.lock().unwrap();
     let store = engine.store();
     let friends = store.friend_list().map_err(|e| e.to_string())?;
+    let session = state.session.lock().unwrap();
+    let online_map: std::collections::HashMap<String, bool> = session
+        .friend_list()
+        .into_iter()
+        .filter_map(|n| {
+            let pk = session.friend_public_key(n).ok()?;
+            Some((pk, session.friend_connection(n) != Connection::None))
+        })
+        .collect();
     Ok(friends
         .into_iter()
-        .map(|f| FriendInfo {
-            toxid: f.toxid.clone(),
-            pubkey: f.toxid.chars().take(64).collect(),
-            name: f.name,
-            avatar: f.avatar,
-            online: f.status == 1,
-            last_seen: f.last_seen,
+        .map(|f| {
+            let pubkey: String = f.toxid.chars().take(64).collect();
+            let online = online_map.get(&pubkey).copied().unwrap_or(false);
+            FriendInfo {
+                toxid: f.toxid,
+                pubkey,
+                name: f.name,
+                avatar: f.avatar,
+                online,
+                last_seen: f.last_seen,
+            }
         })
         .collect())
 }

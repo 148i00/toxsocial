@@ -71,16 +71,46 @@ async function removeHost(ch: PublicChannelInfo, toxid: string) {
   }
 }
 
+async function enterOwnChannel(channelId: string) {
+  try {
+    const confs = await api.listConferences();
+    for (const n of confs) {
+      const id = await api.getConferenceId(n);
+      if (id === channelId) {
+        await switchChannel(n);
+        log.value.push("已进入自己创建的频道");
+        return;
+      }
+    }
+    log.value.push("没有找到自己的频道，请先在频道页创建/加入");
+  } catch (e) {
+    log.value.push(`进入自己频道失败：${e}`);
+  }
+}
+
 async function joinPublic(ch: PublicChannelInfo) {
+  if (ch.hostToxid === ownToxid) {
+    await enterOwnChannel(ch.channelId);
+    return;
+  }
   if (!ch.hostToxid || ch.hostToxid.length < 70) {
     log.value.push(`「${ch.name}」暂时没有可用的 host，等待频道管理员接入。`);
     return;
   }
   try {
-    await api.addFriend(ch.hostToxid, `join_channel ${ch.channelId}`);
+    await api.sendJoinChannel(ch.hostToxid, ch.channelId);
     log.value.push(`已向「${ch.name}」host 发送加入申请。`);
   } catch (e) {
-    log.value.push(`加入「${ch.name}」失败：${e}`);
+    if (String(e).includes("not_friend")) {
+      try {
+        await api.addFriend(ch.hostToxid, `join_channel ${ch.channelId}`);
+        log.value.push(`已向「${ch.name}」host 发送好友请求/加入申请。`);
+      } catch (e2) {
+        log.value.push(`加入「${ch.name}」失败：${e2}`);
+      }
+    } else {
+      log.value.push(`加入「${ch.name}」失败：${e}`);
+    }
   }
 }
 
@@ -250,7 +280,7 @@ onMounted(async () => {
   await loadPublicChannels();
   publicTimer = setInterval(() => {
     loadPublicChannels();
-  }, 30_000);
+  }, 5_000);
   onEvent("channel:message", (e: { conferenceNumber: number; peerNumber: number; text: string }) => {
     messages.value.push({ peer: `#${e.peerNumber}`, text: e.text });
   });

@@ -24,6 +24,8 @@ export const api = {
     invoke<string>("upload_media", { dataBase64, filename }),
   sendFileToFriend: (friendNumber: number, filename: string, dataBase64: string) =>
     invoke<number>("send_file_to_friend", { friendNumber, filename, dataBase64 }),
+  sendJoinChannel: (toxid: string, channelId: string) =>
+    invoke<void>("send_join_channel", { toxid, channelId }),
   setAvatar: (dataBase64: string) => invoke<string>("set_avatar", { dataBase64 }),
   setAvatarUrl: (url: string) => invoke<void>("set_avatar_url", { url }),
   setImgurClientId: (clientId: string) => invoke<void>("set_imgur_client_id", { clientId }),
