@@ -55,6 +55,9 @@ pub const TOX_MESSAGE_TYPE_NORMAL: Tox_Message_Type = 0;
 pub const TOX_MESSAGE_TYPE_ACTION: Tox_Message_Type = 1;
 
 pub const TOX_CONFERENCE_ID_SIZE: usize = 32;
+pub const TOX_FILE_ID_LENGTH: usize = 32;
+pub const TOX_MAX_FILENAME_LENGTH: usize = 255;
+pub type Tox_File_Number = u32;
 pub type Tox_Conference_Number = u32;
 pub type Tox_Conference_Peer_Number = u32;
 pub type Tox_Conference_Type = u32;
@@ -184,6 +187,69 @@ extern "C" {
     ) -> u64;
     pub fn tox_self_get_friend_list_size(tox: *const Tox) -> usize;
     pub fn tox_self_get_friend_list(tox: *const Tox, list: *mut u32);
+
+    // --- file transfer ---------------------------------------------------------------
+    pub fn tox_file_send(
+        tox: *mut Tox,
+        friend_number: u32,
+        kind: u32,
+        file_size: u64,
+        file_id: *const u8,
+        filename: *const u8,
+        filename_length: usize,
+        error: *mut u32,
+    ) -> Tox_File_Number;
+    pub fn tox_file_send_chunk(
+        tox: *mut Tox,
+        friend_number: u32,
+        file_number: u32,
+        position: u64,
+        data: *const u8,
+        length: usize,
+        error: *mut u32,
+    ) -> bool;
+    pub fn tox_file_control(
+        tox: *mut Tox,
+        friend_number: u32,
+        file_number: u32,
+        control: u32,
+        error: *mut u32,
+    ) -> bool;
+    pub fn tox_callback_file_recv(
+        tox: *mut Tox,
+        callback: Option<
+            unsafe extern "C" fn(
+                *mut Tox,
+                u32,
+                u32,
+                u32,
+                u64,
+                *const u8,
+                usize,
+                *mut c_void,
+            ),
+        >,
+        user_data: *mut c_void,
+    );
+    pub fn tox_callback_file_chunk_request(
+        tox: *mut Tox,
+        callback: Option<
+            unsafe extern "C" fn(*mut Tox, u32, u32, u64, usize, *mut c_void),
+        >,
+        user_data: *mut c_void,
+    );
+    pub fn tox_callback_file_recv_chunk(
+        tox: *mut Tox,
+        callback: Option<
+            unsafe extern "C" fn(*mut Tox, u32, u32, u64, *const u8, usize, *mut c_void),
+        >,
+        user_data: *mut c_void,
+    );
+    pub fn tox_callback_file_recv_control(
+        tox: *mut Tox,
+        callback: Option<unsafe extern "C" fn(*mut Tox, u32, u32, u32, *mut c_void)>,
+        user_data: *mut c_void,
+    );
 
     // --- conferences ---------------------------------------------------------------
     pub fn tox_conference_new(tox: *mut Tox, error: *mut u32) -> Tox_Conference_Number;

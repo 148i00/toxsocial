@@ -577,6 +577,27 @@ fn handle_event(
         Event::ConferencePeerListChanged { conference_number } => {
             println!("[conf    ] peer list changed in conference #{conference_number}");
         }
+        Event::FileRecv {
+            friend_number,
+            file_number,
+            filename,
+            file_size,
+        } => {
+            println!("[file    ] incoming from #{friend_number}: {filename} ({file_size} bytes)");
+        }
+        Event::FileChunkRequest { .. } => {}
+        Event::FileRecvChunk { .. } => {}
+        Event::FileReceived {
+            friend_number,
+            file_number,
+            filename,
+            data,
+        } => {
+            println!(
+                "[file    ] received #{file_number} from #{friend_number}: {filename} ({} bytes)",
+                data.len()
+            );
+        }
     }
     Ok(())
 }

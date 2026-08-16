@@ -90,4 +90,32 @@ pub enum Event {
     },
     /// The peer list of a conference changed.
     ConferencePeerListChanged { conference_number: u32 },
+    /// A friend wants to send us a file.
+    FileRecv {
+        friend_number: u32,
+        file_number: u32,
+        filename: String,
+        file_size: u64,
+    },
+    /// Tox wants us to send the next chunk of an outgoing file.
+    FileChunkRequest {
+        friend_number: u32,
+        file_number: u32,
+        position: u64,
+        length: usize,
+    },
+    /// A chunk of an incoming file arrived.
+    FileRecvChunk {
+        friend_number: u32,
+        file_number: u32,
+        position: u64,
+        data: Vec<u8>,
+    },
+    /// An incoming file transfer completed.
+    FileReceived {
+        friend_number: u32,
+        file_number: u32,
+        filename: String,
+        data: Vec<u8>,
+    },
 }

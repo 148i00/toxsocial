@@ -26,6 +26,8 @@ pub enum ToxError {
     NullPointer,
     /// Conference operation failed (error code).
     Conference(u32),
+    /// File transfer operation failed (error code).
+    File(u32),
 }
 
 impl fmt::Display for ToxError {
@@ -44,6 +46,7 @@ impl fmt::Display for ToxError {
             }
             ToxError::NullPointer => write!(f, "null pointer returned from toxcore"),
             ToxError::Conference(code) => write!(f, "conference operation failed: {code}"),
+            ToxError::File(code) => write!(f, "file transfer failed: {code}"),
         }
     }
 }

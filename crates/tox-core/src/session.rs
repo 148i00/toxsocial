@@ -1,9 +1,10 @@
 //! [`ToxSession`]: owns a `Tox*` instance and its event loop.
 
 use std::os::raw::c_void;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 
 use tox_ffi::*;
@@ -14,9 +15,21 @@ use crate::event::{Connection, Event, Status};
 pub const MAX_NAME_LENGTH: usize = TOX_MAX_NAME_LENGTH;
 pub const MAX_STATUS_MESSAGE_LENGTH: usize = TOX_MAX_STATUS_MESSAGE_LENGTH;
 
+struct OutgoingFile {
+    data: Vec<u8>,
+    pos: usize,
+}
+
+struct IncomingFile {
+    filename: String,
+    data: Vec<u8>,
+}
+
 /// Callback context: handed to toxcore as `user_data`, forwards events out.
 struct CallbackCtx {
     tx: Sender<Event>,
+    outgoing: Arc<Mutex<HashMap<(u32, u32), OutgoingFile>>>,
+    incoming: Arc<Mutex<HashMap<(u32, u32), IncomingFile>>>,
 }
 
 unsafe fn send(ctx: &mut CallbackCtx, ev: Event) {
@@ -214,6 +227,109 @@ unsafe extern "C" fn on_conference_peer_list_changed(
     send(ctx, Event::ConferencePeerListChanged { conference_number });
 }
 
+unsafe extern "C" fn on_file_recv(
+    tox: *mut Tox,
+    friend_number: u32,
+    file_number: u32,
+    _kind: u32,
+    file_size: u64,
+    filename: *const u8,
+    filename_length: usize,
+    user_data: *mut c_void,
+) {
+    let ctx = &mut *(user_data as *mut CallbackCtx);
+    let name = String::from_utf8_lossy(std::slice::from_raw_parts(filename, filename_length)).into_owned();
+    {
+        let mut incoming = ctx.incoming.lock().unwrap();
+        incoming.insert((friend_number, file_number), IncomingFile { filename: name.clone(), data: Vec::new() });
+    }
+    // Accept the transfer.
+    let mut err: u32 = 0;
+    tox_file_control(tox, friend_number, file_number, 0, &mut err); // TOX_FILE_CONTROL_RESUME=0
+    send(
+        ctx,
+        Event::FileRecv {
+            friend_number,
+            file_number,
+            filename: name,
+            file_size,
+        },
+    );
+}
+
+unsafe extern "C" fn on_file_chunk_request(
+    tox: *mut Tox,
+    friend_number: u32,
+    file_number: u32,
+    position: u64,
+    length: usize,
+    user_data: *mut c_void,
+) {
+    let ctx = &mut *(user_data as *mut CallbackCtx);
+    let mut outgoing = ctx.outgoing.lock().unwrap();
+    if let Some(file) = outgoing.get_mut(&(friend_number, file_number)) {
+        let start = file.pos;
+        let end = (start + length).min(file.data.len());
+        let chunk = file.data[start..end].to_vec();
+        let mut err: u32 = 0;
+        tox_file_send_chunk(tox, friend_number, file_number, position, chunk.as_ptr(), chunk.len(), &mut err);
+        file.pos = end;
+        if end >= file.data.len() {
+            outgoing.remove(&(friend_number, file_number));
+        }
+    } else {
+        // Unknown outgoing transfer; cancel.
+        let mut err: u32 = 0;
+        tox_file_control(tox, friend_number, file_number, 2, &mut err); // CANCEL=2
+    }
+}
+
+unsafe extern "C" fn on_file_recv_chunk(
+    _tox: *mut Tox,
+    friend_number: u32,
+    file_number: u32,
+    _position: u64,
+    data: *const u8,
+    length: usize,
+    user_data: *mut c_void,
+) {
+    let ctx = &mut *(user_data as *mut CallbackCtx);
+    let completed = {
+        let mut incoming = ctx.incoming.lock().unwrap();
+        if let Some(file) = incoming.get_mut(&(friend_number, file_number)) {
+            if length > 0 {
+                file.data.extend_from_slice(std::slice::from_raw_parts(data, length));
+                None
+            } else {
+                incoming.remove(&(friend_number, file_number))
+            }
+        } else {
+            None
+        }
+    };
+    if let Some(file) = completed {
+        send(
+            ctx,
+            Event::FileReceived {
+                friend_number,
+                file_number,
+                filename: file.filename,
+                data: file.data,
+            },
+        );
+    }
+}
+
+unsafe extern "C" fn on_file_recv_control(
+    _tox: *mut Tox,
+    _friend_number: u32,
+    _file_number: u32,
+    _control: u32,
+    _user_data: *mut c_void,
+) {
+    // No-op for now.
+}
+
 // ---------------------------------------------------------------------------
 // ToxSession
 // ---------------------------------------------------------------------------
@@ -225,6 +341,8 @@ pub struct ToxSession {
     handle: Option<JoinHandle<()>>,
     /// Boxed CallbackCtx, leaked with `Box::into_raw`; reclaimed on drop.
     ctx: *mut CallbackCtx,
+    outgoing: Arc<Mutex<HashMap<(u32, u32), OutgoingFile>>>,
+    incoming: Arc<Mutex<HashMap<(u32, u32), IncomingFile>>>,
 }
 
 // The raw pointer is owned exclusively by us; channels are Send.
@@ -261,7 +379,13 @@ impl ToxSession {
 
         // Register callbacks + spawn the event loop.
         let (tx, rx) = mpsc::channel();
-        let ctx = Box::into_raw(Box::new(CallbackCtx { tx }));
+        let outgoing = Arc::new(Mutex::new(HashMap::new()));
+        let incoming = Arc::new(Mutex::new(HashMap::new()));
+        let ctx = Box::into_raw(Box::new(CallbackCtx {
+            tx,
+            outgoing: outgoing.clone(),
+            incoming: incoming.clone(),
+        }));
         unsafe {
             tox_callback_friend_request(tox, Some(on_friend_request), ctx as *mut c_void);
             tox_callback_friend_message(tox, Some(on_friend_message), ctx as *mut c_void);
@@ -294,6 +418,22 @@ impl ToxSession {
                 Some(on_conference_peer_list_changed),
                 ctx as *mut c_void,
             );
+            tox_callback_file_recv(tox, Some(on_file_recv), ctx as *mut c_void);
+            tox_callback_file_chunk_request(
+                tox,
+                Some(on_file_chunk_request),
+                ctx as *mut c_void,
+            );
+            tox_callback_file_recv_chunk(
+                tox,
+                Some(on_file_recv_chunk),
+                ctx as *mut c_void,
+            );
+            tox_callback_file_recv_control(
+                tox,
+                Some(on_file_recv_control),
+                ctx as *mut c_void,
+            );
         }
 
         let running = Arc::new(AtomicBool::new(true));
@@ -305,6 +445,8 @@ impl ToxSession {
             running,
             handle: Some(handle),
             ctx,
+            outgoing,
+            incoming,
         })
     }
 
@@ -520,6 +662,45 @@ impl ToxSession {
             return Err(ToxError::SendMessage(err));
         }
         Ok(())
+    }
+
+    // --- file transfer ------------------------------------------------------------
+
+    /// Send a file to a friend. The data is kept in memory and sent automatically
+    /// when Tox requests chunks.
+    pub fn send_file_data(
+        &mut self,
+        friend_number: u32,
+        filename: &str,
+        data: &[u8],
+    ) -> Result<u32, ToxError> {
+        if filename.len() > TOX_MAX_FILENAME_LENGTH {
+            return Err(ToxError::Parse("filename too long".to_string()));
+        }
+        let mut err: u32 = 0;
+        let file_number = unsafe {
+            tox_file_send(
+                self.tox,
+                friend_number,
+                0,
+                data.len() as u64,
+                std::ptr::null(),
+                filename.as_ptr(),
+                filename.len(),
+                &mut err,
+            )
+        };
+        if err != 0 {
+            return Err(ToxError::File(err));
+        }
+        self.outgoing.lock().unwrap().insert(
+            (friend_number, file_number),
+            OutgoingFile {
+                data: data.to_vec(),
+                pos: 0,
+            },
+        );
+        Ok(file_number)
     }
 
     // --- conferences ------------------------------------------------------------

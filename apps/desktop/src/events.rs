@@ -282,6 +282,38 @@ fn handle_event(app: &AppHandle, state: &State<AppState>, ev: Event) {
                 json!({ "conferenceNumber": conference_number }),
             );
         }
+        Event::FileChunkRequest { .. } => {}
+        Event::FileRecvChunk { .. } => {}
+        Event::FileRecv {
+            friend_number,
+            file_number,
+            filename,
+            file_size,
+        } => {
+            println!(
+                "[toxsocial] incoming file from #{friend_number}: {filename} ({file_size} bytes)"
+            );
+        }
+        Event::FileReceived {
+            friend_number,
+            file_number,
+            filename,
+            data,
+        } => {
+            let dir = state.data_dir.join("media");
+            let _ = std::fs::create_dir_all(&dir);
+            let path = dir.join(&filename);
+            if std::fs::write(&path, &data).is_ok() {
+                println!(
+                    "[toxsocial] received file #{file_number} from #{friend_number}: {}",
+                    path.display()
+                );
+                let _ = app.emit(
+                    "file:received",
+                    json!({ "friendNumber": friend_number, "filename": filename, "path": path.to_string_lossy() }),
+                );
+            }
+        }
     }
 }
 

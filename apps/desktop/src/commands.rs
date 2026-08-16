@@ -632,6 +632,23 @@ pub fn fetch_thread(state: State<AppState>, post_id: String) -> Result<Vec<Timel
 }
 
 #[tauri::command]
+pub fn send_file_to_friend(
+    state: State<AppState>,
+    friend_number: u32,
+    filename: String,
+    data_base64: String,
+) -> Result<u32, String> {
+    use base64::Engine as _;
+    let data = base64::engine::general_purpose::STANDARD
+        .decode(data_base64.trim())
+        .map_err(|e| format!("invalid base64: {e}"))?;
+    let mut session = state.session.lock().unwrap();
+    session
+        .send_file_data(friend_number, &filename, &data)
+        .map_err(|e| format!("send file failed: {e}"))
+}
+
+#[tauri::command]
 pub fn get_friends(state: State<AppState>) -> Result<Vec<FriendInfo>, String> {
     let engine = state.engine.lock().unwrap();
     let store = engine.store();
