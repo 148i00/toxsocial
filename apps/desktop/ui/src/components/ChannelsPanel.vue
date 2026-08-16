@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { api, onEvent } from "../api";
 import { t } from "../i18n";
 import type { ConferencePeerInfo, FriendInfo, PublicChannelInfo } from "../types";
@@ -15,13 +15,18 @@ const subName = ref("");
 const friendNumber = ref("0");
 const inviteToxid = ref("");
 const message = ref("");
-const messages = ref<{ peer: string; text: string }[]>([]);
+const messages = ref<{ conferenceNumber: number; channelName: string; peer: string; text: string }[]>([]);
 const log = ref<string[]>([]);
 const busy = ref(false);
 const error = ref("");
 const peers = ref<ConferencePeerInfo[]>([]);
 const joiningChannelId = ref("");
 const requestedChannels = ref<string[]>([]);
+const currentChannelName = computed(() => {
+  const n = conferenceNumber.value;
+  if (n === null) return "";
+  return myChannels.value.find((c) => c.conferenceNumber === n)?.name || `频道 #${n}`;
+});
 
 const publicChannels = ref<PublicChannelInfo[]>([]);
 const channelName = ref("");
@@ -418,7 +423,8 @@ async function send() {
   error.value = "";
   try {
     await api.conferenceSend(conferenceNumber.value, message.value.trim());
-    messages.value.push({ peer: "我", text: message.value.trim() });
+    const name = myChannels.value.find((c) => c.conferenceNumber === conferenceNumber.value)?.name || `频道 #${conferenceNumber.value}`;
+    messages.value.push({ conferenceNumber: conferenceNumber.value, channelName: name, peer: "我", text: message.value.trim() });
     message.value = "";
   } catch (e) {
     error.value = String(e);
@@ -442,7 +448,8 @@ onMounted(async () => {
     loadPublicChannels();
   }, 15_000);
   onEvent("channel:message", (e: { conferenceNumber: number; peerNumber: number; text: string }) => {
-    messages.value.push({ peer: `#${e.peerNumber}`, text: e.text });
+    const name = myChannels.value.find((c) => c.conferenceNumber === e.conferenceNumber)?.name || `频道 #${e.conferenceNumber}`;
+    messages.value.push({ conferenceNumber: e.conferenceNumber, channelName: name, peer: `#${e.peerNumber}`, text: e.text });
   });
   onEvent("channel:connected", async (e: { conferenceNumber: number }) => {
     ensureMyChannel(e.conferenceNumber);
@@ -519,6 +526,21 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="card" v-if="conferenceNumber !== null">
+      <div class="log-title">向当前频道发内容</div>
+      <p class="tip">当前频道：{{ currentChannelName || ('#' + conferenceNumber) }}</p>
+      <textarea
+        v-model="message"
+        rows="2"
+        maxlength="1372"
+        placeholder="输入频道内容…（Enter 发送，Shift+Enter 换行）"
+        @keydown.enter.exact.prevent="send"
+      ></textarea>
+      <div class="row">
+        <button class="primary" :disabled="busy || !message.trim()" @click="send">{{ t("send") }}</button>
+      </div>
+    </div>
+
+    <div class="card" v-if="conferenceNumber !== null">
       <label>邀请好友（ToxID）</label>
       <div class="row">
         <input v-model="inviteToxid" class="mono" placeholder="好友 ToxID 或公钥" />
@@ -528,16 +550,6 @@ onBeforeUnmount(() => {
       <div class="row">
         <input v-model="friendNumber" type="number" min="0" />
         <button :disabled="busy" @click="invite">{{ t("add") }}</button>
-      </div>
-      <label>{{ t("sendMessage") }}</label>
-      <div class="row">
-        <input
-          v-model="message"
-          maxlength="1372"
-          placeholder="输入频道消息"
-          @keydown.enter="send"
-        />
-        <button class="primary" :disabled="busy || !message.trim()" @click="send">{{ t("send") }}</button>
       </div>
     </div>
 
@@ -589,6 +601,7 @@ onBeforeUnmount(() => {
       <div class="log-title">频道消息 / 帖子 / 日志</div>
       <div v-if="log.length === 0 && messages.length === 0" class="empty">还没有频道活动</div>
       <div v-for="(m, i) in messages" :key="'m' + i" class="msg">
+        <span class="channel-tag">{{ m.channelName || ('#' + m.conferenceNumber) }}</span>
         <span class="peer">{{ m.peer }}</span>
         <span>{{ m.text }}</span>
       </div>
@@ -643,6 +656,15 @@ h2 {
   gap: 8px;
   padding: 4px 0;
   border-bottom: 1px solid var(--border);
+  align-items: baseline;
+}
+.channel-tag {
+  color: var(--text-dim);
+  font-size: 11px;
+  background: var(--bg-3);
+  border-radius: 4px;
+  padding: 1px 6px;
+  white-space: nowrap;
 }
 .peer {
   color: var(--accent);
@@ -653,6 +675,12 @@ h2 {
   color: var(--text-dim);
   font-size: 12px;
   padding: 2px 0;
+}
+.card textarea {
+  width: 100%;
+  min-height: 44px;
+  resize: vertical;
+  box-sizing: border-box;
 }
 .pub-channel {
   display: flex;
