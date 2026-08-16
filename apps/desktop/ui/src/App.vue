@@ -2,7 +2,7 @@
 import { onMounted, ref } from "vue";
 import { api, onEvent } from "./api";
 import { t } from "./i18n";
-import type { DirectoryEntryInfo, FriendInfo, OwnInfo, TimelineItem } from "./types";
+import type { DirectoryEntryInfo, FriendInfo, NetworkStatus, OwnInfo, TimelineItem } from "./types";
 import PostComposer from "./components/PostComposer.vue";
 import PostCard from "./components/PostCard.vue";
 import ThreadView from "./components/ThreadView.vue";
@@ -13,6 +13,7 @@ import Avatar from "./components/Avatar.vue";
 
 const view = ref<"timeline" | "friends" | "settings" | "channels" | "public">("timeline");
 const own = ref<OwnInfo | null>(null);
+const networkStatus = ref<NetworkStatus | null>(null);
 const timeline = ref<TimelineItem[]>([]);
 const threadPostId = ref<string | null>(null);
 const friends = ref<FriendInfo[]>([]);
@@ -100,6 +101,14 @@ async function refreshOwn() {
   own.value = await api.getOwnInfo();
 }
 
+async function refreshNetworkStatus() {
+  try {
+    networkStatus.value = await api.getNetworkStatus();
+  } catch {
+    networkStatus.value = null;
+  }
+}
+
 async function refreshTimeline() {
   timeline.value = await api.fetchTimeline(50);
 }
@@ -143,6 +152,7 @@ function backToTimeline() {
 
 onMounted(async () => {
   await refreshAll();
+  await refreshNetworkStatus();
   loading.value = false;
 
   // Live updates from the backend.
@@ -163,6 +173,7 @@ onMounted(async () => {
   onEvent("friend:connection", () => {
     refreshFriends();
     refreshOwn();
+    refreshNetworkStatus();
     notify("好友连接状态变化");
   });
   onEvent("friend:request", () => {
@@ -246,7 +257,7 @@ async function runSearch() {
         <Avatar :src="own.avatar" :name="own.name" :size="28" />
         <div class="foot-info">
           <span class="foot-name">{{ own.name || "未设置昵称" }}</span>
-          <span class="tag">{{ t("connectedDht") }}</span>
+          <span class="tag">{{ networkStatus ? (networkStatus.connected ? (networkStatus.connection === "udp" ? "UDP 已连接" : "TCP 已连接") : "未连接") : t("connectedDht") }}</span>
         </div>
       </div>
     </aside>

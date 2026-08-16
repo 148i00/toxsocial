@@ -171,6 +171,9 @@ fn handle_event(app: &AppHandle, state: &State<AppState>, ev: Event) {
                 Incoming::OutboxResp(resp) => {
                     handle_outbox_resp(state, app, &pk, &resp);
                 }
+                Incoming::Unfriend(_) => {
+                    handle_unfriend(state, friend_number, &pk);
+                }
                 Incoming::Rejected(_) => {
                     // Plain chat message — not part of the social protocol yet.
                     let _ = app.emit(
@@ -539,6 +542,19 @@ fn handle_outbox_resp(state: &State<AppState>, app: &AppHandle, sender_pk: &str,
             json!({ "id": p.id, "author": p.author, "authorName": name, "text": p.text, "ts": p.ts }),
         );
     }
+}
+
+fn handle_unfriend(state: &State<AppState>, friend_number: u32, pk: &str) {
+    {
+        let mut session = state.session.lock().unwrap();
+        let _ = session.delete_friend(friend_number);
+    }
+    state.persist();
+    {
+        let engine = state.engine.lock().unwrap();
+        let _ = engine.store().friend_remove(pk);
+    }
+    println!("[toxsocial] removed friend {pk} (they unfriended us)");
 }
 
 fn update_friend_meta(

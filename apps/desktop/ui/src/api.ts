@@ -1,9 +1,10 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { ConferencePeerInfo, DirectoryEntryInfo, FriendInfo, MediaConfig, OwnInfo, PublicChannelInfo, TimelineItem } from "./types";
+import type { ConferencePeerInfo, DirectoryEntryInfo, FriendInfo, MediaConfig, NetworkStatus, OwnInfo, PublicChannelInfo, TimelineItem } from "./types";
 
 export const api = {
   getOwnInfo: () => invoke<OwnInfo>("get_own_info"),
+  getNetworkStatus: () => invoke<NetworkStatus>("get_network_status"),
   setProfile: (name: string, bio: string) => invoke<void>("set_profile", { name, bio }),
   addFriend: (toxid: string, message: string) => invoke<number>("add_friend", { toxid, message }),
   removeFriend: (friendNumber: number) => invoke<void>("remove_friend", { friendNumber }),

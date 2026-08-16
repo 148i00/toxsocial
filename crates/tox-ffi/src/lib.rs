@@ -98,6 +98,7 @@ extern "C" {
     pub fn tox_self_get_address(tox: *const Tox, address: *mut u8);
     pub fn tox_self_get_public_key(tox: *const Tox, public_key: *mut u8);
     pub fn tox_self_get_nospam(tox: *const Tox) -> u32;
+    pub fn tox_self_get_connection_status(tox: *const Tox) -> Tox_Connection;
     pub fn tox_self_set_nospam(tox: *mut Tox, nospam: u32);
     pub fn tox_self_get_secret_key(tox: *const Tox, secret_key: *mut u8);
     pub fn tox_self_set_name(tox: *mut Tox, name: *const u8, length: usize, error: *mut u32);

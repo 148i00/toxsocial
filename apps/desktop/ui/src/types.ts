@@ -1,3 +1,10 @@
+export interface NetworkStatus {
+  connected: boolean;
+  connection: string;
+  friends: number;
+  onlineFriends: number;
+}
+
 export interface OwnInfo {
   toxid: string;
   pubkey: string;

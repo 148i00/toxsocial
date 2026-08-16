@@ -7,6 +7,7 @@ use tox_store::{PostKind, PostRow, PostSource, Store};
 
 use crate::envelope::{
     Comment, DirReq, DirResp, Envelope, OutboxReq, OutboxResp, Post, PostChunk, Profile, Reaction,
+    Unfriend,
 };
 use crate::{MAX_ENVELOPE_BYTES, MAX_POST_CHARS};
 
@@ -37,6 +38,8 @@ pub enum Incoming {
     OutboxReq(OutboxReq),
     /// A public-outbox response from a friend.
     OutboxResp(OutboxResp),
+    /// A friend is removing us.
+    Unfriend(Unfriend),
     /// Rejected; the caller may fall back to treating it as plain chat.
     Rejected(Reject),
 }
@@ -87,6 +90,7 @@ impl FeedEngine {
             Envelope::DirResp(resp) => Incoming::DirResp(resp),
             Envelope::OutboxReq(req) => Incoming::OutboxReq(req),
             Envelope::OutboxResp(resp) => Incoming::OutboxResp(resp),
+            Envelope::Unfriend(u) => Incoming::Unfriend(u),
             other => {
                 self.persist(&other, sender_pk, received_at);
                 Incoming::Persisted(other)
@@ -154,7 +158,8 @@ impl FeedEngine {
             | Envelope::DirReq(_)
             | Envelope::DirResp(_)
             | Envelope::OutboxReq(_)
-            | Envelope::OutboxResp(_) => None,
+            | Envelope::OutboxResp(_)
+            | Envelope::Unfriend(_) => None,
         };
         match row {
             Some(row) => self.store.post_upsert(&row).unwrap_or(false),
@@ -475,7 +480,8 @@ impl FeedEngine {
                     | Envelope::DirReq(_)
                     | Envelope::DirResp(_)
                     | Envelope::OutboxReq(_)
-                    | Envelope::OutboxResp(_) => None,
+                    | Envelope::OutboxResp(_)
+                    | Envelope::Unfriend(_) => None,
                 }
             })
             .collect()
@@ -525,6 +531,7 @@ impl Envelope {
             Envelope::DirResp(r) => &r.author,
             Envelope::OutboxReq(r) => &r.author,
             Envelope::OutboxResp(r) => &r.author,
+            Envelope::Unfriend(r) => &r.author,
             Envelope::SyncPosts(s) => &s.author,
         }
     }

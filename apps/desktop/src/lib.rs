@@ -68,6 +68,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_own_info,
+            commands::get_network_status,
             commands::set_profile,
             commands::set_avatar,
             commands::set_avatar_url,

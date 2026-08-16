@@ -324,6 +324,11 @@ impl ToxSession {
         hex::encode(buf)
     }
 
+    /// Our own connection status to the Tox network (DHT/TCP).
+    pub fn self_connection(&self) -> Connection {
+        Connection::from_raw(unsafe { tox_self_get_connection_status(self.tox) })
+    }
+
     /// Sign arbitrary bytes with this Tox identity's Ed25519 secret key.
     pub fn sign_data(&self, data: &[u8]) -> Result<Vec<u8>, ToxError> {
         use ed25519_dalek::Signer;

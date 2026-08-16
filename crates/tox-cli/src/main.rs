@@ -503,6 +503,12 @@ fn handle_event(
                 Incoming::OutboxResp(resp) => {
                     handle_outbox_resp(engine, &pk, &resp);
                 }
+                Incoming::Unfriend(_) => {
+                    session.delete_friend(friend_number).ok();
+                    engine.store().friend_remove(&pk).ok();
+                    persist(session, save)?;
+                    println!("[unfriend] removed {pk} (they unfriended us)");
+                }
                 Incoming::Rejected(_) => println!("[chat    #{friend_number}] {text}"),
             }
         }

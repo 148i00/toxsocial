@@ -18,6 +18,15 @@ use crate::state::AppState;
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
+pub struct NetworkStatus {
+    pub connected: bool,
+    pub connection: String,
+    pub friends: usize,
+    pub online_friends: usize,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct OwnInfo {
     pub toxid: String,
     pub pubkey: String,
@@ -124,6 +133,27 @@ pub fn get_own_info(state: State<AppState>) -> OwnInfo {
             .unwrap_or_default(),
         avatar,
         friend_count: session.friend_count(),
+    }
+}
+
+#[tauri::command]
+pub fn get_network_status(state: State<AppState>) -> NetworkStatus {
+    let session = state.session.lock().unwrap();
+    let connection = session.self_connection();
+    let friends = session.friend_list();
+    let online = friends
+        .iter()
+        .filter(|n| session.friend_connection(**n) != Connection::None)
+        .count();
+    NetworkStatus {
+        connected: connection != Connection::None,
+        connection: match connection {
+            Connection::None => "offline".to_string(),
+            Connection::Tcp => "tcp".to_string(),
+            Connection::Udp => "udp".to_string(),
+        },
+        friends: friends.len(),
+        online_friends: online,
     }
 }
 
@@ -346,6 +376,19 @@ pub fn remove_friend_by_toxid(state: State<AppState>, toxid: String) -> Result<(
             })
             .ok_or_else(|| "friend not found".to_string())?
     };
+    {
+        let session = state.session.lock().unwrap();
+        let me = session.self_public_key();
+        let unfriend = Envelope::Unfriend(tox_social::envelope::Unfriend {
+            v: tox_social::envelope::PROTOCOL_VERSION,
+            author: me,
+            ts: now_ms(),
+        });
+        let wire = unfriend.encode();
+        if session.friend_connection(friend_number) != Connection::None {
+            let _ = session.send_message(friend_number, &wire);
+        }
+    }
     {
         let mut session = state.session.lock().unwrap();
         session

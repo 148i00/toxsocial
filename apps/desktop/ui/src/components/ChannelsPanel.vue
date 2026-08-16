@@ -46,6 +46,10 @@ async function deletePublic(ch: PublicChannelInfo) {
 async function addHost(ch: PublicChannelInfo) {
   const toxid = hostInput.value.trim();
   if (!toxid) return;
+  if (toxid.length !== 64 && toxid.length !== 76) {
+    log.value.push("ToxID/公钥长度不正确（应为 64 位公钥或 76 位 ToxID）");
+    return;
+  }
   try {
     await api.addChannelHost(ch.channelId, toxid);
     hostInput.value = "";

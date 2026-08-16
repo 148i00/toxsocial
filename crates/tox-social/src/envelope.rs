@@ -161,6 +161,16 @@ pub struct OutboxResp {
     pub items: Vec<Envelope>,
 }
 
+/// Tell a friend that we are removing them (mutual unfollow).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Unfriend {
+    pub v: u32,
+    #[serde(rename = "a")]
+    pub author: String,
+    #[serde(rename = "ts")]
+    pub ts: i64,
+}
+
 /// Pull-based backfill request sent when a friend comes online (M4).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SyncReq {
@@ -200,6 +210,7 @@ pub enum Envelope {
     DirResp(DirResp),
     OutboxReq(OutboxReq),
     OutboxResp(OutboxResp),
+    Unfriend(Unfriend),
 }
 
 impl Envelope {
@@ -233,6 +244,7 @@ impl Envelope {
             Envelope::DirResp(_) => "dir_resp",
             Envelope::OutboxReq(_) => "outbox_req",
             Envelope::OutboxResp(_) => "outbox_resp",
+            Envelope::Unfriend(_) => "unfriend",
         }
     }
 
