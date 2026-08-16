@@ -12,6 +12,12 @@ use tox_ffi::*;
 use crate::error::ToxError;
 use crate::event::{Connection, Event, Status};
 
+/// Serializes all direct toxcore FFI access.
+///
+/// c-toxcore is not thread-safe. The iterate thread and every command/event
+/// thread must take this lock before touching a `Tox*` pointer.
+static TOX_FFI_LOCK: Mutex<()> = Mutex::new(());
+
 pub const MAX_NAME_LENGTH: usize = TOX_MAX_NAME_LENGTH;
 pub const MAX_STATUS_MESSAGE_LENGTH: usize = TOX_MAX_STATUS_MESSAGE_LENGTH;
 
@@ -356,6 +362,7 @@ impl ToxSession {
 
     /// Create a Tox instance from previously saved data.
     pub fn from_savedata(data: Option<&[u8]>) -> Result<Self, ToxError> {
+        let _guard = TOX_FFI_LOCK.lock().unwrap();
         let mut err_opt: u32 = TOX_ERR_OPTIONS_NEW_OK;
         let options = unsafe { tox_options_new(&mut err_opt) };
         if options.is_null() {
@@ -454,6 +461,7 @@ impl ToxSession {
 
     /// Full ToxID: 76 hex chars (pubkey + nospam + checksum).
     pub fn self_address(&self) -> String {
+        let _guard = TOX_FFI_LOCK.lock().unwrap();
         let mut buf = [0u8; TOX_ADDRESS_SIZE];
         unsafe { tox_self_get_address(self.tox, buf.as_mut_ptr()) };
         hex::encode(buf)
@@ -461,6 +469,7 @@ impl ToxSession {
 
     /// Public key only: 64 hex chars.
     pub fn self_public_key(&self) -> String {
+        let _guard = TOX_FFI_LOCK.lock().unwrap();
         let mut buf = [0u8; TOX_PUBLIC_KEY_SIZE];
         unsafe { tox_self_get_public_key(self.tox, buf.as_mut_ptr()) };
         hex::encode(buf)
@@ -468,11 +477,13 @@ impl ToxSession {
 
     /// Our own connection status to the Tox network (DHT/TCP).
     pub fn self_connection(&self) -> Connection {
+        let _guard = TOX_FFI_LOCK.lock().unwrap();
         Connection::from_raw(unsafe { tox_self_get_connection_status(self.tox) })
     }
 
     /// Sign arbitrary bytes with this Tox identity's Ed25519 secret key.
     pub fn sign_data(&self, data: &[u8]) -> Result<Vec<u8>, ToxError> {
+        let _guard = TOX_FFI_LOCK.lock().unwrap();
         use ed25519_dalek::Signer;
         let mut secret = [0u8; TOX_SECRET_KEY_SIZE];
         unsafe { tox_self_get_secret_key(self.tox, secret.as_mut_ptr()) };
@@ -481,6 +492,7 @@ impl ToxSession {
     }
 
     pub fn self_name(&self) -> String {
+        let _guard = TOX_FFI_LOCK.lock().unwrap();
         let size = unsafe { tox_self_get_name_size(self.tox) };
         let mut buf = vec![0u8; size];
         unsafe { tox_self_get_name(self.tox, buf.as_mut_ptr()) };
@@ -488,6 +500,7 @@ impl ToxSession {
     }
 
     pub fn self_status_message(&self) -> Result<String, ToxError> {
+        let _guard = TOX_FFI_LOCK.lock().unwrap();
         let size = unsafe { tox_self_get_status_message_size(self.tox) };
         let mut buf = vec![0u8; size];
         unsafe { tox_self_get_status_message(self.tox, buf.as_mut_ptr()) };
@@ -495,6 +508,7 @@ impl ToxSession {
     }
 
     pub fn set_name(&mut self, name: &str) -> Result<(), ToxError> {
+        let _guard = TOX_FFI_LOCK.lock().unwrap();
         let mut err: u32 = TOX_ERR_SET_INFO_OK;
         unsafe { tox_self_set_name(self.tox, name.as_ptr(), name.len(), &mut err) };
         if err != TOX_ERR_SET_INFO_OK {
@@ -504,6 +518,7 @@ impl ToxSession {
     }
 
     pub fn set_status_message(&mut self, msg: &str) -> Result<(), ToxError> {
+        let _guard = TOX_FFI_LOCK.lock().unwrap();
         let mut err: u32 = TOX_ERR_SET_INFO_OK;
         unsafe { tox_self_set_status_message(self.tox, msg.as_ptr(), msg.len(), &mut err) };
         if err != TOX_ERR_SET_INFO_OK {
@@ -513,6 +528,7 @@ impl ToxSession {
     }
 
     pub fn set_status(&mut self, status: Status) {
+        let _guard = TOX_FFI_LOCK.lock().unwrap();
         let raw = match status {
             Status::None => TOX_USER_STATUS_NONE,
             Status::Away => TOX_USER_STATUS_AWAY,
@@ -524,6 +540,7 @@ impl ToxSession {
     // --- persistence --------------------------------------------------------
 
     pub fn save(&self) -> Vec<u8> {
+        let _guard = TOX_FFI_LOCK.lock().unwrap();
         let size = unsafe { tox_get_savedata_size(self.tox) };
         let mut buf = vec![0u8; size];
         unsafe { tox_get_savedata(self.tox, buf.as_mut_ptr()) };
@@ -534,6 +551,7 @@ impl ToxSession {
 
     /// Bootstrap to the DHT. `public_key` is 64 hex chars.
     pub fn bootstrap(&self, host: &str, port: u16, public_key: &str) -> Result<(), ToxError> {
+        let _guard = TOX_FFI_LOCK.lock().unwrap();
         let pk = hex_to_bytes(public_key, TOX_PUBLIC_KEY_SIZE)?;
         let c_host = std::ffi::CString::new(host).map_err(|_| {
             ToxError::Parse("host contains interior NUL byte".to_string())
@@ -548,6 +566,7 @@ impl ToxSession {
 
     /// Add a TCP relay. `public_key` is 64 hex chars.
     pub fn add_tcp_relay(&self, host: &str, port: u16, public_key: &str) -> Result<(), ToxError> {
+        let _guard = TOX_FFI_LOCK.lock().unwrap();
         let pk = hex_to_bytes(public_key, TOX_PUBLIC_KEY_SIZE)?;
         let c_host = std::ffi::CString::new(host).map_err(|_| {
             ToxError::Parse("host contains interior NUL byte".to_string())
@@ -566,6 +585,7 @@ impl ToxSession {
     /// Add a friend from a full ToxID (76 hex chars), with an optional request
     /// message. Returns the friend number.
     pub fn add_friend(&mut self, toxid: &str, message: &str) -> Result<u32, ToxError> {
+        let _guard = TOX_FFI_LOCK.lock().unwrap();
         let addr = hex_to_bytes(toxid, TOX_ADDRESS_SIZE)?;
         let mut err: u32 = TOX_ERR_FRIEND_ADD_OK;
         let n = unsafe {
@@ -586,6 +606,7 @@ impl ToxSession {
     /// Add a friend by public key only (64 hex), without a request message
     /// (e.g. accepting an incoming request).
     pub fn add_friend_norequest(&mut self, public_key: &str) -> Result<u32, ToxError> {
+        let _guard = TOX_FFI_LOCK.lock().unwrap();
         let pk = hex_to_bytes(public_key, TOX_PUBLIC_KEY_SIZE)?;
         let mut err: u32 = TOX_ERR_FRIEND_ADD_OK;
         let n = unsafe { tox_friend_add_norequest(self.tox, pk.as_ptr(), &mut err) };
@@ -596,6 +617,7 @@ impl ToxSession {
     }
 
     pub fn delete_friend(&mut self, friend_number: u32) -> Result<(), ToxError> {
+        let _guard = TOX_FFI_LOCK.lock().unwrap();
         let mut err: u32 = TOX_ERR_FRIEND_ADD_OK;
         let ok = unsafe { tox_friend_delete(self.tox, friend_number, &mut err) };
         if !ok {
@@ -605,11 +627,13 @@ impl ToxSession {
     }
 
     pub fn friend_count(&self) -> usize {
+        let _guard = TOX_FFI_LOCK.lock().unwrap();
         unsafe { tox_self_get_friend_list_size(self.tox) }
     }
 
     pub fn friend_list(&self) -> Vec<u32> {
-        let n = self.friend_count();
+        let _guard = TOX_FFI_LOCK.lock().unwrap();
+        let n = unsafe { tox_self_get_friend_list_size(self.tox) };
         let mut list = vec![0u32; n];
         if n > 0 {
             unsafe { tox_self_get_friend_list(self.tox, list.as_mut_ptr()) };
@@ -618,6 +642,7 @@ impl ToxSession {
     }
 
     pub fn friend_public_key(&self, friend_number: u32) -> Result<String, ToxError> {
+        let _guard = TOX_FFI_LOCK.lock().unwrap();
         let mut buf = [0u8; TOX_PUBLIC_KEY_SIZE];
         let mut err: u32 = TOX_ERR_FRIEND_GET_PUBLIC_KEY_OK;
         let ok = unsafe { tox_friend_get_public_key(self.tox, friend_number, buf.as_mut_ptr(), &mut err) };
@@ -628,6 +653,7 @@ impl ToxSession {
     }
 
     pub fn friend_name(&self, friend_number: u32) -> Result<String, ToxError> {
+        let _guard = TOX_FFI_LOCK.lock().unwrap();
         let mut err: u32 = TOX_ERR_FRIEND_GET_PUBLIC_KEY_OK;
         let size = unsafe { tox_friend_get_name_size(self.tox, friend_number, &mut err) };
         let mut buf = vec![0u8; size];
@@ -636,6 +662,7 @@ impl ToxSession {
     }
 
     pub fn friend_connection(&self, friend_number: u32) -> Connection {
+        let _guard = TOX_FFI_LOCK.lock().unwrap();
         let mut err: u32 = 0;
         Connection::from_raw(unsafe {
             tox_friend_get_connection_status(self.tox, friend_number, &mut err)
@@ -644,6 +671,7 @@ impl ToxSession {
 
     /// Send a plain-text message to a friend. Must be <= 1372 bytes.
     pub fn send_message(&self, friend_number: u32, text: &str) -> Result<(), ToxError> {
+        let _guard = TOX_FFI_LOCK.lock().unwrap();
         if text.len() > TOX_MAX_MESSAGE_LENGTH {
             return Err(ToxError::MessageTooLong(text.len()));
         }
@@ -674,6 +702,7 @@ impl ToxSession {
         filename: &str,
         data: &[u8],
     ) -> Result<u32, ToxError> {
+        let _guard = TOX_FFI_LOCK.lock().unwrap();
         if filename.len() > TOX_MAX_FILENAME_LENGTH {
             return Err(ToxError::Parse("filename too long".to_string()));
         }
@@ -706,6 +735,7 @@ impl ToxSession {
     // --- conferences ------------------------------------------------------------
 
     pub fn conference_new(&mut self) -> Result<u32, ToxError> {
+        let _guard = TOX_FFI_LOCK.lock().unwrap();
         let mut err: u32 = 0;
         let n = unsafe { tox_conference_new(self.tox, &mut err) };
         if err != 0 {
@@ -715,6 +745,7 @@ impl ToxSession {
     }
 
     pub fn conference_delete(&mut self, conference_number: u32) -> Result<(), ToxError> {
+        let _guard = TOX_FFI_LOCK.lock().unwrap();
         let mut err: u32 = 0;
         let ok = unsafe { tox_conference_delete(self.tox, conference_number, &mut err) };
         if !ok {
@@ -728,6 +759,7 @@ impl ToxSession {
         friend_number: u32,
         conference_number: u32,
     ) -> Result<(), ToxError> {
+        let _guard = TOX_FFI_LOCK.lock().unwrap();
         let mut err: u32 = 0;
         let ok = unsafe {
             tox_conference_invite(self.tox, friend_number, conference_number, &mut err)
@@ -739,6 +771,7 @@ impl ToxSession {
     }
 
     pub fn conference_join(&mut self, friend_number: u32, cookie: &[u8]) -> Result<u32, ToxError> {
+        let _guard = TOX_FFI_LOCK.lock().unwrap();
         let mut err: u32 = 0;
         let n = unsafe {
             tox_conference_join(self.tox, friend_number, cookie.as_ptr(), cookie.len(), &mut err)
@@ -754,6 +787,7 @@ impl ToxSession {
         conference_number: u32,
         text: &str,
     ) -> Result<(), ToxError> {
+        let _guard = TOX_FFI_LOCK.lock().unwrap();
         if text.len() > TOX_MAX_MESSAGE_LENGTH {
             return Err(ToxError::MessageTooLong(text.len()));
         }
@@ -775,6 +809,7 @@ impl ToxSession {
     }
 
     pub fn conference_peer_count(&self, conference_number: u32) -> Result<u32, ToxError> {
+        let _guard = TOX_FFI_LOCK.lock().unwrap();
         let mut err: u32 = 0;
         let n = unsafe { tox_conference_peer_count(self.tox, conference_number, &mut err) };
         if err != 0 {
@@ -788,6 +823,7 @@ impl ToxSession {
         conference_number: u32,
         peer_number: u32,
     ) -> Result<String, ToxError> {
+        let _guard = TOX_FFI_LOCK.lock().unwrap();
         let mut err: u32 = 0;
         let size = unsafe {
             tox_conference_peer_get_name_size(self.tox, conference_number, peer_number, &mut err)
@@ -816,6 +852,7 @@ impl ToxSession {
         conference_number: u32,
         peer_number: u32,
     ) -> Result<String, ToxError> {
+        let _guard = TOX_FFI_LOCK.lock().unwrap();
         let mut err: u32 = 0;
         let mut buf = [0u8; TOX_PUBLIC_KEY_SIZE];
         let ok = unsafe {
@@ -835,6 +872,7 @@ impl ToxSession {
 
     /// Return the stable unique ID of a conference (64 hex chars).
     pub fn conference_get_id(&self, conference_number: u32) -> Result<String, ToxError> {
+        let _guard = TOX_FFI_LOCK.lock().unwrap();
         let mut buf = [0u8; TOX_CONFERENCE_ID_SIZE];
         let ok = unsafe { tox_conference_get_id(self.tox, conference_number, buf.as_mut_ptr()) };
         if !ok {
@@ -845,6 +883,7 @@ impl ToxSession {
 
     /// Find a conference by its stable unique ID.
     pub fn conference_by_id(&self, id: &str) -> Result<u32, ToxError> {
+        let _guard = TOX_FFI_LOCK.lock().unwrap();
         let bytes = hex_to_bytes(id, TOX_CONFERENCE_ID_SIZE)?;
         let mut err: u32 = 0;
         let n = unsafe { tox_conference_by_id(self.tox, bytes.as_ptr(), &mut err) };
@@ -856,6 +895,7 @@ impl ToxSession {
 
     /// List all conference numbers currently known to this Tox instance.
     pub fn conference_chatlist(&self) -> Vec<u32> {
+        let _guard = TOX_FFI_LOCK.lock().unwrap();
         let size = unsafe { tox_conference_get_chatlist_size(self.tox) };
         let mut list = vec![0u32; size];
         if size > 0 {
@@ -895,6 +935,7 @@ impl ToxSession {
             self.ctx = std::ptr::null_mut();
         }
         if !self.tox.is_null() {
+            let _guard = TOX_FFI_LOCK.lock().unwrap();
             unsafe { tox_kill(self.tox) };
             self.tox = std::ptr::null_mut();
         }
@@ -931,8 +972,12 @@ fn spawn_iterate_loop(
             let tox = tox;
             let ctx = ctx;
             while running.load(Ordering::SeqCst) {
-                let interval = unsafe { tox_iteration_interval(tox.0) };
+                let interval = {
+                    let _guard = TOX_FFI_LOCK.lock().unwrap();
+                    unsafe { tox_iteration_interval(tox.0) }
+                };
                 std::thread::sleep(std::time::Duration::from_millis(interval as u64));
+                let _guard = TOX_FFI_LOCK.lock().unwrap();
                 unsafe {
                     tox_iterate(tox.0, ctx.0 as *mut c_void);
                 }

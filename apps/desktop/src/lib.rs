@@ -55,12 +55,13 @@ pub fn run() {
             let handle = app.handle().clone();
             std::thread::spawn(move || {
                 let state = handle.state::<AppState>();
-                let session = state.session.lock().unwrap();
                 for (host, port, key) in tox_core::DEFAULT_BOOTSTRAP_NODES {
+                    let session = state.session.lock().unwrap();
                     if let Err(e) = session.bootstrap(host, *port, key) {
                         eprintln!("[toxsocial] bootstrap {host}:{port}: {e}");
                     }
                     let _ = session.add_tcp_relay(host, *port, key);
+                    drop(session);
                 }
                 println!("[toxsocial] bootstrapped to DHT");
             });

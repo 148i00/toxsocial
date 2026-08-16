@@ -1,6 +1,5 @@
 //! Background pump: tox events → store → frontend events.
 
-use std::sync::mpsc::RecvTimeoutError;
 use std::time::Duration;
 
 use serde_json::json;
@@ -24,17 +23,15 @@ pub fn spawn_event_pump(app: AppHandle) {
             let state = app.state::<AppState>();
             let ev = {
                 let session = state.session.lock().unwrap();
-                match session.recv_timeout(Duration::from_millis(250)) {
-                    Ok(ev) => ev,
-                    Err(RecvTimeoutError::Timeout) => {
-                        drop(session);
-                        heartbeat(&app, &state);
-                        continue;
-                    }
-                    Err(RecvTimeoutError::Disconnected) => break,
-                }
+                session.try_recv()
             };
-            handle_event(&app, &state, ev);
+            match ev {
+                Some(ev) => handle_event(&app, &state, ev),
+                None => {
+                    heartbeat(&app, &state);
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+            }
         })
         .expect("failed to spawn event pump");
 }
