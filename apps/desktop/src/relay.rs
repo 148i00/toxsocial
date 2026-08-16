@@ -60,7 +60,7 @@ pub async fn publish_post(relay: &str, pubkey: &str, id: &str, ts: i64, text: &s
     let resp = client
         .post(url)
         .json(&body)
-        .send()
+        .timeout(std::time::Duration::from_secs(10)).send()
         .await
         .map_err(|e| format!("relay publish failed: {e}"))?;
     let status = resp.status();
@@ -153,7 +153,7 @@ pub async fn register_channel(
     let resp = client
         .post(url)
         .json(&body)
-        .send()
+        .timeout(std::time::Duration::from_secs(10)).send()
         .await
         .map_err(|e| format!("relay register channel failed: {e}"))?;
     let status = resp.status();
@@ -182,7 +182,7 @@ pub async fn register_profile(
     let resp = client
         .post(url)
         .json(&body)
-        .send()
+        .timeout(std::time::Duration::from_secs(10)).send()
         .await
         .map_err(|e| format!("relay register profile failed: {e}"))?;
     let status = resp.status();
@@ -203,7 +203,7 @@ pub async fn delete_channel(relay: &str, channel_id: &str, host_toxid: &str) -> 
     let resp = client
         .post(url)
         .json(&body)
-        .send()
+        .timeout(std::time::Duration::from_secs(10)).send()
         .await
         .map_err(|e| format!("relay delete channel failed: {e}"))?;
     let status = resp.status();
@@ -228,7 +228,7 @@ pub async fn add_channel_host(
         "newHostToxid": new_host_toxid,
     });
     let client = reqwest::Client::new();
-    let resp = client.post(url).json(&body).send().await.map_err(|e| e.to_string())?;
+    let resp = client.post(url).json(&body).timeout(std::time::Duration::from_secs(10)).send().await.map_err(|e| e.to_string())?;
     let status = resp.status();
     if !status.is_success() {
         let text = resp.text().await.unwrap_or_default();
@@ -250,7 +250,7 @@ pub async fn remove_channel_host(
         "removeHostToxid": remove_host_toxid,
     });
     let client = reqwest::Client::new();
-    let resp = client.post(url).json(&body).send().await.map_err(|e| e.to_string())?;
+    let resp = client.post(url).json(&body).timeout(std::time::Duration::from_secs(10)).send().await.map_err(|e| e.to_string())?;
     let status = resp.status();
     if !status.is_success() {
         let text = resp.text().await.unwrap_or_default();

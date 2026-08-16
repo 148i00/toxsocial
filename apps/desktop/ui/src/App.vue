@@ -11,7 +11,7 @@ import SettingsPanel from "./components/SettingsPanel.vue";
 import ChannelsPanel from "./components/ChannelsPanel.vue";
 import Avatar from "./components/Avatar.vue";
 
-const view = ref<"timeline" | "friends" | "settings" | "channels" | "public">("timeline");
+const view = ref<"timeline" | "friends" | "settings" | "channels" | "public" | "profile">("timeline");
 const own = ref<OwnInfo | null>(null);
 const networkStatus = ref<NetworkStatus | null>(null);
 const timeline = ref<TimelineItem[]>([]);
@@ -23,6 +23,7 @@ const searchResults = ref<TimelineItem[]>([]);
 const publicTimeline = ref<TimelineItem[]>([]);
 const friendFilter = ref<string | null>(null);
 const friendPosts = ref<TimelineItem[]>([]);
+const profileUser = ref<{ pubkey: string; name: string; avatar: string } | null>(null);
 const searching = ref(false);
 const notifications = ref<{ id: number; text: string; time: number }[]>([]);
 const unread = ref(0);
@@ -127,14 +128,21 @@ async function requestPublic() {
 }
 
 async function viewFriend(pubkey: string) {
+  const f = friends.value.find((x) => x.pubkey === pubkey);
+  profileUser.value = {
+    pubkey,
+    name: f?.name || "未命名",
+    avatar: f?.avatar || "",
+  };
   friendFilter.value = pubkey;
   friendPosts.value = await api.fetchPostsByAuthor(pubkey, 50);
-  view.value = "timeline";
+  view.value = "profile";
 }
 
 function backFromFriend() {
   friendFilter.value = null;
   friendPosts.value = [];
+  profileUser.value = null;
 }
 
 async function refreshAll() {
@@ -324,6 +332,27 @@ async function runSearch() {
         </template>
       </template>
 
+      <div v-else-if="view === 'profile'" class="profile-page">
+        <div class="thread-header">
+          <button @click="backFromFriend(); view = 'friends'">← 返回关注</button>
+        </div>
+        <div v-if="profileUser" class="profile-card">
+          <Avatar :src="profileUser.avatar" :name="profileUser.name" :size="64" />
+          <div>
+            <div class="profile-name">{{ profileUser.name }}</div>
+            <div class="mono">{{ profileUser.pubkey }}</div>
+          </div>
+        </div>
+        <div v-if="friendPosts.length === 0" class="empty">TA 还没有帖子</div>
+        <PostCard
+          v-for="p in friendPosts"
+          :key="p.id"
+          :item="p"
+          :own="own"
+          @open="openThreadWithData"
+          @reacted="refreshTimeline"
+        />
+      </div>
       <FriendsPanel v-else-if="view === 'friends'" :friends="friends" @changed="refreshAll" @open="viewFriend" />
       <ChannelsPanel v-else-if="view === 'channels'" />
       <div v-else-if="view === 'public'" class="public-page">
@@ -469,6 +498,24 @@ nav button.active {
 .public-page .row {
   display: flex;
   gap: 8px;
+}
+.profile-page {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.profile-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+}
+.profile-name {
+  font-size: 16px;
+  font-weight: 700;
 }
 .modal-overlay {
   position: fixed;

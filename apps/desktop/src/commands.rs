@@ -515,7 +515,9 @@ fn author_meta(
     let mut map = HashMap::new();
     let friends = engine.store().friend_list().unwrap_or_default();
     for f in friends {
-        map.insert(f.toxid, (f.name, f.avatar));
+        let pubkey: String = f.toxid.chars().take(64).collect();
+        map.insert(f.toxid.clone(), (f.name.clone(), f.avatar.clone()));
+        map.insert(pubkey, (f.name, f.avatar));
     }
     let avatar = engine
         .store()
