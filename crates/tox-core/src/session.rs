@@ -714,6 +714,15 @@ impl ToxSession {
         Ok(n)
     }
 
+    pub fn conference_delete(&mut self, conference_number: u32) -> Result<(), ToxError> {
+        let mut err: u32 = 0;
+        let ok = unsafe { tox_conference_delete(self.tox, conference_number, &mut err) };
+        if !ok {
+            return Err(ToxError::Conference(err));
+        }
+        Ok(())
+    }
+
     pub fn conference_invite(
         &self,
         friend_number: u32,

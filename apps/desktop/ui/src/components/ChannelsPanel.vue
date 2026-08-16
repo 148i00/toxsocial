@@ -2,7 +2,7 @@
 import { onBeforeUnmount, onMounted, ref } from "vue";
 import { api, onEvent } from "../api";
 import { t } from "../i18n";
-import type { FriendInfo, PublicChannelInfo } from "../types";
+import type { ConferencePeerInfo, FriendInfo, PublicChannelInfo } from "../types";
 
 const props = defineProps<{ friends: FriendInfo[] }>();
 
@@ -19,6 +19,9 @@ const messages = ref<{ peer: string; text: string }[]>([]);
 const log = ref<string[]>([]);
 const busy = ref(false);
 const error = ref("");
+const peers = ref<ConferencePeerInfo[]>([]);
+const joiningChannelId = ref("");
+const requestedChannels = ref<string[]>([]);
 
 const publicChannels = ref<PublicChannelInfo[]>([]);
 const channelName = ref("");
@@ -116,12 +119,16 @@ async function removeHost(ch: PublicChannelInfo, toxid: string) {
   }
 }
 
-async function enterOwnChannel(channelId: string) {
+async function enterOwnChannel(targetChannelId: string) {
+  if (channelId.value === targetChannelId) {
+    log.value.push("已经在这个频道里了");
+    return;
+  }
   try {
     const confs = await api.listConferences();
     for (const n of confs) {
       const id = await api.getConferenceId(n);
-      if (id === channelId) {
+      if (id === targetChannelId) {
         await switchChannel(n);
         log.value.push("已进入自己创建的频道");
         return;
@@ -150,37 +157,75 @@ function isFriendHost(ch: PublicChannelInfo): boolean {
 }
 
 async function joinPublic(ch: PublicChannelInfo) {
+  if (joiningChannelId.value) return;
+  joiningChannelId.value = ch.channelId;
   try {
-  if (isOwnChannel(ch)) {
-    await enterOwnChannel(ch.channelId);
-    return;
-  }
-  if (!ch.hostToxid || ch.hostToxid.length < 70) {
-    log.value.push(`「${ch.name}」暂时没有可用的 host，等待频道管理员接入。`);
-    return;
-  }
-  if (isFriendHost(ch)) {
+    if (isOwnChannel(ch)) {
+      await enterOwnChannel(ch.channelId);
+      return;
+    }
+    if (!ch.hostToxid || ch.hostToxid.length < 70) {
+      log.value.push(`「${ch.name}」暂时没有可用的 host，等待频道管理员接入。`);
+      return;
+    }
+    if (isFriendHost(ch)) {
+      try {
+        await api.sendJoinChannel(ch.hostToxid, ch.channelId);
+        if (!requestedChannels.value.includes(ch.channelId)) {
+          requestedChannels.value.push(ch.channelId);
+        }
+        log.value.push(`已向「${ch.name}」host 发送加入申请。`);
+      } catch (e) {
+        log.value.push(`加入「${ch.name}」失败：${e}`);
+      }
+      return;
+    }
     try {
-      await api.sendJoinChannel(ch.hostToxid, ch.channelId);
-      log.value.push(`已向「${ch.name}」host 发送加入申请。`);
+      await api.addFriend(ch.hostToxid, `join_channel ${ch.channelId}`);
+      if (!requestedChannels.value.includes(ch.channelId)) {
+        requestedChannels.value.push(ch.channelId);
+      }
+      log.value.push(`已向「${ch.name}」host 发送好友请求/加入申请。`);
     } catch (e) {
-      log.value.push(`加入「${ch.name}」失败：${e}`);
+      const msg = String(e);
+      if (msg.includes("已发送") || msg.includes("already")) {
+        if (!requestedChannels.value.includes(ch.channelId)) {
+          requestedChannels.value.push(ch.channelId);
+        }
+        log.value.push(`加入「${ch.name}」：请求已发送，等待 host 接受。`);
+      } else {
+        log.value.push(`加入「${ch.name}」失败：${e}`);
+      }
     }
-    return;
-  }
-  try {
-    await api.addFriend(ch.hostToxid, `join_channel ${ch.channelId}`);
-    log.value.push(`已向「${ch.name}」host 发送好友请求/加入申请。`);
-  } catch (e) {
-    const msg = String(e);
-    if (msg.includes("已发送") || msg.includes("already")) {
-      log.value.push(`加入「${ch.name}」：请求已发送，等待 host 接受。`);
-    } else {
-      log.value.push(`加入「${ch.name}」失败：${e}`);
-    }
-  }
   } catch (e) {
     log.value.push(`加入「${ch.name}」发生错误：${e}`);
+  } finally {
+    joiningChannelId.value = "";
+  }
+}
+
+function isChannelActive(ch: PublicChannelInfo): boolean {
+  return !!ch.channelId && ch.channelId === channelId.value;
+}
+
+function isRequested(ch: PublicChannelInfo): boolean {
+  return requestedChannels.value.includes(ch.channelId);
+}
+
+async function copyPublicInvite(ch: PublicChannelInfo) {
+  const host = ch.hostToxid || "";
+  if (!host || !ch.channelId) {
+    log.value.push(`「${ch.name}」暂时没有可用的邀请信息。`);
+    return;
+  }
+  const text = `ToxID: ${host}
+频道ID: ${ch.channelId}
+好友请求附言: join_channel ${ch.channelId}`;
+  try {
+    await navigator.clipboard.writeText(text);
+    log.value.push(`已复制「${ch.name}」邀请信息`);
+  } catch {
+    log.value.push("复制失败，请手动复制");
   }
 }
 
@@ -242,6 +287,41 @@ async function refreshPeerCount() {
   }
 }
 
+async function loadPeers() {
+  if (conferenceNumber.value === null) return;
+  try {
+    peers.value = await api.conferencePeers(conferenceNumber.value);
+  } catch {
+    peers.value = [];
+  }
+}
+
+async function deleteChannel(n: number) {
+  const target = myChannels.value.find((c) => c.conferenceNumber === n);
+  if (!confirm(`删除频道「${target?.name || n}」？`)) return;
+  busy.value = true;
+  error.value = "";
+  try {
+    await api.conferenceDelete(n);
+    myChannels.value = myChannels.value.filter((c) => c.conferenceNumber !== n);
+    saveChannelNames();
+    if (conferenceNumber.value === n) {
+      conferenceNumber.value = null;
+      channelId.value = "";
+      peerCount.value = 0;
+      peers.value = [];
+      if (myChannels.value.length > 0) {
+        await switchChannel(myChannels.value[0].conferenceNumber);
+      }
+    }
+    log.value.push(`已删除频道 #${n}`);
+  } catch (e) {
+    error.value = String(e);
+  } finally {
+    busy.value = false;
+  }
+}
+
 async function createSubChannel() {
   if (!subName.value.trim() || busy.value) return;
   busy.value = true;
@@ -265,6 +345,7 @@ async function switchChannel(n: number) {
   conferenceNumber.value = n;
   await refreshChannelId();
   await refreshPeerCount();
+  await loadPeers();
 }
 
 async function create() {
@@ -280,6 +361,7 @@ async function create() {
     conferenceNumber.value = n;
     await refreshChannelId();
     await refreshPeerCount();
+    await loadPeers();
     log.value.push(`已创建频道「${name}」#${n}`);
   } catch (e) {
     error.value = String(e);
@@ -367,6 +449,7 @@ onMounted(async () => {
     conferenceNumber.value = e.conferenceNumber;
     await refreshChannelId();
     await refreshPeerCount();
+    await loadPeers();
     log.value.push(`已连接频道 #${e.conferenceNumber}`);
   });
   onEvent("channel:joined", async (e: { conferenceNumber: number; friendNumber: number }) => {
@@ -374,10 +457,12 @@ onMounted(async () => {
     conferenceNumber.value = e.conferenceNumber;
     await refreshChannelId();
     await refreshPeerCount();
+    await loadPeers();
     log.value.push(`已接受好友 #${e.friendNumber} 的邀请，加入频道 #${e.conferenceNumber}`);
   });
   onEvent("channel:peer_list_changed", async () => {
     await refreshPeerCount();
+    await loadPeers();
   });
 });
 
@@ -415,6 +500,7 @@ onBeforeUnmount(() => {
           <div class="pub-desc">#{{ sub.conferenceNumber }}</div>
         </div>
         <button :disabled="conferenceNumber === sub.conferenceNumber" @click="switchChannel(sub.conferenceNumber)">切换</button>
+        <button class="danger" :disabled="busy" @click="deleteChannel(sub.conferenceNumber)">删除</button>
       </div>
     </div>
 
@@ -462,6 +548,18 @@ onBeforeUnmount(() => {
       <button class="primary" :disabled="busy || !channelName.trim()" @click="publishChannel">发布到公共频道列表</button>
     </div>
 
+    <div class="card" v-if="conferenceNumber !== null">
+      <div class="log-title">频道成员</div>
+      <p class="tip">当前频道里的用户列表，来自 Tox 会议成员信息。</p>
+      <div v-if="peers.length === 0" class="empty">暂无成员信息</div>
+      <div v-for="p in peers" :key="p.peerNumber" class="pub-channel">
+        <div class="pub-info">
+          <div class="pub-name">{{ p.name || "未知成员" }}</div>
+          <div class="pub-desc mono">{{ p.publicKey.slice(0, 12) }}…</div>
+        </div>
+      </div>
+    </div>
+
     <div class="card">
       <div class="log-title">公共频道</div>
       <p class="tip">发现并加入公共频道。加入后会向频道 host 发送好友请求/加入申请，host 接受后邀请你进入。</p>
@@ -471,7 +569,10 @@ onBeforeUnmount(() => {
           <div class="pub-name">{{ ch.name }}</div>
           <div class="pub-desc">{{ ch.desc }}</div>
         </div>
-        <button :disabled="busy" @click="joinPublic(ch)">加入</button>
+        <button :disabled="busy || joiningChannelId === ch.channelId || isChannelActive(ch) || isRequested(ch)" @click="joinPublic(ch)">
+          {{ isChannelActive(ch) ? "已进入" : (isRequested(ch) ? "已申请" : (joiningChannelId === ch.channelId ? "加入中…" : "加入")) }}
+        </button>
+        <button @click="copyPublicInvite(ch)">复制邀请</button>
         <button v-if="ch.hosts && ch.hosts.includes(ownToxid)" class="danger" :disabled="busy" @click="deletePublic(ch)">删除</button>
         <div v-if="ch.hosts && ch.hosts.includes(ownToxid)" class="host-manage">
           <input v-model="hostInput" placeholder="添加 co-host ToxID" />
@@ -485,7 +586,7 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="card log-card">
-      <div class="log-title">消息 / 日志</div>
+      <div class="log-title">频道消息 / 帖子 / 日志</div>
       <div v-if="log.length === 0 && messages.length === 0" class="empty">还没有频道活动</div>
       <div v-for="(m, i) in messages" :key="'m' + i" class="msg">
         <span class="peer">{{ m.peer }}</span>

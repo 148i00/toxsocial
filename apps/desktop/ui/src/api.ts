@@ -32,6 +32,8 @@ export const api = {
   setImgurClientId: (clientId: string) => invoke<void>("set_imgur_client_id", { clientId }),
   getMediaConfig: () => invoke<MediaConfig>("get_media_config"),
   conferenceNew: () => invoke<number>("conference_new"),
+  conferenceDelete: (conferenceNumber: number) =>
+    invoke<void>("conference_delete", { conferenceNumber }),
   conferenceInvite: (friendNumber: number, conferenceNumber: number) =>
     invoke<void>("conference_invite", { friendNumber, conferenceNumber }),
   conferenceInviteByToxid: (conferenceNumber: number, toxid: string) =>
