@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { api, onEvent } from "../api";
 import { t } from "../i18n";
 import type { ConferencePeerInfo, FriendInfo, PublicChannelInfo } from "../types";
@@ -26,6 +26,14 @@ const currentChannelName = computed(() => {
   const n = conferenceNumber.value;
   if (n === null) return "";
   return myChannels.value.find((c) => c.conferenceNumber === n)?.name || `频道 #${n}`;
+});
+const currentMessages = computed(() =>
+  messages.value.filter((m) => m.conferenceNumber === conferenceNumber.value),
+);
+const chatMessagesRef = ref<HTMLElement | null>(null);
+watch(currentMessages, async () => {
+  await nextTick();
+  chatMessagesRef.value?.scrollTo({ top: chatMessagesRef.value.scrollHeight });
 });
 
 const publicChannels = ref<PublicChannelInfo[]>([]);
@@ -525,17 +533,34 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <div class="card" v-if="conferenceNumber !== null">
-      <div class="log-title">向当前频道发内容</div>
-      <p class="tip">当前频道：{{ currentChannelName || ('#' + conferenceNumber) }}</p>
-      <textarea
-        v-model="message"
-        rows="2"
-        maxlength="1372"
-        placeholder="输入频道内容…（Enter 发送，Shift+Enter 换行）"
-        @keydown.enter.exact.prevent="send"
-      ></textarea>
-      <div class="row">
+    <div class="card chat-window" v-if="conferenceNumber !== null">
+      <div class="chat-header">
+        <div class="chat-title">
+          <span class="chat-name">{{ currentChannelName || ('#' + conferenceNumber) }}</span>
+          <span class="chat-meta">#{{ conferenceNumber }} · {{ peerCount }} 人</span>
+        </div>
+        <div class="row">
+          <button class="mini" @click="copyInvite">复制邀请</button>
+          <button class="mini" @click="pasteInvite">粘贴加入</button>
+        </div>
+      </div>
+      <div ref="chatMessagesRef" class="chat-messages">
+        <div v-if="currentMessages.length === 0" class="empty chat-empty">还没有消息，来发第一条吧</div>
+        <div v-for="(m, i) in currentMessages" :key="'m' + i" class="chat-msg" :class="{ mine: m.peer === '我' }">
+          <div class="bubble">
+            <div class="bubble-peer">{{ m.peer === '我' ? '我' : m.peer }}</div>
+            <div class="bubble-text">{{ m.text }}</div>
+          </div>
+        </div>
+      </div>
+      <div class="chat-composer">
+        <textarea
+          v-model="message"
+          rows="2"
+          maxlength="1372"
+          placeholder="输入消息…（Enter 发送，Shift+Enter 换行）"
+          @keydown.enter.exact.prevent="send"
+        ></textarea>
         <button class="primary" :disabled="busy || !message.trim()" @click="send">{{ t("send") }}</button>
       </div>
     </div>
@@ -598,13 +623,8 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="card log-card">
-      <div class="log-title">频道消息 / 帖子 / 日志</div>
-      <div v-if="log.length === 0 && messages.length === 0" class="empty">还没有频道活动</div>
-      <div v-for="(m, i) in messages" :key="'m' + i" class="msg">
-        <span class="channel-tag">{{ m.channelName || ('#' + m.conferenceNumber) }}</span>
-        <span class="peer">{{ m.peer }}</span>
-        <span>{{ m.text }}</span>
-      </div>
+      <div class="log-title">系统日志</div>
+      <div v-if="log.length === 0" class="empty">暂无日志</div>
       <div v-for="(l, i) in log" :key="'l' + i" class="log-line">{{ l }}</div>
     </div>
   </div>
@@ -642,6 +662,91 @@ h2 {
 .error {
   color: var(--danger);
   font-size: 12px;
+}
+.chat-window {
+  min-height: 360px;
+  max-height: 520px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+}
+.chat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.chat-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.chat-name {
+  font-size: 16px;
+  font-weight: 700;
+}
+.chat-meta {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 240px;
+}
+.chat-empty {
+  text-align: center;
+  padding: 40px 0;
+}
+.chat-msg {
+  display: flex;
+}
+.chat-msg.mine {
+  justify-content: flex-end;
+}
+.bubble {
+  max-width: 70%;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 8px 12px;
+}
+.chat-msg.mine .bubble {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.bubble-peer {
+  font-size: 11px;
+  opacity: 0.8;
+  margin-bottom: 2px;
+}
+.bubble-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.chat-composer {
+  display: flex;
+  gap: 8px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border);
+  align-items: flex-end;
+}
+.chat-composer textarea {
+  flex: 1;
+  min-height: 42px;
+  resize: vertical;
 }
 .log-card {
   min-height: 200px;
