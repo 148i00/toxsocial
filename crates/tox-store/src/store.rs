@@ -53,6 +53,7 @@ pub struct FriendRow {
     pub nospam: String,
     pub name: String,
     pub avatar: String,
+    pub bio: String,
     pub status: i64, // 0 offline, 1 online, 2 blocked
     pub added_at: i64,
     pub last_seen: Option<i64>,
@@ -79,6 +80,7 @@ CREATE TABLE IF NOT EXISTS friends (
   nospam      TEXT,
   name        TEXT,
   avatar      TEXT DEFAULT '',
+  bio         TEXT DEFAULT '',
   status      INTEGER NOT NULL DEFAULT 0,
   added_at    INTEGER NOT NULL,
   last_seen   INTEGER
@@ -133,6 +135,7 @@ impl Store {
         let conn = Connection::open(path)?;
         conn.execute_batch(SCHEMA)?;
         migrate_friends_avatar(&conn);
+        migrate_friends_bio(&conn);
         migrate_posts_is_public(&conn);
         Ok(Store { conn })
     }
@@ -142,6 +145,7 @@ impl Store {
         let conn = Connection::open_in_memory()?;
         conn.execute_batch(SCHEMA)?;
         migrate_friends_avatar(&conn);
+        migrate_friends_bio(&conn);
         migrate_posts_is_public(&conn);
         Ok(Store { conn })
     }
@@ -169,12 +173,13 @@ impl Store {
 
     pub fn friend_upsert(&self, f: &FriendRow) -> Result<()> {
         self.conn.execute(
-            "INSERT INTO friends(toxid, nospam, name, avatar, status, added_at, last_seen)
-             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)
+            "INSERT INTO friends(toxid, nospam, name, avatar, bio, status, added_at, last_seen)
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
              ON CONFLICT(toxid) DO UPDATE SET
                nospam = excluded.nospam,
                name   = excluded.name,
                avatar = excluded.avatar,
+               bio    = excluded.bio,
                status = excluded.status,
                last_seen = excluded.last_seen",
             params![
@@ -182,6 +187,7 @@ impl Store {
                 f.nospam,
                 f.name,
                 f.avatar,
+                f.bio,
                 f.status,
                 f.added_at,
                 f.last_seen
@@ -192,7 +198,7 @@ impl Store {
 
     pub fn friend_list(&self) -> Result<Vec<FriendRow>> {
         let mut stmt = self.conn.prepare(
-            "SELECT toxid, nospam, name, avatar, status, added_at, last_seen FROM friends",
+            "SELECT toxid, nospam, name, avatar, bio, status, added_at, last_seen FROM friends",
         )?;
         let rows = stmt.query_map([], |r| {
             Ok(FriendRow {
@@ -200,9 +206,10 @@ impl Store {
                 nospam: r.get(1)?,
                 name: r.get(2)?,
                 avatar: r.get(3)?,
-                status: r.get(4)?,
-                added_at: r.get(5)?,
-                last_seen: r.get(6)?,
+                bio: r.get(4)?,
+                status: r.get(5)?,
+                added_at: r.get(6)?,
+                last_seen: r.get(7)?,
             })
         })?;
         rows.collect()
@@ -482,6 +489,10 @@ fn migrate_friends_avatar(conn: &Connection) {
     let _ = conn.execute("ALTER TABLE friends ADD COLUMN avatar TEXT DEFAULT ''", []);
 }
 
+fn migrate_friends_bio(conn: &Connection) {
+    let _ = conn.execute("ALTER TABLE friends ADD COLUMN bio TEXT DEFAULT ''", []);
+}
+
 fn migrate_posts_is_public(conn: &Connection) {
     let _ = conn.execute(
         "ALTER TABLE posts ADD COLUMN is_public INTEGER NOT NULL DEFAULT 0",
@@ -599,6 +610,25 @@ mod tests {
         assert_eq!(store.kv_get("nickname").unwrap().as_deref(), Some("Alice"));
         store.kv_set("nickname", "Bob").unwrap();
         assert_eq!(store.kv_get("nickname").unwrap().as_deref(), Some("Bob"));
+    }
+
+    #[test]
+    fn friend_upsert_roundtrip_with_bio() {
+        let store = Store::open_in_memory().unwrap();
+        let f = FriendRow {
+            toxid: "aabbccdd".into(),
+            nospam: String::new(),
+            name: "Alice".into(),
+            avatar: String::new(),
+            bio: "去中心化爱好者".into(),
+            status: 1,
+            added_at: 1,
+            last_seen: Some(1),
+        };
+        store.friend_upsert(&f).unwrap();
+        let list = store.friend_list().unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].bio, "去中心化爱好者");
     }
 
     #[test]

@@ -86,6 +86,7 @@ fn sync_friends(session: &ToxSession, store: &Store) {
             nospam: String::new(),
             name,
             avatar: String::new(),
+            bio: String::new(),
             status: online,
             added_at: now,
             last_seen: Some(now),

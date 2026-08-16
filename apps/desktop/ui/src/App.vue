@@ -23,7 +23,7 @@ const searchResults = ref<TimelineItem[]>([]);
 const publicTimeline = ref<TimelineItem[]>([]);
 const friendFilter = ref<string | null>(null);
 const friendPosts = ref<TimelineItem[]>([]);
-const profileUser = ref<{ pubkey: string; name: string; avatar: string } | null>(null);
+const profileUser = ref<{ pubkey: string; name: string; avatar: string; bio: string } | null>(null);
 const searching = ref(false);
 const notifications = ref<{ id: number; text: string; time: number }[]>([]);
 const unread = ref(0);
@@ -150,6 +150,7 @@ async function viewFriend(pubkey: string) {
     pubkey,
     name: f?.name || "未命名",
     avatar: f?.avatar || "",
+    bio: f?.bio || "",
   };
   friendFilter.value = pubkey;
   friendPosts.value = await api.fetchPostsByAuthor(pubkey, 50);
@@ -215,8 +216,14 @@ onMounted(async () => {
     refreshTimeline();
     notify("好友更新了昵称");
   });
+  onEvent("friend:bio", () => {
+    refreshFriends();
+  });
   onEvent("channel:message", () => notify("收到频道消息"));
   onEvent("channel:connected", () => notify("已连接频道"));
+  onEvent("file:received", (p: { filename: string; path: string }) =>
+    notify(`收到文件：${p.filename}（已保存到 ${p.path}）`),
+  );
 });
 
 const threadItems = ref<TimelineItem[]>([]);
@@ -366,6 +373,7 @@ onBeforeUnmount(() => {
           <div>
             <div class="profile-name">{{ profileUser.name }}</div>
             <div class="mono">{{ profileUser.pubkey }}</div>
+            <div v-if="profileUser.bio" class="profile-bio">{{ profileUser.bio }}</div>
           </div>
         </div>
         <div v-if="friendPosts.length === 0" class="empty">TA 还没有帖子</div>
@@ -541,6 +549,13 @@ nav button.active {
 .profile-name {
   font-size: 16px;
   font-weight: 700;
+}
+.profile-bio {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--text-dim);
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 .modal-overlay {
   position: fixed;

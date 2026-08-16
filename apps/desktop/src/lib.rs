@@ -85,6 +85,7 @@ pub fn run() {
             commands::fetch_posts_by_author,
             commands::get_friends,
             commands::send_file_to_friend,
+            commands::send_file_to_friend_by_toxid,
             commands::send_join_channel,
             commands::upload_media,
             commands::set_imgur_client_id,

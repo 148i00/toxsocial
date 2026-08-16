@@ -71,6 +71,7 @@ pub struct FriendInfo {
     pub pubkey: String,
     pub name: String,
     pub avatar: String,
+    pub bio: String,
     pub online: bool,
     pub last_seen: Option<i64>,
 }
@@ -675,10 +676,35 @@ pub fn send_file_to_friend(
     filename: String,
     data_base64: String,
 ) -> Result<u32, String> {
-    use base64::Engine as _;
-    let data = base64::engine::general_purpose::STANDARD
-        .decode(data_base64.trim())
-        .map_err(|e| format!("invalid base64: {e}"))?;
+    let data = decode_data_base64(&data_base64)?;
+    let mut session = state.session.lock().unwrap();
+    session
+        .send_file_data(friend_number, &filename, &data)
+        .map_err(|e| format!("send file failed: {e}"))
+}
+
+#[tauri::command]
+pub fn send_file_to_friend_by_toxid(
+    state: State<AppState>,
+    toxid: String,
+    filename: String,
+    data_base64: String,
+) -> Result<u32, String> {
+    let toxid = toxid.trim().to_string();
+    let friend_number = {
+        let session = state.session.lock().unwrap();
+        session
+            .friend_list()
+            .into_iter()
+            .find(|n| {
+                session
+                    .friend_public_key(*n)
+                    .map(|pk| toxid == pk || toxid.starts_with(&pk))
+                    .unwrap_or(false)
+            })
+            .ok_or_else(|| "好友不存在或尚未添加".to_string())?
+    };
+    let data = decode_data_base64(&data_base64)?;
     let mut session = state.session.lock().unwrap();
     session
         .send_file_data(friend_number, &filename, &data)
@@ -709,6 +735,7 @@ pub fn get_friends(state: State<AppState>) -> Result<Vec<FriendInfo>, String> {
                 pubkey,
                 name: f.name,
                 avatar: f.avatar,
+                bio: f.bio,
                 online,
                 last_seen: f.last_seen,
             }
@@ -1145,6 +1172,20 @@ pub async fn register_public_channel(
 // ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------
+
+/// Decode base64, accepting either raw base64 or a `data:` URL (as produced by
+/// `FileReader.readAsDataURL` in the frontend).
+fn decode_data_base64(data_base64: &str) -> Result<Vec<u8>, String> {
+    use base64::Engine as _;
+    let b64 = data_base64
+        .trim()
+        .strip_prefix("data:")
+        .and_then(|s| s.split_once(',').map(|(_, b)| b))
+        .unwrap_or(data_base64.trim());
+    base64::engine::general_purpose::STANDARD
+        .decode(b64)
+        .map_err(|e| format!("invalid base64: {e}"))
+}
 
 /// Send an envelope to every currently-online friend.
 fn fan_out(state: &State<AppState>, env: Envelope) -> Result<(), String> {

@@ -43,6 +43,7 @@ export interface FriendInfo {
   pubkey: string;
   name: string;
   avatar: string;
+  bio: string;
   online: boolean;
   lastSeen: number | null;
 }

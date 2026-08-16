@@ -153,7 +153,7 @@ fn handle_event(app: &AppHandle, state: &State<AppState>, ev: Event) {
                 }
                 Incoming::Profile(p) => {
                     println!("[toxsocial] profile from {pk}: name={}", p.name);
-                    update_friend_meta(state, &pk, Some(&p.name), None, Some(&p.avatar));
+                    update_friend_meta(state, &pk, Some(&p.name), None, Some(&p.avatar), Some(&p.bio));
                 }
                 Incoming::Chunk => {}
                 Incoming::DirReq(req) => {
@@ -191,7 +191,7 @@ fn handle_event(app: &AppHandle, state: &State<AppState>, ev: Event) {
                     .unwrap_or_default()
             };
             let online = connection != Connection::None;
-            update_friend_meta(state, &pk, None, Some(online), None);
+            update_friend_meta(state, &pk, None, Some(online), None, None);
             let name = state.name_for(&pk);
             let _ = app.emit(
                 "friend:connection",
@@ -212,13 +212,30 @@ fn handle_event(app: &AppHandle, state: &State<AppState>, ev: Event) {
                     .friend_public_key(friend_number)
                     .unwrap_or_default()
             };
-            update_friend_meta(state, &pk, Some(&name), None, None);
+            update_friend_meta(state, &pk, Some(&name), None, None, None);
             let _ = app.emit(
                 "friend:name",
                 json!({ "publicKey": pk, "name": name }),
             );
         }
-        Event::FriendStatusMessage { .. } => {}
+        Event::FriendStatusMessage {
+            friend_number,
+            status_message,
+        } => {
+            let pk = {
+                let session = state.session.lock().unwrap();
+                session
+                    .friend_public_key(friend_number)
+                    .unwrap_or_default()
+            };
+            if !pk.is_empty() {
+                update_friend_meta(state, &pk, None, None, None, Some(&status_message));
+                let _ = app.emit(
+                    "friend:bio",
+                    json!({ "publicKey": pk, "bio": status_message }),
+                );
+            }
+        }
         Event::FriendStatus { .. } => {}
         Event::ConferenceInvite {
             friend_number,
@@ -592,6 +609,7 @@ fn update_friend_meta(
     name: Option<&str>,
     online: Option<bool>,
     avatar: Option<&str>,
+    bio: Option<&str>,
 ) {
     let engine = state.engine.lock().unwrap();
     let store = engine.store();
@@ -609,6 +627,7 @@ fn update_friend_meta(
         nospam: String::new(),
         name: String::new(),
         avatar: String::new(),
+        bio: String::new(),
         status: 0,
         added_at: now,
         last_seen: None,
@@ -618,6 +637,9 @@ fn update_friend_meta(
     }
     if let Some(avatar) = avatar {
         row.avatar = avatar.to_string();
+    }
+    if let Some(bio) = bio {
+        row.bio = bio.to_string();
     }
     if let Some(online) = online {
         row.status = if online { 1 } else { 0 };
