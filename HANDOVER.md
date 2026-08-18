@@ -115,6 +115,8 @@ CLI 双实例联调：
 - Relay 不可用时在左下角显示警告。
 - 英文语言补充：文件确认、开机自启、Relay 警告、通知等文案已接入 i18n。
 - Relay 已重新部署到 Cloudflare Pages，`members` 字段已生效。
+- 支持自定义 Relay 服务器：设置页可填写任意 Relay 地址，目录/公开帖子/公共频道/成员上报都会切换到该地址。
+- 服务器源码已单独发布：https://github.com/148i00/toxsocial-relay
 
 ### 4.6 发布历史
 - v0.2.13：频道创建命名、String slice 修复

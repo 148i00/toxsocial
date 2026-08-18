@@ -19,6 +19,9 @@ const networkStatus = ref<NetworkStatus | null>(null);
 const appVersion = ref("");
 const mediaConfigured = ref(false);
 const mediaSaved = ref("");
+const relayUrl = ref("");
+const relaySaved = ref("");
+const relayBusy = ref(false);
 const autoStart = ref(false);
 const autoStartBusy = ref(false);
 const deviceToxid = ref("");
@@ -40,6 +43,11 @@ onMounted(async () => {
   try {
     const cfg = await api.getMediaConfig();
     mediaConfigured.value = cfg.hasClientId;
+  } catch {
+    /* ignore */
+  }
+  try {
+    relayUrl.value = await api.getRelayUrl();
   } catch {
     /* ignore */
   }
@@ -79,6 +87,20 @@ async function saveMedia() {
     mediaSaved.value = "已保存 Imgur Client ID";
   } catch (e) {
     alert(String(e));
+  }
+}
+
+async function saveRelay() {
+  if (relayBusy.value || !relayUrl.value.trim()) return;
+  relayBusy.value = true;
+  relaySaved.value = "";
+  try {
+    await api.setRelayUrl(relayUrl.value.trim());
+    relaySaved.value = "Relay 地址已保存";
+  } catch (e) {
+    alert(String(e));
+  } finally {
+    relayBusy.value = false;
   }
 }
 
@@ -197,6 +219,18 @@ async function save() {
       <div class="conn-detail">Relay：{{ networkStatus ? (networkStatus.relayOk ? "可用" : "不可用") : "检测中…" }}</div>
       <div class="conn-detail">好友：{{ networkStatus?.friends ?? "…" }} / 在线：{{ networkStatus?.onlineFriends ?? "…" }}</div>
       <div class="conn-detail">版本：v{{ appVersion || "…" }}</div>
+    </div>
+
+    <div class="card">
+      <label>Relay 服务器</label>
+      <div class="row">
+        <input v-model="relayUrl" class="mono" placeholder="https://your-relay.example.com" />
+        <button class="primary" :disabled="relayBusy || !relayUrl.trim()" @click="saveRelay">
+          {{ relayBusy ? t("processing") : "保存" }}
+        </button>
+      </div>
+      <p v-if="relaySaved" class="ok">{{ relaySaved }}</p>
+      <p class="tip">留空则使用默认 Relay。修改后公共频道/目录/公开帖子会切换到该服务器。</p>
     </div>
 
     <div class="card">

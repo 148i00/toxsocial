@@ -94,6 +94,8 @@ pub fn run() {
             commands::upload_media,
             commands::set_imgur_client_id,
             commands::get_media_config,
+            commands::get_relay_url,
+            commands::set_relay_url,
             commands::get_auto_start,
             commands::set_auto_start,
             commands::conference_new,
