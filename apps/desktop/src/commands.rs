@@ -834,6 +834,13 @@ pub fn conference_new(state: State<AppState>) -> Result<u32, String> {
             .conference_new()
             .map_err(|e| format!("create conference failed: {e}"))?
     };
+    let channel_id = {
+        let session = state.session.lock().unwrap();
+        session
+            .conference_get_id(n)
+            .map_err(|e| format!("get conference id failed: {e}"))?
+    };
+    mark_owned_channel(&state, &channel_id);
     state.persist();
     Ok(n)
 }
@@ -1232,14 +1239,30 @@ pub async fn register_public_channel(
     name: String,
     desc: String,
 ) -> Result<(), String> {
-    let (channel_id, host_toxid) = {
+    let (channel_id, host_toxid, pubkey) = {
         let session = state.session.lock().unwrap();
         let channel_id = session
             .conference_get_id(conference_number)
             .map_err(|e| e.to_string())?;
         let host_toxid = session.self_address();
-        (channel_id, host_toxid)
+        let pubkey = session.self_public_key();
+        (channel_id, host_toxid, pubkey)
     };
+    let existing = crate::relay::list_channels(crate::relay::DEFAULT_RELAY).await?;
+    let already_public = existing.iter().find(|c| c.channel_id == channel_id);
+    let is_host = already_public
+        .map(|c| {
+            c.hosts.iter().any(|h| {
+                h == &host_toxid
+                    || h == &pubkey
+                    || host_toxid.starts_with(h)
+                    || h.starts_with(&pubkey)
+            })
+        })
+        .unwrap_or(false);
+    if !is_owned_channel(&state, &channel_id) && !is_host {
+        return Err("只有频道创建者或 host 才能发布为公共频道".to_string());
+    }
     crate::relay::register_channel(
         crate::relay::DEFAULT_RELAY,
         name.trim(),
@@ -1253,6 +1276,36 @@ pub async fn register_public_channel(
 // ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------
+
+/// Whether the current user created this channel locally.
+fn is_owned_channel(state: &State<AppState>, channel_id: &str) -> bool {
+    let engine = state.engine.lock().unwrap();
+    let store = engine.store();
+    let raw = store
+        .kv_get("owned_channel_ids")
+        .unwrap_or_default()
+        .unwrap_or_default();
+    serde_json::from_str::<Vec<String>>(&raw)
+        .unwrap_or_default()
+        .iter()
+        .any(|id| id == channel_id)
+}
+
+/// Record a channel as created by the current user, so only the creator can
+/// publish it as a public channel unless they are also a host.
+fn mark_owned_channel(state: &State<AppState>, channel_id: &str) {
+    let engine = state.engine.lock().unwrap();
+    let store = engine.store();
+    let raw = store
+        .kv_get("owned_channel_ids")
+        .unwrap_or_default()
+        .unwrap_or_default();
+    let mut ids: Vec<String> = serde_json::from_str(&raw).unwrap_or_default();
+    if !ids.iter().any(|id| id == channel_id) {
+        ids.push(channel_id.to_string());
+        let _ = store.kv_set("owned_channel_ids", &serde_json::to_string(&ids).unwrap_or_default());
+    }
+}
 
 /// Decode base64, accepting either raw base64 or a `data:` URL (as produced by
 /// `FileReader.readAsDataURL` in the frontend).

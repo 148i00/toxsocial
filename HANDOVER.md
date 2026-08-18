@@ -108,6 +108,8 @@ CLI 双实例联调：
 - 修复“已经是好友的人无法通过 `join_channel` 加入公共频道”：好友发来的普通 `join_channel <id>` 消息现在也会触发自动邀请。
 - 好友上线时除了 `sync_req`，还会主动把自己的帖子推送过去，避免好友看不到首页/个人主页帖子。
 - 设置页新增“开机自启”开关（tauri-plugin-autostart）。
+- 只有频道创建者或 host 才能发布为公共频道，被拉入的普通成员不能再发布。
+- Relay 已重新部署到 Cloudflare Pages，`members` 字段已生效。
 
 ### 4.6 发布历史
 - v0.2.13：频道创建命名、String slice 修复
