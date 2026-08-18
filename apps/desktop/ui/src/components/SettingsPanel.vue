@@ -19,6 +19,8 @@ const networkStatus = ref<NetworkStatus | null>(null);
 const appVersion = ref("");
 const mediaConfigured = ref(false);
 const mediaSaved = ref("");
+const autoStart = ref(false);
+const autoStartBusy = ref(false);
 const deviceToxid = ref("");
 const deviceMsg = ref("你好，这是我的另一台设备");
 const syncResult = ref("");
@@ -38,6 +40,11 @@ onMounted(async () => {
   try {
     const cfg = await api.getMediaConfig();
     mediaConfigured.value = cfg.hasClientId;
+  } catch {
+    /* ignore */
+  }
+  try {
+    autoStart.value = await api.getAutoStart();
   } catch {
     /* ignore */
   }
@@ -72,6 +79,21 @@ async function saveMedia() {
     mediaSaved.value = "已保存 Imgur Client ID";
   } catch (e) {
     alert(String(e));
+  }
+}
+
+async function toggleAutoStart() {
+  if (autoStartBusy.value) return;
+  autoStartBusy.value = true;
+  const next = !autoStart.value;
+  try {
+    await api.setAutoStart(next);
+    autoStart.value = next;
+    saved.value = next ? "已开启开机自启" : "已关闭开机自启";
+  } catch (e) {
+    alert(String(e));
+  } finally {
+    autoStartBusy.value = false;
   }
 }
 
@@ -175,6 +197,16 @@ async function save() {
       <div class="conn-detail">Relay：{{ networkStatus ? (networkStatus.relayOk ? "可用" : "不可用") : "检测中…" }}</div>
       <div class="conn-detail">好友：{{ networkStatus?.friends ?? "…" }} / 在线：{{ networkStatus?.onlineFriends ?? "…" }}</div>
       <div class="conn-detail">版本：v{{ appVersion || "…" }}</div>
+    </div>
+
+    <div class="card">
+      <label>开机自启</label>
+      <div class="row">
+        <span class="state">{{ autoStart ? "已开启" : "已关闭" }}</span>
+        <button class="primary" :disabled="autoStartBusy" @click="toggleAutoStart">
+          {{ autoStartBusy ? "处理中…" : (autoStart ? "关闭开机自启" : "开启开机自启") }}
+        </button>
+      </div>
     </div>
 
     <div class="card">

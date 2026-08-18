@@ -172,6 +172,40 @@ fn handle_event(app: &AppHandle, state: &State<AppState>, ev: Event) {
                     handle_unfriend(state, friend_number, &pk);
                 }
                 Incoming::Rejected(_) => {
+                    // Plain chat message — support "join_channel <id>" from friends.
+                    if let Some(channel_id) = text.strip_prefix("join_channel ") {
+                        let channel_id = channel_id.trim();
+                        let invite_result = {
+                            let session = state.session.lock().unwrap();
+                            match session.conference_by_id(channel_id) {
+                                Ok(conf) => session
+                                    .conference_invite(friend_number, conf)
+                                    .map(|_| conf)
+                                    .map_err(|e| e.to_string()),
+                                Err(e) => Err(e.to_string()),
+                            }
+                        };
+                        match invite_result {
+                            Ok(conf) => {
+                                state.persist();
+                                println!(
+                                    "[toxsocial] auto-invited friend #{friend_number} to channel {channel_id}"
+                                );
+                                let _ = app.emit(
+                                    "channel:joined",
+                                    json!({ "conferenceNumber": conf, "friendNumber": friend_number }),
+                                );
+                            }
+                            Err(e) => {
+                                eprintln!("[toxsocial] join_channel request failed: {e}");
+                                let _ = app.emit(
+                                    "chat:message",
+                                    json!({ "author": pk, "authorName": name, "text": text }),
+                                );
+                            }
+                        }
+                        return;
+                    }
                     // Plain chat message — not part of the social protocol yet.
                     let _ = app.emit(
                         "chat:message",
@@ -200,6 +234,9 @@ fn handle_event(app: &AppHandle, state: &State<AppState>, ev: Event) {
             if online {
                 println!("[toxsocial] friend online: {name} ({})", short(pk.as_str()));
                 send_sync_req(state, friend_number, &pk);
+                // Also proactively push our posts to the friend, so they can see
+                // our timeline/profile even if their sync_req never arrives.
+                send_sync_posts_to_friend(state, friend_number, &pk);
             }
         }
         Event::FriendName {
@@ -305,8 +342,27 @@ fn handle_event(app: &AppHandle, state: &State<AppState>, ev: Event) {
             filename,
             file_size,
         } => {
+            let friend_name = {
+                let pk = state
+                    .session
+                    .lock()
+                    .unwrap()
+                    .friend_public_key(friend_number)
+                    .unwrap_or_default();
+                state.name_for(&pk)
+            };
             println!(
-                "[toxsocial] incoming file from #{friend_number}: {filename} ({file_size} bytes)"
+                "[toxsocial] incoming file from #{friend_number} ({friend_name}): {filename} ({file_size} bytes)"
+            );
+            let _ = app.emit(
+                "file:request",
+                json!({
+                    "friendNumber": friend_number,
+                    "friendName": friend_name,
+                    "fileNumber": file_number,
+                    "filename": filename,
+                    "fileSize": file_size,
+                }),
             );
         }
         Event::FileReceived {
@@ -352,6 +408,33 @@ fn send_sync_req(state: &State<AppState>, friend_number: u32, pk: &str) {
         Ok(()) => println!("[toxsocial] sync_req sent to {pk} since={since}"),
         Err(e) => eprintln!("[toxsocial] failed to send sync_req: {e}"),
     }
+}
+
+fn send_sync_posts_to_friend(state: &State<AppState>, friend_number: u32, friend_pk: &str) {
+    let me = state.session.lock().unwrap().self_public_key();
+    let items = {
+        let engine = state.engine.lock().unwrap();
+        engine.self_posts_since(&me, 0, 200)
+    };
+    if items.is_empty() {
+        return;
+    }
+    let count = items.len();
+    for chunk in chunk_envelopes(&me, items) {
+        let sync = Envelope::SyncPosts(SyncPosts {
+            v: tox_social::envelope::PROTOCOL_VERSION,
+            author: me.clone(),
+            ts: now_ms(),
+            items: chunk,
+        });
+        let wire = sync.encode();
+        let session = state.session.lock().unwrap();
+        if let Err(e) = session.send_message(friend_number, &wire) {
+            eprintln!("[toxsocial] failed to push sync_posts to {friend_pk}: {e}");
+            return;
+        }
+    }
+    println!("[toxsocial] pushed {count} posts to {friend_pk}");
 }
 
 fn handle_sync_req(

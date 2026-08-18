@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { api, onEvent } from "./api";
 import { t } from "./i18n";
 import type { DirectoryEntryInfo, FriendInfo, NetworkStatus, OwnInfo, TimelineItem } from "./types";
@@ -28,6 +28,9 @@ const searching = ref(false);
 const notifications = ref<{ id: number; text: string; time: number }[]>([]);
 const unread = ref(0);
 const showNotifications = ref(false);
+const fileRequests = ref<{ id: number; friendNumber: number; fileNumber: number; friendName: string; filename: string; fileSize: number }[]>([]);
+const currentFileRequest = computed(() => fileRequests.value[0] || null);
+let fileRequestId = 0;
 const showAddFriend = ref(false);
 const addToxid = ref("");
 const addMsg = ref("你好，关注一下！");
@@ -41,6 +44,36 @@ let statusTimer: ReturnType<typeof setInterval> | undefined;
 function notify(text: string) {
   notifications.value.unshift({ id: ++notificationId, text, time: Date.now() });
   unread.value++;
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+async function acceptFileRequest() {
+  const req = currentFileRequest.value;
+  if (!req) return;
+  try {
+    await api.acceptFile(req.friendNumber, req.fileNumber);
+    fileRequests.value = fileRequests.value.filter((r) => r.id !== req.id);
+    notify(`已接受文件：${req.filename}`);
+  } catch (e) {
+    alert(String(e));
+  }
+}
+
+async function rejectFileRequest() {
+  const req = currentFileRequest.value;
+  if (!req) return;
+  try {
+    await api.rejectFile(req.friendNumber, req.fileNumber);
+    fileRequests.value = fileRequests.value.filter((r) => r.id !== req.id);
+    notify(`已拒绝文件：${req.filename}`);
+  } catch (e) {
+    alert(String(e));
+  }
 }
 
 function markAllRead() {
@@ -221,6 +254,10 @@ onMounted(async () => {
   });
   onEvent("channel:message", () => notify("收到频道消息"));
   onEvent("channel:connected", () => notify("已连接频道"));
+  onEvent("file:request", (p: { friendNumber: number; fileNumber: number; friendName: string; filename: string; fileSize: number }) => {
+    fileRequests.value.push({ id: ++fileRequestId, ...p });
+    notify(`收到文件请求：${p.filename}`);
+  });
   onEvent("file:received", (p: { filename: string; path: string }) =>
     notify(`收到文件：${p.filename}（已保存到 ${p.path}）`),
   );
@@ -405,6 +442,25 @@ onBeforeUnmount(() => {
       </div>
       <SettingsPanel v-else :own="own" @saved="refreshAll" />
     </main>
+
+    <!-- File receive confirm modal -->
+    <div v-if="currentFileRequest" class="modal-overlay">
+      <div class="modal">
+        <h3>收到文件请求</h3>
+        <p>
+          <strong>{{ currentFileRequest.friendName || `好友 #${currentFileRequest.friendNumber}` }}</strong>
+          想给你发送文件：
+        </p>
+        <div class="file-req-info">
+          <div>{{ currentFileRequest.filename }}</div>
+          <div class="mono">{{ formatFileSize(currentFileRequest.fileSize) }}</div>
+        </div>
+        <div class="row">
+          <button @click="rejectFileRequest">拒绝</button>
+          <button class="primary" @click="acceptFileRequest">接受</button>
+        </div>
+      </div>
+    </div>
 
     <!-- Add friend modal -->
     <div v-if="showAddFriend" class="modal-overlay" @click.self="showAddFriend = false">
@@ -598,6 +654,16 @@ nav button.active {
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 8px;
+}
+.file-req-info {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  word-break: break-all;
 }
 .search-result span:first-child {
   flex: 1;

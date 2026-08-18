@@ -234,7 +234,7 @@ unsafe extern "C" fn on_conference_peer_list_changed(
 }
 
 unsafe extern "C" fn on_file_recv(
-    tox: *mut Tox,
+    _tox: *mut Tox,
     friend_number: u32,
     file_number: u32,
     _kind: u32,
@@ -249,9 +249,7 @@ unsafe extern "C" fn on_file_recv(
         let mut incoming = ctx.incoming.lock().unwrap();
         incoming.insert((friend_number, file_number), IncomingFile { filename: name.clone(), data: Vec::new() });
     }
-    // Accept the transfer.
-    let mut err: u32 = 0;
-    tox_file_control(tox, friend_number, file_number, 0, &mut err); // TOX_FILE_CONTROL_RESUME=0
+    // Do not auto-accept: the UI must confirm before we send RESUME.
     send(
         ctx,
         Event::FileRecv {
@@ -730,6 +728,33 @@ impl ToxSession {
             },
         );
         Ok(file_number)
+    }
+
+    /// Accept an incoming file transfer (send TOX_FILE_CONTROL_RESUME).
+    pub fn accept_file(&self, friend_number: u32, file_number: u32) -> Result<(), ToxError> {
+        self.file_control(friend_number, file_number, 0)
+    }
+
+    /// Reject an incoming file transfer (send TOX_FILE_CONTROL_CANCEL).
+    pub fn reject_file(&self, friend_number: u32, file_number: u32) -> Result<(), ToxError> {
+        self.file_control(friend_number, file_number, 2)?;
+        self.incoming
+            .lock()
+            .unwrap()
+            .remove(&(friend_number, file_number));
+        Ok(())
+    }
+
+    fn file_control(&self, friend_number: u32, file_number: u32, control: u32) -> Result<(), ToxError> {
+        let _guard = TOX_FFI_LOCK.lock().unwrap();
+        let mut err: u32 = 0;
+        let ok = unsafe {
+            tox_file_control(self.tox, friend_number, file_number, control, &mut err)
+        };
+        if !ok {
+            return Err(ToxError::File(err));
+        }
+        Ok(())
     }
 
     // --- conferences ------------------------------------------------------------

@@ -27,12 +27,18 @@ export const api = {
     invoke<number>("send_file_to_friend", { friendNumber, filename, dataBase64 }),
   sendFileToFriendByToxid: (toxid: string, filename: string, dataBase64: string) =>
     invoke<number>("send_file_to_friend_by_toxid", { toxid, filename, dataBase64 }),
+  acceptFile: (friendNumber: number, fileNumber: number) =>
+    invoke<void>("accept_file", { friendNumber, fileNumber }),
+  rejectFile: (friendNumber: number, fileNumber: number) =>
+    invoke<void>("reject_file", { friendNumber, fileNumber }),
   sendJoinChannel: (toxid: string, channelId: string) =>
     invoke<void>("send_join_channel", { toxid, channelId }),
   setAvatar: (dataBase64: string) => invoke<string>("set_avatar", { dataBase64 }),
   setAvatarUrl: (url: string) => invoke<void>("set_avatar_url", { url }),
   setImgurClientId: (clientId: string) => invoke<void>("set_imgur_client_id", { clientId }),
   getMediaConfig: () => invoke<MediaConfig>("get_media_config"),
+  getAutoStart: () => invoke<boolean>("get_auto_start"),
+  setAutoStart: (enabled: boolean) => invoke<void>("set_auto_start", { enabled }),
   conferenceNew: () => invoke<number>("conference_new"),
   conferenceDelete: (conferenceNumber: number) =>
     invoke<void>("conference_delete", { conferenceNumber }),

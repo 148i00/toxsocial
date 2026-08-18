@@ -4,6 +4,7 @@ use std::collections::HashMap;
 
 use serde::Serialize;
 use tauri::State;
+use tauri_plugin_autostart::ManagerExt;
 
 use tox_core::{Connection, ToxError};
 use tox_social::envelope::{Comment, Envelope, Post, Profile, Reaction, SyncReq};
@@ -718,6 +719,22 @@ pub fn send_file_to_friend_by_toxid(
 }
 
 #[tauri::command]
+pub fn accept_file(state: State<AppState>, friend_number: u32, file_number: u32) -> Result<(), String> {
+    let session = state.session.lock().unwrap();
+    session
+        .accept_file(friend_number, file_number)
+        .map_err(|e| format!("accept file failed: {e}"))
+}
+
+#[tauri::command]
+pub fn reject_file(state: State<AppState>, friend_number: u32, file_number: u32) -> Result<(), String> {
+    let session = state.session.lock().unwrap();
+    session
+        .reject_file(friend_number, file_number)
+        .map_err(|e| format!("reject file failed: {e}"))
+}
+
+#[tauri::command]
 pub fn get_friends(state: State<AppState>) -> Result<Vec<FriendInfo>, String> {
     let engine = state.engine.lock().unwrap();
     let store = engine.store();
@@ -790,6 +807,23 @@ pub fn get_media_config(state: State<AppState>) -> Result<MediaConfig, String> {
         provider: "imgur".to_string(),
         has_client_id: !client_id.is_empty(),
     })
+}
+
+#[tauri::command]
+pub fn get_auto_start(app: tauri::AppHandle) -> Result<bool, String> {
+    let autolaunch = app.autolaunch();
+    autolaunch.is_enabled().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn set_auto_start(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    let autolaunch = app.autolaunch();
+    if enabled {
+        autolaunch.enable().map_err(|e| e.to_string())?;
+    } else {
+        autolaunch.disable().map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 #[tauri::command]

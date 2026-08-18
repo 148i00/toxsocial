@@ -9,6 +9,7 @@ mod state;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use tauri::Manager;
+use tauri_plugin_autostart::MacosLauncher;
 
 use state::AppState;
 
@@ -16,6 +17,7 @@ static ALLOW_EXIT: AtomicBool = AtomicBool::new(false);
 
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, None))
         .setup(|app| {
             use tauri::menu::{Menu, MenuItem};
             use tauri::tray::TrayIconBuilder;
@@ -86,10 +88,14 @@ pub fn run() {
             commands::get_friends,
             commands::send_file_to_friend,
             commands::send_file_to_friend_by_toxid,
+            commands::accept_file,
+            commands::reject_file,
             commands::send_join_channel,
             commands::upload_media,
             commands::set_imgur_client_id,
             commands::get_media_config,
+            commands::get_auto_start,
+            commands::set_auto_start,
             commands::conference_new,
             commands::conference_delete,
             commands::conference_invite,
