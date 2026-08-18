@@ -97,6 +97,7 @@ pub fn run() {
             commands::get_auto_start,
             commands::set_auto_start,
             commands::conference_new,
+            commands::is_channel_owned,
             commands::conference_delete,
             commands::conference_invite,
             commands::conference_send,

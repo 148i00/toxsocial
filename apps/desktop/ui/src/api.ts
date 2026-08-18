@@ -40,6 +40,8 @@ export const api = {
   getAutoStart: () => invoke<boolean>("get_auto_start"),
   setAutoStart: (enabled: boolean) => invoke<void>("set_auto_start", { enabled }),
   conferenceNew: () => invoke<number>("conference_new"),
+  isChannelOwned: (conferenceNumber: number) =>
+    invoke<boolean>("is_channel_owned", { conferenceNumber }),
   conferenceDelete: (conferenceNumber: number) =>
     invoke<void>("conference_delete", { conferenceNumber }),
   conferenceInvite: (friendNumber: number, conferenceNumber: number) =>

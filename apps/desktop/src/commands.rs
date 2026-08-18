@@ -535,12 +535,24 @@ fn author_meta(
     engine: &tox_social::feed::FeedEngine,
 ) -> HashMap<String, (String, String)> {
     let me = state.session.lock().unwrap().self_public_key();
+    let dir_avatars: HashMap<String, String> = engine
+        .store()
+        .dir_all(1000)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|e| (e.pubkey, e.avatar))
+        .collect();
     let mut map = HashMap::new();
     let friends = engine.store().friend_list().unwrap_or_default();
     for f in friends {
         let pubkey: String = f.toxid.chars().take(64).collect();
-        map.insert(f.toxid.clone(), (f.name.clone(), f.avatar.clone()));
-        map.insert(pubkey, (f.name, f.avatar));
+        let avatar = if !f.avatar.is_empty() {
+            f.avatar.clone()
+        } else {
+            dir_avatars.get(&pubkey).cloned().unwrap_or_default()
+        };
+        map.insert(f.toxid.clone(), (f.name.clone(), avatar.clone()));
+        map.insert(pubkey, (f.name, avatar));
     }
     let avatar = engine
         .store()
@@ -739,6 +751,12 @@ pub fn get_friends(state: State<AppState>) -> Result<Vec<FriendInfo>, String> {
     let engine = state.engine.lock().unwrap();
     let store = engine.store();
     let friends = store.friend_list().map_err(|e| e.to_string())?;
+    let dir_avatars: std::collections::HashMap<String, String> = store
+        .dir_all(1000)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|e| (e.pubkey, e.avatar))
+        .collect();
     let session = state.session.lock().unwrap();
     let online_map: std::collections::HashMap<String, bool> = session
         .friend_list()
@@ -753,11 +771,16 @@ pub fn get_friends(state: State<AppState>) -> Result<Vec<FriendInfo>, String> {
         .map(|f| {
             let pubkey: String = f.toxid.chars().take(64).collect();
             let online = online_map.get(&pubkey).copied().unwrap_or(false);
+            let avatar = if !f.avatar.is_empty() {
+                f.avatar.clone()
+            } else {
+                dir_avatars.get(&pubkey).cloned().unwrap_or_default()
+            };
             FriendInfo {
                 toxid: f.toxid,
                 pubkey,
                 name: f.name,
-                avatar: f.avatar,
+                avatar,
                 bio: f.bio,
                 online,
                 last_seen: f.last_seen,
@@ -843,6 +866,17 @@ pub fn conference_new(state: State<AppState>) -> Result<u32, String> {
     mark_owned_channel(&state, &channel_id);
     state.persist();
     Ok(n)
+}
+
+#[tauri::command]
+pub fn is_channel_owned(state: State<AppState>, conference_number: u32) -> Result<bool, String> {
+    let channel_id = {
+        let session = state.session.lock().unwrap();
+        session
+            .conference_get_id(conference_number)
+            .map_err(|e| e.to_string())?
+    };
+    Ok(is_owned_channel(&state, &channel_id))
 }
 
 #[tauri::command]

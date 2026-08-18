@@ -9,6 +9,7 @@ const props = defineProps<{ friends: FriendInfo[] }>();
 
 const conferenceNumber = ref<number | null>(null);
 const channelId = ref("");
+const isCurrentChannelOwned = ref(false);
 const peerCount = ref(0);
 const ownToxid = ref("");
 const myChannels = ref<{ name: string; conferenceNumber: number }[]>([]);
@@ -47,6 +48,20 @@ const channelName = ref("");
 const channelDesc = ref("");
 const newChannelName = ref("");
 const hostInput = ref("");
+
+const currentChannelPublic = computed(() =>
+  publicChannels.value.find((ch) => ch.channelId === channelId.value) || null,
+);
+const canPublishChannel = computed(() => {
+  const pub = currentChannelPublic.value;
+  if (pub) {
+    return (pub.hosts || []).some((h) =>
+      h === ownToxid.value || h === ownToxid.value.slice(0, 64) ||
+      ownToxid.value.startsWith(h) || h.startsWith(ownToxid.value.slice(0, 64))
+    );
+  }
+  return isCurrentChannelOwned.value;
+});
 
 async function loadPublicChannels() {
   try {
@@ -383,6 +398,7 @@ async function switchChannel(n: number) {
   await refreshChannelId();
   await refreshPeerCount();
   await loadPeers();
+  isCurrentChannelOwned.value = await api.isChannelOwned(n).catch(() => false);
 }
 
 async function create() {
@@ -481,18 +497,14 @@ onMounted(async () => {
   }, 15_000);
   onEvent("channel:connected", async (e: { conferenceNumber: number }) => {
     ensureMyChannel(e.conferenceNumber);
-    conferenceNumber.value = e.conferenceNumber;
-    await refreshChannelId();
-    await refreshPeerCount();
-    await loadPeers();
+    await switchChannel(e.conferenceNumber);
+    requestedChannels.value = requestedChannels.value.filter((id) => id !== channelId.value);
     pushLog(`已连接频道 #${e.conferenceNumber}`);
   });
   onEvent("channel:joined", async (e: { conferenceNumber: number; friendNumber: number }) => {
     ensureMyChannel(e.conferenceNumber);
-    conferenceNumber.value = e.conferenceNumber;
-    await refreshChannelId();
-    await refreshPeerCount();
-    await loadPeers();
+    requestedChannels.value = requestedChannels.value.filter((id) => id !== channelId.value);
+    await switchChannel(e.conferenceNumber);
     pushLog(`已接受好友 #${e.friendNumber} 的邀请，加入频道 #${e.conferenceNumber}`);
   });
   onEvent("channel:peer_list_changed", async () => {
@@ -629,11 +641,13 @@ onBeforeUnmount(() => {
                 <button :disabled="busy" @click="invite">邀请编号好友</button>
               </div>
             </div>
-            <div class="card">
-              <div class="log-title">发布为公共频道</div>
+            <div v-if="canPublishChannel" class="card">
+              <div class="log-title">{{ currentChannelPublic ? "更新公共频道" : "发布为公共频道" }}</div>
               <input v-model="channelName" placeholder="频道名称" />
               <input v-model="channelDesc" placeholder="频道简介（可选）" />
-              <button class="primary" :disabled="busy || !channelName.trim()" @click="publishChannel">发布</button>
+              <button class="primary" :disabled="busy || !channelName.trim()" @click="publishChannel">
+                {{ currentChannelPublic ? "更新" : "发布" }}
+              </button>
             </div>
             <div class="card">
               <div class="log-title">频道成员</div>

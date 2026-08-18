@@ -329,14 +329,17 @@ onBeforeUnmount(() => {
       </nav>
       <div v-if="showNotifications" class="notif-panel">
         <div class="notif-head">
-          <span>通知</span>
-          <button class="mini" @click="markAllRead">全部已读</button>
+          <span>{{ t("notifications") }}</span>
+          <button class="mini" @click="markAllRead">{{ t("markAllRead") }}</button>
         </div>
-        <div v-if="notifications.length === 0" class="empty">暂无通知</div>
+        <div v-if="notifications.length === 0" class="empty">{{ t("noNotifications") }}</div>
         <div v-for="n in notifications" :key="n.id" class="notif-item">
           <span>{{ n.text }}</span>
           <span class="time">{{ new Date(n.time).toLocaleTimeString() }}</span>
         </div>
+      </div>
+      <div v-if="networkStatus && !networkStatus.relayOk" class="relay-warning">
+        ⚠️ {{ t("relayUnavailable") }}
       </div>
       <div class="sidebar-foot" v-if="own">
         <span class="dot" :class="{ online: networkStatus?.connected }"></span>
@@ -455,18 +458,18 @@ onBeforeUnmount(() => {
     <!-- File receive confirm modal -->
     <div v-if="currentFileRequest" class="modal-overlay">
       <div class="modal">
-        <h3>收到文件请求</h3>
+        <h3>{{ t("fileRequestTitle") }}</h3>
         <p>
-          <strong>{{ currentFileRequest.friendName || `好友 #${currentFileRequest.friendNumber}` }}</strong>
-          想给你发送文件：
+          <strong>{{ currentFileRequest.friendName || `#${currentFileRequest.friendNumber}` }}</strong>
+          {{ t("fileRequestFrom") }}
         </p>
         <div class="file-req-info">
           <div>{{ currentFileRequest.filename }}</div>
           <div class="mono">{{ formatFileSize(currentFileRequest.fileSize) }}</div>
         </div>
         <div class="row">
-          <button @click="rejectFileRequest">拒绝</button>
-          <button class="primary" @click="acceptFileRequest">接受</button>
+          <button @click="rejectFileRequest">{{ t("fileReject") }}</button>
+          <button class="primary" @click="acceptFileRequest">{{ t("fileAccept") }}</button>
         </div>
       </div>
     </div>
@@ -553,6 +556,15 @@ nav button.active {
   margin-left: 6px;
 }
 
+.relay-warning {
+  margin-top: auto;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--danger);
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
 .sidebar-foot {
   margin-top: auto;
   display: flex;

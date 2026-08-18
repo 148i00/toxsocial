@@ -200,11 +200,11 @@ async function save() {
     </div>
 
     <div class="card">
-      <label>开机自启</label>
+      <label>{{ t("autoStart") }}</label>
       <div class="row">
-        <span class="state">{{ autoStart ? "已开启" : "已关闭" }}</span>
+        <span class="state">{{ autoStart ? t("autoStartOn") : t("autoStartOff") }}</span>
         <button class="primary" :disabled="autoStartBusy" @click="toggleAutoStart">
-          {{ autoStartBusy ? "处理中…" : (autoStart ? "关闭开机自启" : "开启开机自启") }}
+          {{ autoStartBusy ? t("processing") : (autoStart ? t("autoStartDisable") : t("autoStartEnable")) }}
         </button>
       </div>
     </div>
