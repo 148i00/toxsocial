@@ -25,7 +25,7 @@ const relayBusy = ref(false);
 const autoStart = ref(false);
 const autoStartBusy = ref(false);
 const deviceToxid = ref("");
-const deviceMsg = ref("你好，这是我的另一台设备");
+const deviceMsg = ref(t("deviceMessageDefault"));
 const syncResult = ref("");
 const syncing = ref(false);
 const avatarFile = ref<HTMLInputElement | null>(null);
@@ -72,9 +72,9 @@ async function copyToxid() {
   if (!props.own?.toxid) return;
   try {
     await navigator.clipboard.writeText(props.own.toxid);
-    saved.value = "ToxID 已复制";
+    saved.value = t("toxidCopied");
   } catch {
-    saved.value = "复制失败，请手动复制";
+    saved.value = t("copyFailed");
   }
 }
 
@@ -84,7 +84,7 @@ async function saveMedia() {
     await api.setImgurClientId(imgurClientId.value.trim());
     imgurClientId.value = "";
     mediaConfigured.value = true;
-    mediaSaved.value = "已保存 Imgur Client ID";
+    mediaSaved.value = t("imgurSaved");
   } catch (e) {
     alert(String(e));
   }
@@ -100,12 +100,12 @@ async function saveRelay() {
     .filter(Boolean);
   if (urls.length === 0) {
     relayBusy.value = false;
-    alert("请至少填写一个 Relay 地址");
+    alert(t("relayRequired"));
     return;
   }
   try {
     await api.setRelayUrls(urls);
-    relaySaved.value = `已保存 ${urls.length} 个 Relay 地址`;
+    relaySaved.value = t("relaySavedCount", { count: urls.length });
   } catch (e) {
     alert(String(e));
   } finally {
@@ -120,7 +120,7 @@ async function toggleAutoStart() {
   try {
     await api.setAutoStart(next);
     autoStart.value = next;
-    saved.value = next ? "已开启开机自启" : "已关闭开机自启";
+    saved.value = next ? t("autoStartEnabled") : t("autoStartDisabled");
   } catch (e) {
     alert(String(e));
   } finally {
@@ -133,7 +133,7 @@ async function addDevice() {
   try {
     await api.addFriend(deviceToxid.value.trim(), deviceMsg.value);
     deviceToxid.value = "";
-    syncResult.value = "已发送设备好友请求；对方接受后会自动开始同步。";
+    syncResult.value = t("deviceRequestSent");
     emit("saved");
   } catch (e) {
     syncResult.value = String(e);
@@ -146,7 +146,7 @@ async function syncNow() {
   syncResult.value = "";
   try {
     const n = await api.requestSyncAll();
-    syncResult.value = `已向 ${n} 个在线设备/好友发送同步请求`;
+    syncResult.value = t("syncRequestSent", { count: n });
   } catch (e) {
     syncResult.value = String(e);
   } finally {
@@ -161,7 +161,7 @@ async function saveAvatarUrl() {
     await api.setAvatarUrl(url);
     avatarUrl.value = "";
     emit("saved");
-    alert("头像 URL 已保存并广播给好友");
+    alert(t("avatarUrlSaved"));
   } catch (e) {
     alert(String(e));
   }
@@ -173,7 +173,7 @@ async function onAvatarSelected(e: Event) {
   input.value = "";
   if (!file || avatarBusy.value) return;
   if (file.size > 5 * 1024 * 1024) {
-    alert("头像不能超过 5MB");
+    alert(t("fileTooLarge", { size: "5MB" }));
     return;
   }
   avatarBusy.value = true;
@@ -181,7 +181,7 @@ async function onAvatarSelected(e: Event) {
     const dataUrl = await readFileAsDataUrl(file);
     await api.setAvatar(dataUrl);
     emit("saved");
-    alert("头像已更新并广播给好友");
+    alert(t("avatarUpdated"));
   } catch (err) {
     alert(String(err));
   } finally {
@@ -193,7 +193,7 @@ function readFileAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result || ""));
-    reader.onerror = () => reject(reader.error || new Error("read failed"));
+    reader.onerror = () => reject(reader.error || new Error(t("readFailed")));
     reader.readAsDataURL(file);
   });
 }
@@ -204,7 +204,7 @@ async function save() {
   saved.value = "";
   try {
     await api.setProfile(name.value, bio.value);
-    saved.value = "已保存，并广播给所有在线好友";
+    saved.value = t("profileSaved");
     emit("saved");
   } catch (e) {
     alert(String(e));
@@ -219,27 +219,27 @@ async function save() {
     <h2>{{ t("settingsTitle") }}</h2>
 
     <div class="card">
-      <label>连接状态</label>
+      <label>{{ t("connectionStatus") }}</label>
       <div class="conn-row">
         <span class="dot" :class="{ online: networkStatus?.connected }"></span>
-        <span>{{ networkStatus ? (networkStatus.connected ? (networkStatus.connection === "udp" ? "UDP 已连接" : "TCP 已连接") : "未连接") : "检测中…" }}</span>
+        <span>{{ networkStatus ? (networkStatus.connected ? (networkStatus.connection === "udp" ? t("udpConnected") : t("tcpConnected")) : t("disconnected")) : t("checking") }}</span>
       </div>
-      <div class="conn-detail">Bootstrap 节点（配置）：{{ networkStatus?.dhtNodes ?? "…" }}</div>
-      <div class="conn-detail">Relay：{{ networkStatus ? (networkStatus.relayOk ? "可用" : "不可用") : "检测中…" }}</div>
-      <div class="conn-detail">好友：{{ networkStatus?.friends ?? "…" }} / 在线：{{ networkStatus?.onlineFriends ?? "…" }}</div>
-      <div class="conn-detail">版本：v{{ appVersion || "…" }}</div>
+      <div class="conn-detail">{{ t("bootstrapNodes", { nodes: networkStatus?.dhtNodes ?? "…" }) }}</div>
+      <div class="conn-detail">{{ t("relayStatus", { status: networkStatus ? (networkStatus.relayOk ? t("relayOk") : t("relayDown")) : t("checking") }) }}</div>
+      <div class="conn-detail">{{ t("friendStats", { friends: networkStatus?.friends ?? "…", online: networkStatus?.onlineFriends ?? "…" }) }}</div>
+      <div class="conn-detail">{{ t("version", { version: appVersion || "…" }) }}</div>
     </div>
 
     <div class="card">
-      <label>Relay 服务器</label>
+      <label>{{ t("relayServers") }}</label>
       <textarea v-model="relayUrl" class="mono" rows="3" placeholder="https://relay1.example.com&#10;https://relay2.example.com"></textarea>
       <div class="row">
         <button class="primary" :disabled="relayBusy || !relayUrl.trim()" @click="saveRelay">
-          {{ relayBusy ? t("processing") : "保存" }}
+          {{ relayBusy ? t("processing") : t("save") }}
         </button>
       </div>
       <p v-if="relaySaved" class="ok">{{ relaySaved }}</p>
-      <p class="tip">每行一个 Relay 地址，可填多个。客户端会同时读写所有 Relay，并自动合并目录/公共频道/公开帖子。</p>
+      <p class="tip">{{ t("relayTip") }}</p>
     </div>
 
     <div class="card">
@@ -253,85 +253,82 @@ async function save() {
     </div>
 
     <div class="card">
-      <label>语言 / Language</label>
+      <label>{{ t("language") }}</label>
       <div class="row">
-        <button :class="{ active: locale === 'zh' }" @click="setLocale('zh')">中文</button>
-        <button :class="{ active: locale === 'en' }" @click="setLocale('en')">English</button>
+        <button :class="{ active: locale === 'zh' }" @click="setLocale('zh')">{{ t("chinese") }}</button>
+        <button :class="{ active: locale === 'en' }" @click="setLocale('en')">{{ t("english") }}</button>
       </div>
     </div>
 
     <div class="card">
-      <label>头像</label>
+      <label>{{ t("avatar") }}</label>
       <div class="avatar-row">
         <Avatar :src="own?.avatar" :name="own?.name" :size="72" />
         <input ref="avatarFile" type="file" accept="image/*" hidden @change="onAvatarSelected" />
         <button :disabled="avatarBusy" @click="avatarFile?.click()">
-          {{ avatarBusy ? "上传中…" : "上传头像" }}
+          {{ avatarBusy ? t("uploading") : t("uploadAvatar") }}
         </button>
       </div>
       <div class="row">
-        <input v-model="avatarUrl" placeholder="或填写图片 URL（http/https）" />
-        <button :disabled="!avatarUrl.trim()" @click="saveAvatarUrl">使用 URL</button>
+        <input v-model="avatarUrl" :placeholder="t('avatarUrlPlaceholder')" />
+        <button :disabled="!avatarUrl.trim()" @click="saveAvatarUrl">{{ t("useUrl") }}</button>
       </div>
-      <p class="tip">头像可上传到 Imgur，也可直接使用其他图床的图片 URL。</p>
+      <p class="tip">{{ t("avatarTip") }}</p>
     </div>
 
     <div class="card">
-      <label>昵称</label>
-      <input v-model="name" maxlength="128" placeholder="你的昵称（广播给好友）" />
-      <label>简介</label>
-      <textarea v-model="bio" rows="2" maxlength="500" placeholder="一句话介绍自己"></textarea>
-      <button class="primary" :disabled="busy" @click="save">保存并广播</button>
+      <label>{{ t("nickname") }}</label>
+      <input v-model="name" maxlength="128" :placeholder="t('nicknamePlaceholder')" />
+      <label>{{ t("bio") }}</label>
+      <textarea v-model="bio" rows="2" maxlength="500" :placeholder="t('bioPlaceholder')"></textarea>
+      <button class="primary" :disabled="busy" @click="save">{{ t("saveAndBroadcast") }}</button>
       <p v-if="saved" class="ok">{{ saved }}</p>
     </div>
 
     <div class="card">
-      <label>多设备同步</label>
-      <p class="tip">
-        每台设备使用独立 Tox 身份，设备之间互加好友后，通过现有 TSP 同步协议自动补齐帖子/评论/反应。
-        在另一台设备上也打开 ToxSocial，把下方 ToxID 填到对方“添加好友”，再把对方 ToxID 填到这里。
-      </p>
+      <label>{{ t("deviceSync") }}</label>
+      <p class="tip">{{ t("deviceSyncTip") }}</p>
       <div class="mono toxid">{{ own?.toxid }}</div>
-      <button @click="copyToxid">复制 ToxID</button>
+      <button @click="copyToxid">{{ t("copyToxid") }}</button>
       <input
         v-model="deviceToxid"
         class="mono"
-        placeholder="对方设备的 ToxID（76 位十六进制）"
+        :placeholder="t('deviceToxidPlaceholder')"
       />
-      <input v-model="deviceMsg" placeholder="设备好友请求附言" />
+      <input v-model="deviceMsg" :placeholder="t('deviceMsgPlaceholder')" />
       <div class="row">
-        <button :disabled="deviceToxid.trim().length < 70" @click="addDevice">添加设备</button>
+        <button :disabled="deviceToxid.trim().length < 70" @click="addDevice">{{ t("addDevice") }}</button>
         <button class="primary" :disabled="syncing" @click="syncNow">
-          {{ syncing ? "同步中…" : "立即同步" }}
+          {{ syncing ? t("syncing") : t("syncNow") }}
         </button>
       </div>
       <p v-if="syncResult" class="ok">{{ syncResult }}</p>
     </div>
 
     <div class="card">
-      <label>媒体上传（Imgur）</label>
-      <p class="tip">发帖时可选择图片/视频，自动上传到 Imgur 并插入 Markdown 链接，减少 Tox 网络压力。</p>
+      <label>{{ t("mediaUpload") }}</label>
+      <p class="tip">{{ t("mediaTip") }}</p>
       <input
         v-model="imgurClientId"
         type="password"
-        placeholder="Imgur Client ID（匿名上传用）"
+        :placeholder="t('imgurClientIdPlaceholder')"
       />
       <div class="row">
-        <span class="state">{{ mediaConfigured ? "已配置" : "未配置" }}</span>
-        <button class="primary" :disabled="!imgurClientId.trim()" @click="saveMedia">保存</button>
+        <span class="state">{{ mediaConfigured ? t("configured") : t("notConfigured") }}</span>
+        <button class="primary" :disabled="!imgurClientId.trim()" @click="saveMedia">{{ t("save") }}</button>
       </div>
       <p v-if="mediaSaved" class="ok">{{ mediaSaved }}</p>
     </div>
 
     <div class="card">
-      <label>我的身份（ToxID）</label>
+      <label>{{ t("myIdentity") }}</label>
       <div class="mono toxid">{{ own?.toxid }}</div>
       <div class="qr-row">
-        <img v-if="qrUrl" :src="qrUrl" alt="ToxID QR" />
+        <img v-if="qrUrl" :src="qrUrl" :alt="t('toxidQr')" />
         <div class="qr-tip">
-          扫码或复制 ToxID 分享给朋友，对方添加后即互相关注。
+          {{ t("identityTip") }}
           <br /><br />
-          <span class="tag">公钥</span>
+          <span class="tag">{{ t("publicKey") }}</span>
           <div class="mono">{{ own?.pubkey }}</div>
         </div>
       </div>

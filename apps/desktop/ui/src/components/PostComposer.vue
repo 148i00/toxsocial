@@ -16,9 +16,9 @@ const mediaError = ref("");
 const fileInput = ref<HTMLInputElement | null>(null);
 
 function insertImageUrl() {
-  const url = prompt("输入图片 URL（http/https）：");
+  const url = prompt(t("imageUrlPrompt"));
   if (!url) return;
-  const md = `![图片](${url.trim()})`;
+  const md = `![${t("image")}](${url.trim()})`;
   text.value = text.value ? `${text.value}
 ${md}` : md;
 }
@@ -29,7 +29,7 @@ async function onFileSelected(e: Event) {
   input.value = "";
   if (!file || uploading.value) return;
   if (file.size > 10 * 1024 * 1024) {
-    mediaError.value = "文件不能超过 10MB";
+    mediaError.value = t("fileTooLarge", { size: "10MB" });
     return;
   }
   uploading.value = true;
@@ -38,7 +38,7 @@ async function onFileSelected(e: Event) {
     const dataUrl = await readFileAsDataUrl(file);
     const url = await api.uploadMedia(dataUrl, file.name);
     const isVideo = file.type.startsWith("video/");
-    const md = isVideo ? `![video:${file.name}](${url})` : `![${file.name}](${url})`;
+    const md = isVideo ? `![${t("video")}:${file.name}](${url})` : `![${file.name}](${url})`;
     text.value = text.value ? `${text.value}
 ${md}` : md;
   } catch (err) {
@@ -52,7 +52,7 @@ function readFileAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result || ""));
-    reader.onerror = () => reject(reader.error || new Error("read failed"));
+    reader.onerror = () => reject(reader.error || new Error(t("readFailed")));
     reader.readAsDataURL(file);
   });
 }
@@ -86,7 +86,7 @@ async function submit() {
     <div class="row">
       <label class="public-toggle">
         <input v-model="isPublic" type="checkbox" />
-        公开
+        {{ t("publicLabel") }}
       </label>
       <span class="hint">{{ t("composerHint") }}</span>
       <span v-if="mediaError" class="error">{{ mediaError }}</span>
@@ -95,7 +95,7 @@ async function submit() {
       <button :disabled="uploading" @click="fileInput?.click()">
         {{ uploading ? t("uploading") : t("imageVideo") }}
       </button>
-      <button @click="insertImageUrl">图片 URL</button>
+      <button @click="insertImageUrl">{{ t("imageUrl") }}</button>
       <button class="primary" :disabled="busy || uploading || !text.trim()" @click="submit">
         {{ busy ? t("sending") : t("publish") }}
       </button>

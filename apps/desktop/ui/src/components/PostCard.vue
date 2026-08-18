@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { api, formatTime } from "../api";
+import { t } from "../i18n";
 import { renderMarkdown } from "../markdown";
 import Avatar from "./Avatar.vue";
 import type { OwnInfo, TimelineItem } from "../types";
@@ -27,7 +28,7 @@ async function react(emoji: string) {
     <div class="head">
       <Avatar :src="item.authorAvatar" :name="item.authorName" :size="28" />
       <span class="author">{{ item.authorName }}</span>
-      <span v-if="item.isOwn" class="tag">我</span>
+      <span v-if="item.isOwn" class="tag">{{ t("me") }}</span>
       <span class="time">{{ formatTime(item.ts) }}</span>
     </div>
     <div class="body markdown" v-html="bodyHtml"></div>
@@ -42,7 +43,7 @@ async function react(emoji: string) {
           v-for="e in EMOJIS"
           :key="e"
           class="mini"
-          :title="`反应：${e}`"
+          :title="t('reactWith', { emoji: e })"
           @click="react(e)"
         >
           {{ e }}

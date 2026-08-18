@@ -34,7 +34,7 @@ const currentFileRequest = computed(() => fileRequests.value[0] || null);
 let fileRequestId = 0;
 const showAddFriend = ref(false);
 const addToxid = ref("");
-const addMsg = ref("你好，关注一下！");
+const addMsg = ref(t("defaultFriendRequest"));
 const addBusy = ref(false);
 const addError = ref("");
 const userSearchResults = ref<DirectoryEntryInfo[]>([]);
@@ -59,7 +59,7 @@ async function acceptFileRequest() {
   try {
     await api.acceptFile(req.friendNumber, req.fileNumber);
     fileRequests.value = fileRequests.value.filter((r) => r.id !== req.id);
-    notify(`已接受文件：${req.filename}`);
+    notify(t("fileAccepted", { filename: req.filename }));
   } catch (e) {
     alert(String(e));
   }
@@ -71,7 +71,7 @@ async function rejectFileRequest() {
   try {
     await api.rejectFile(req.friendNumber, req.fileNumber);
     fileRequests.value = fileRequests.value.filter((r) => r.id !== req.id);
-    notify(`已拒绝文件：${req.filename}`);
+    notify(t("fileRejected", { filename: req.filename }));
   } catch (e) {
     alert(String(e));
   }
@@ -91,7 +91,7 @@ async function submitAddFriend() {
     // If it looks like a ToxID (76 hex), add directly.
     if (q.length >= 70) {
       if (friends.value.some((f) => f.toxid === q || f.toxid.startsWith(q))) {
-        addError.value = "这个用户已经在你的关注列表里了";
+        addError.value = t("alreadyFollowing");
         return;
       }
       await api.addFriend(q, addMsg.value);
@@ -116,7 +116,7 @@ async function submitAddFriend() {
       return true;
     });
     await api.requestDirectorySearch(q, 2);
-    addError.value = userSearchResults.value.length === 0 ? "没有找到匹配用户，可尝试完整 ToxID" : "";
+    addError.value = userSearchResults.value.length === 0 ? t("noUserFound") : "";
   } catch (e) {
     addError.value = String(e);
   } finally {
@@ -128,7 +128,7 @@ async function submitAddFriend() {
 async function addFromSearch(d: DirectoryEntryInfo) {
   const toxid = d.toxid || d.pubkey;
   if (friends.value.some((f) => f.toxid === toxid || f.pubkey === d.pubkey || f.toxid.startsWith(d.pubkey))) {
-    addError.value = "这个用户已经在你的关注列表里了";
+    addError.value = t("alreadyFollowing");
     return;
   }
   try {
@@ -182,7 +182,7 @@ async function viewFriend(pubkey: string) {
   const f = friends.value.find((x) => x.pubkey === pubkey);
   profileUser.value = {
     pubkey,
-    name: f?.name || "未命名",
+    name: f?.name || t("unnamed"),
     avatar: f?.avatar || "",
     bio: f?.bio || "",
   };
@@ -222,33 +222,33 @@ onMounted(async () => {
   // Live updates from the backend.
   onEvent("feed:post", () => {
     refreshTimeline();
-    notify("收到新帖子");
+    notify(t("newPost"));
   });
   onEvent("feed:comment", () => {
     refreshTimeline();
     if (threadPostId.value) refreshThread();
-    notify("收到新评论");
+    notify(t("newComment"));
   });
   onEvent("feed:reaction", () => {
     refreshTimeline();
     if (threadPostId.value) refreshThread();
-    notify("收到新反应");
+    notify(t("newReaction"));
   });
   onEvent("friend:connection", () => {
     refreshFriends();
     refreshOwn();
     refreshNetworkStatus();
-    notify("好友连接状态变化");
+    notify(t("friendConnectionChanged"));
   });
   onEvent("friend:request", () => {
     refreshFriends();
     refreshOwn();
-    notify("收到好友请求");
+    notify(t("friendRequestReceived"));
   });
   onEvent("friend:name", () => {
     refreshFriends();
     refreshTimeline();
-    notify("好友更新了昵称");
+    notify(t("friendNameUpdated"));
   });
   onEvent("friend:bio", () => {
     refreshFriends();
@@ -256,19 +256,19 @@ onMounted(async () => {
   onEvent("channel:message", (e: { conferenceNumber: number; peerNumber: number; text: string }) => {
     pushChannelMessage({
       conferenceNumber: e.conferenceNumber,
-      channelName: `频道 #${e.conferenceNumber}`,
+      channelName: t("channelNameWithNumber", { number: e.conferenceNumber }),
       peer: `#${e.peerNumber}`,
       text: e.text,
     });
-    notify("收到频道消息");
+    notify(t("channelMessageReceived"));
   });
-  onEvent("channel:connected", () => notify("已连接频道"));
+  onEvent("channel:connected", () => notify(t("channelConnected")));
   onEvent("file:request", (p: { friendNumber: number; fileNumber: number; friendName: string; filename: string; fileSize: number }) => {
     fileRequests.value.push({ id: ++fileRequestId, ...p });
-    notify(`收到文件请求：${p.filename}`);
+    notify(t("fileRequestReceived", { filename: p.filename }));
   });
   onEvent("file:received", (p: { filename: string; path: string }) =>
-    notify(`收到文件：${p.filename}（已保存到 ${p.path}）`),
+    notify(t("fileReceived", { filename: p.filename, path: p.path })),
   );
 });
 
@@ -314,16 +314,16 @@ onBeforeUnmount(() => {
       <div class="logo">🦊 ToxSocial</div>
       <nav>
         <button :class="{ active: view === 'timeline' && !threadPostId }" @click="backToTimeline(); view = 'timeline'">
-          首页
+          {{ t("home") }}
         </button>
-        <button @click="showAddFriend = true">搜索用户</button>
+        <button @click="showAddFriend = true">{{ t("searchUsers") }}</button>
         <button :class="{ active: view === 'friends' }" @click="view = 'friends'">
-          关注 <span v-if="own" class="count">{{ own.friendCount }}</span>
+          {{ t("friends") }} <span v-if="own" class="count">{{ own.friendCount }}</span>
         </button>
         <button :class="{ active: view === 'channels' }" @click="view = 'channels'">{{ t("channels") }}</button>
-        <button :class="{ active: view === 'public' }" @click="openPublic">公共</button>
+        <button :class="{ active: view === 'public' }" @click="openPublic">{{ t("public") }}</button>
         <button @click="showNotifications = !showNotifications">
-          通知 <span v-if="unread" class="count">{{ unread }}</span>
+          {{ t("notifications") }} <span v-if="unread" class="count">{{ unread }}</span>
         </button>
         <button :class="{ active: view === 'settings' }" @click="view = 'settings'">{{ t("settings") }}</button>
       </nav>
@@ -345,8 +345,8 @@ onBeforeUnmount(() => {
         <span class="dot" :class="{ online: networkStatus?.connected }"></span>
         <Avatar :src="own.avatar" :name="own.name" :size="28" />
         <div class="foot-info">
-          <span class="foot-name">{{ own.name || "未设置昵称" }}</span>
-          <span class="tag">{{ networkStatus ? (networkStatus.connected ? (networkStatus.connection === "udp" ? "UDP 已连接" : "TCP 已连接") : "未连接") : t("connectedDht") }}</span>
+          <span class="foot-name">{{ own.name || t("noNickname") }}</span>
+          <span class="tag">{{ networkStatus ? (networkStatus.connected ? (networkStatus.connection === "udp" ? t("udpConnected") : t("tcpConnected")) : t("disconnected")) : t("connectedDht") }}</span>
         </div>
       </div>
     </aside>
@@ -356,13 +356,13 @@ onBeforeUnmount(() => {
       <!-- Timeline / thread -->
       <template v-if="view === 'timeline'">
         <div v-if="threadPostId" class="thread-header">
-          <button @click="backToTimeline()">← 返回时间线</button>
+          <button @click="backToTimeline()">{{ t("backToTimeline") }}</button>
         </div>
         <ThreadView v-if="threadPostId" :post-id="threadPostId" @refresh="refreshThreadAndTimeline" />
         <template v-else>
           <div v-if="friendFilter" class="thread-header">
-            <button @click="backFromFriend()">← 返回时间线</button>
-            <span>正在查看该好友的帖子</span>
+            <button @click="backFromFriend()">{{ t("backToTimeline") }}</button>
+            <span>{{ t("viewingFriendPosts") }}</span>
           </div>
           <template v-if="friendFilter">
             <PostCard
@@ -415,7 +415,7 @@ onBeforeUnmount(() => {
 
       <div v-else-if="view === 'profile'" class="profile-page">
         <div class="thread-header">
-          <button @click="backFromFriend(); view = 'friends'">← 返回关注</button>
+          <button @click="backFromFriend(); view = 'friends'">{{ t("backToFriends") }}</button>
         </div>
         <div v-if="profileUser" class="profile-card">
           <Avatar :src="profileUser.avatar" :name="profileUser.name" :size="64" />
@@ -425,7 +425,7 @@ onBeforeUnmount(() => {
             <div v-if="profileUser.bio" class="profile-bio">{{ profileUser.bio }}</div>
           </div>
         </div>
-        <div v-if="friendPosts.length === 0" class="empty">TA 还没有帖子</div>
+        <div v-if="friendPosts.length === 0" class="empty">{{ t("noPostsYet") }}</div>
         <PostCard
           v-for="p in friendPosts"
           :key="p.id"
@@ -439,10 +439,10 @@ onBeforeUnmount(() => {
       <ChannelsPanel v-else-if="view === 'channels'" :friends="friends" />
       <div v-else-if="view === 'public'" class="public-page">
         <div class="row">
-          <button class="primary" @click="requestPublic">请求公共内容</button>
-          <button @click="refreshPublicTimeline">刷新</button>
+          <button class="primary" @click="requestPublic">{{ t("requestPublicContent") }}</button>
+          <button @click="refreshPublicTimeline">{{ t("refresh") }}</button>
         </div>
-        <div v-if="publicTimeline.length === 0" class="empty">还没有公共内容，点击“请求公共内容”向好友网络获取。</div>
+        <div v-if="publicTimeline.length === 0" class="empty">{{ t("emptyPublicTimeline") }}</div>
         <PostCard
           v-for="p in publicTimeline"
           :key="p.id"
@@ -477,20 +477,20 @@ onBeforeUnmount(() => {
     <!-- Add friend modal -->
     <div v-if="showAddFriend" class="modal-overlay" @click.self="showAddFriend = false">
       <div class="modal">
-        <h3>搜索用户</h3>
-        <input v-model="addToxid" class="mono" placeholder="粘贴 ToxID 或输入昵称搜索" />
-        <input v-model="addMsg" placeholder="好友请求附言" />
+        <h3>{{ t("searchUsers") }}</h3>
+        <input v-model="addToxid" class="mono" :placeholder="t('searchUserPlaceholder')" />
+        <input v-model="addMsg" :placeholder="t('addFriendMsgPlaceholder')" />
         <p v-if="addError" class="error">{{ addError }}</p>
-        <div v-if="searchingUsers" class="empty">搜索中…</div>
+        <div v-if="searchingUsers" class="empty">{{ t("searchingUsers") }}</div>
         <div v-for="d in userSearchResults" :key="d.pubkey" class="search-result">
-          <span>{{ d.name || "未命名" }}</span>
+          <span>{{ d.name || t("unnamed") }}</span>
           <span class="mono">{{ d.pubkey.slice(0, 12) }}…</span>
-          <button @click="addFromSearch(d)">添加</button>
+          <button @click="addFromSearch(d)">{{ t("add") }}</button>
         </div>
         <div class="row">
-          <button @click="showAddFriend = false">取消</button>
+          <button @click="showAddFriend = false">{{ t("cancel") }}</button>
           <button class="primary" :disabled="addBusy || !addToxid.trim()" @click="submitAddFriend">
-            {{ addBusy ? "处理中…" : "搜索 / 添加" }}
+            {{ addBusy ? t("processing") : t("searchAdd") }}
           </button>
         </div>
       </div>
@@ -500,10 +500,10 @@ onBeforeUnmount(() => {
     <aside class="me-panel" v-if="own">
       <div class="me-card">
         <Avatar :src="own.avatar" :name="own.name" :size="64" />
-        <div class="me-name">{{ own.name || "未设置昵称" }}</div>
+        <div class="me-name">{{ own.name || t("noNickname") }}</div>
         <div class="mono">{{ own.pubkey.slice(0, 20) }}…</div>
         <div class="me-stats">
-          <span>好友 {{ own.friendCount }}</span>
+          <span>{{ t("friendCount", { count: own.friendCount }) }}</span>
         </div>
       </div>
     </aside>

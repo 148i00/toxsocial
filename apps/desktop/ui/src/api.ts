@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { locale } from "./i18n";
 import type { ConferencePeerInfo, DirectoryEntryInfo, FriendInfo, MediaConfig, NetworkStatus, OwnInfo, PublicChannelInfo, TimelineItem } from "./types";
 
 export const api = {
@@ -96,10 +97,17 @@ export function formatTime(ts: number): string {
   const d = new Date(ts);
   const now = Date.now();
   const diff = now - ts;
-  if (diff < 60_000) return "刚刚";
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`;
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`;
-  if (diff < 7 * 86_400_000) return `${Math.floor(diff / 86_400_000)} 天前`;
+  if (locale.value === "zh") {
+    if (diff < 60_000) return "刚刚";
+    if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`;
+    if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`;
+    if (diff < 7 * 86_400_000) return `${Math.floor(diff / 86_400_000)} 天前`;
+  } else {
+    if (diff < 60_000) return "just now";
+    if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} minutes ago`;
+    if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} hours ago`;
+    if (diff < 7 * 86_400_000) return `${Math.floor(diff / 86_400_000)} days ago`;
+  }
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
     d.getDate(),
   ).padStart(2, "0")}`;

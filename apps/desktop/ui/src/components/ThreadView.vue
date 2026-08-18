@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import { api, formatTime } from "../api";
+import { t } from "../i18n";
 import { renderMarkdown } from "../markdown";
 import Avatar from "./Avatar.vue";
 import type { TimelineItem } from "../types";
@@ -98,20 +99,20 @@ onMounted(load);
       <div class="head">
         <Avatar :src="post.authorAvatar" :name="post.authorName" :size="28" />
         <span class="author">{{ post.authorName }}</span>
-        <span v-if="post.isOwn" class="tag">我</span>
+        <span v-if="post.isOwn" class="tag">{{ t("me") }}</span>
         <span class="time">{{ formatTime(post.ts) }}</span>
       </div>
       <div class="body markdown" v-html="md(post.text)"></div>
       <div class="stats">
-        <span>💬 {{ comments.length }} 评论</span>
-        <span>⚡ {{ reactions.length }} 反应：{{ reactionSummary || "暂无" }}</span>
+        <span>💬 {{ t("commentCount", { count: comments.length }) }}</span>
+        <span>⚡ {{ t("reactionSummary", { count: reactions.length, summary: reactionSummary || t("none") }) }}</span>
       </div>
     </article>
 
     <div v-if="replyTarget" class="reply-hint">
-      正在回复
-      <strong>{{ comments.find((c) => c.id === replyTarget)?.authorName || "该评论" }}</strong>
-      <button class="mini" @click="replyToPost">取消</button>
+      {{ t("replyingTo") }}
+      <strong>{{ comments.find((c) => c.id === replyTarget)?.authorName || t("thatComment") }}</strong>
+      <button class="mini" @click="replyToPost">{{ t("cancel") }}</button>
     </div>
 
     <div class="composer">
@@ -120,15 +121,15 @@ onMounted(load);
         v-model="commentText"
         rows="2"
         maxlength="5000"
-        :placeholder="replyTarget ? '回复该评论…（Enter 发送，Shift+Enter 换行）' : '写下你的评论…（Enter 发送，Shift+Enter 换行）'"
+        :placeholder="replyTarget ? t('replyCommentPlaceholder') : t('commentPlaceholder')"
         @keydown.enter.exact.prevent="submitComment"
       ></textarea>
       <button class="primary" :disabled="busy || !commentText.trim()" @click="submitComment">
-        评论
+        {{ t("comment") }}
       </button>
     </div>
 
-    <div v-if="comments.length === 0" class="empty">还没有评论，来抢沙发 🛋️</div>
+    <div v-if="comments.length === 0" class="empty">{{ t("noCommentsYet") }}</div>
     <article
       v-for="c in comments"
       :key="c.id"
@@ -138,12 +139,12 @@ onMounted(load);
       <div class="head">
         <Avatar :src="c.authorAvatar" :name="c.authorName" :size="24" />
         <span class="author">{{ c.authorName }}</span>
-        <span v-if="parentCommentName(c)" class="reply-to">回复 @{{ parentCommentName(c) }}</span>
+        <span v-if="parentCommentName(c)" class="reply-to">{{ t("replyToName", { name: parentCommentName(c) }) }}</span>
         <span class="time">{{ formatTime(c.ts) }}</span>
       </div>
       <div class="body markdown" v-html="md(c.text)"></div>
       <div class="comment-actions">
-        <button class="mini" @click="replyTo(c)">回复</button>
+        <button class="mini" @click="replyTo(c)">{{ t("reply") }}</button>
       </div>
     </article>
   </div>
