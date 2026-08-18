@@ -1,62 +1,101 @@
 # ToxSocial
 
 > GitHub: https://github.com/148i00/toxsocial
+> Relay Server: https://github.com/148i00/toxsocial-relay
 
-基于 [c-toxcore](https://github.com/TokTok/c-toxcore)（Tox 协议）构建的**去中心化社交软件（类推特）**：
-无服务器、端到端加密，身份即公钥（ToxID），关注即 Tox 好友，帖子加密广播给所有好友，时间线本地聚合。
+**中文**：基于 [c-toxcore](https://github.com/TokTok/c-toxcore)（Tox 协议）构建的去中心化社交软件（类推特）。无服务器、端到端加密，身份即公钥（ToxID），关注即 Tox 好友，帖子加密广播给所有好友，时间线本地聚合。
 
-## 文档
+**English**: A decentralized social network (Twitter-like) built on the [Tox protocol](https://github.com/TokTok/c-toxcore) via c-toxcore. It is serverless and end-to-end encrypted. Your identity is your public key (ToxID), following means adding Tox friends, posts are encrypted and broadcast to all friends, and your timeline is aggregated locally.
 
-- [总体规划 docs/PLAN.md](./docs/PLAN.md)
-- [架构设计 docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)
-- [社交协议规范 docs/PROTOCOL.md](./docs/PROTOCOL.md)
+---
 
-## 技术栈
+## 功能 / Features
 
-Rust (workspace) + Tauri v2 + Vue3 + SQLite，底层 c-toxcore（GPLv3）经 bindgen FFI 接入。
+- 身份即 ToxID，本地保存私钥 / Identity = ToxID, private key stored locally
+- 好友请求、在线状态、关注管理 / Friend requests, online status, following management
+- 帖子、评论、反应，端到端加密广播 / Posts, comments, reactions with E2E encrypted broadcast
+- 离线回补（好友上线自动同步）/ Offline backfill (auto sync when friends come online)
+- 长文自动分片 / Long-post chunking
+- Markdown 渲染 / Markdown rendering
+- 图片/视频外链上传（Imgur）/ Image/video upload via Imgur
+- 频道群聊（创建/邀请/加入/发送）/ Channels (create/invite/join/send)
+- 公共频道目录与 Relay 成员上报 / Public channel directory and Relay member reporting
+- 评论回复嵌套 / Nested comment replies
+- 多设备同步基础版 / Basic multi-device sync
+- 本地全文搜索 / Local full-text search
+- 应用内通知中心 / In-app notification center
+- 中英文界面 / Chinese & English UI
+- 头像上传与展示 / Avatar upload & display
+- 后台运行/系统托盘 / Background running & system tray
+- 开机自启 / Launch at startup
+- 支持多个 Relay 服务器 / Multiple Relay server support
 
-## 状态
+## 技术栈 / Tech Stack
 
-**M0 ✅ / M1 ✅ / M2 ✅ / M3 ✅ / M4 ✅ / M5（多设备同步 + 搜索 + 通知 + 多语言 + 头像 + 后台运行 + 打包）✅**。
+Rust workspace + Tauri v2 + Vue 3 + SQLite, powered by c-toxcore (GPLv3) through bindgen FFI.
 
-已完成：构建管线（CMake + vcpkg + c-toxcore 0.2.23 静态库 + bindgen）、`ToxSession` 安全封装、
-`TSP/1` 社交协议（帖子/评论/点赞信封 + Feed 引擎 + SQLite 持久化）、`tox-cli` 双实例联调
-（DHT bootstrap → 好友请求/接受 → UDP 加密连接 → 发帖 fan-out → 时间线聚合）、
-Tauri v2 桌面端（Vue3 三栏 UI + Rust 命令/事件泵，已验证 App ↔ CLI 好友请求/发帖/评论）、
-M4 离线回补（好友上线自动 `sync_req` / `sync_posts`，CLI 双实例已验证）、
-帖子 Markdown 渲染（标题/粗体/斜体/代码/列表/引用/链接/图片）、
-长文自动分片（`post_chunk`，>1000 字符自动拆分/重组）、
-图片/视频外链上传（Imgur，设置页配置 Client ID 后发帖自动上传并插入 Markdown）、
-频道（conference 群聊：创建/邀请/加入/发送，CLI + Desktop 面板）、
-多设备同步基础版（设备互加好友 + 手动触发全量同步）、本地帖子全文搜索、应用内通知中心、中英文界面切换、头像上传与展示、关闭窗口后台运行/系统托盘、公共频道目录与 host 发布、任意成员邀请加入频道的抗封禁机制、好友目录递归查找（dir_req/dir_resp）、公开内容分发架构（outbox_req/outbox_resp + 公共时间线）、Relay 接入、Tauri 打包配置。
+## 构建 / Build
 
-```powershell
-# 构建（c-toxcore 静态库已就绪，无需重新编译）
-$env:SODIUM_LIB = "$env:USERPROFILE\vcpkg\installed\x64-windows\lib"
-$env:PATH += ";$env:USERPROFILE\vcpkg\installed\x64-windows\bin;build\c-toxcore\vcpkg_installed\x64-windows\bin"
-cargo build -p tox-cli
-# 两个终端分别启动实例，通过 <save>.cmd 命令文件发帖（post <text>）
-.\target\debug\tox-cli.exe run alice.tox --db alice.db
-```
+### 环境要求 / Requirements
 
-# 构建 Windows 安装包（会自动复制 libsodium.dll / pthreadVC3.dll 到 target\release）
-powershell -ExecutionPolicy Bypass -File scripts\bundle.ps1
-# 产物：
-#   target\release\bundle\msi\ToxSocial_0.1.0_x64_en-US.msi
-#   target\release\bundle\nsis\ToxSocial_0.1.0_x64-setup.exe
-```
+- Rust (stable, MSVC toolchain on Windows)
+- Node.js + npm
+- c-toxcore static library (see `docs/PLAN.md`)
+- libsodium and pthread (Windows)
 
-## 可选服务器（没有自己的服务器也能用）
+### 前端构建 / Frontend build
 
-- 当前核心功能完全 **P2P / 无服务器**
-- 已部署 Relay：`https://toxsocial-relay.vcst.top`
-- 客户端已接入：公开帖子自动发布到 Relay，找人同时搜索本地/好友/Relay，公共页可拉取 Relay 内容
-- 部署/自建方法见 `server/README.md`
-
-## 发布 Release（免浏览器登录）
 ```bash
-bash scripts/upload-release.sh v0.1.1 "ToxSocial v0.1.1" "更新说明" \
-  target/release/bundle/msi/ToxSocial_0.1.0_x64_en-US.msi \
-  target/release/bundle/nsis/ToxSocial_0.1.0_x64-setup.exe
+cd apps/desktop/ui
+npm install
+npm run build
+cd ../..
 ```
-脚本优先读取环境变量 `GITHUB_TOKEN`，其次读取 `~/.toxsocial_gh_token`，不会调用 Git 凭据弹窗。
+
+### 桌面端开发构建 / Desktop development build
+
+```bash
+cargo build -p toxsocial-desktop
+```
+
+### 打包安装包 / Package installers (Windows)
+
+```bash
+powershell -ExecutionPolicy Bypass -File scripts/bundle.ps1
+```
+
+Output:
+
+```text
+target/release/bundle/msi/ToxSocial_0.1.0_x64_en-US.msi
+target/release/bundle/nsis/ToxSocial_0.1.0_x64-setup.exe
+```
+
+### CLI 双实例联调 / CLI two-instance testing
+
+```bash
+cargo build -p tox-cli
+./target/debug/tox-cli.exe init --save a.tox --name A
+./target/debug/tox-cli.exe run a.tox --db a.db
+```
+
+## 可选 Relay 服务器 / Optional Relay
+
+- Core features are fully **P2P / serverless**.
+- Default public Relay: `https://toxsocial-relay.vcst.top`
+- The client supports multiple Relay URLs and merges directories, public channels, and public posts.
+- Self-hosted Relay source: https://github.com/148i00/toxsocial-relay
+
+## 文档 / Docs
+
+- [总体规划 / Plan](docs/PLAN.md)
+- [架构设计 / Architecture](docs/ARCHITECTURE.md)
+- [社交协议规范 / Protocol](docs/PROTOCOL.md)
+
+## 发布 / Releases
+
+GitHub Releases are published at:
+
+```text
+https://github.com/148i00/toxsocial/releases
+```
