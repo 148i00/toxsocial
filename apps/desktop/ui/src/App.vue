@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { api, onEvent } from "./api";
+import { pushChannelMessage } from "./channelStore";
 import { t } from "./i18n";
 import type { DirectoryEntryInfo, FriendInfo, NetworkStatus, OwnInfo, TimelineItem } from "./types";
 import PostComposer from "./components/PostComposer.vue";
@@ -252,7 +253,15 @@ onMounted(async () => {
   onEvent("friend:bio", () => {
     refreshFriends();
   });
-  onEvent("channel:message", () => notify("收到频道消息"));
+  onEvent("channel:message", (e: { conferenceNumber: number; peerNumber: number; text: string }) => {
+    pushChannelMessage({
+      conferenceNumber: e.conferenceNumber,
+      channelName: `频道 #${e.conferenceNumber}`,
+      peer: `#${e.peerNumber}`,
+      text: e.text,
+    });
+    notify("收到频道消息");
+  });
   onEvent("channel:connected", () => notify("已连接频道"));
   onEvent("file:request", (p: { friendNumber: number; fileNumber: number; friendName: string; filename: string; fileSize: number }) => {
     fileRequests.value.push({ id: ++fileRequestId, ...p });

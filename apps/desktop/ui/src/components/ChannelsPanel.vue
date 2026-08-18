@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { api, onEvent } from "../api";
+import { channelMessages, pushChannelMessage } from "../channelStore";
 import { t } from "../i18n";
 import type { ConferencePeerInfo, FriendInfo, PublicChannelInfo } from "../types";
 
@@ -15,17 +16,11 @@ const subName = ref("");
 const friendNumber = ref("0");
 const inviteToxid = ref("");
 const message = ref("");
-const messages = ref<{ conferenceNumber: number; channelName: string; peer: string; text: string }[]>([]);
 const log = ref<string[]>([]);
 const MAX_LOG = 200;
-const MAX_MESSAGES = 300;
 function pushLog(text: string) {
   log.value.push(text);
   if (log.value.length > MAX_LOG) log.value.splice(0, log.value.length - MAX_LOG);
-}
-function pushMessage(m: { conferenceNumber: number; channelName: string; peer: string; text: string }) {
-  messages.value.push(m);
-  if (messages.value.length > MAX_MESSAGES) messages.value.splice(0, messages.value.length - MAX_MESSAGES);
 }
 const busy = ref(false);
 const error = ref("");
@@ -38,7 +33,7 @@ const currentChannelName = computed(() => {
   return myChannels.value.find((c) => c.conferenceNumber === n)?.name || `频道 #${n}`;
 });
 const currentMessages = computed(() =>
-  messages.value.filter((m) => m.conferenceNumber === conferenceNumber.value),
+  channelMessages.filter((m) => m.conferenceNumber === conferenceNumber.value),
 );
 const chatMessagesRef = ref<HTMLElement | null>(null);
 const showManage = ref(false);
@@ -461,7 +456,7 @@ async function send() {
   try {
     await api.conferenceSend(conferenceNumber.value, message.value.trim());
     const name = myChannels.value.find((c) => c.conferenceNumber === conferenceNumber.value)?.name || `频道 #${conferenceNumber.value}`;
-    pushMessage({ conferenceNumber: conferenceNumber.value, channelName: name, peer: "我", text: message.value.trim() });
+    pushChannelMessage({ conferenceNumber: conferenceNumber.value, channelName: name, peer: "我", text: message.value.trim() });
     message.value = "";
   } catch (e) {
     error.value = String(e);
@@ -484,10 +479,6 @@ onMounted(async () => {
   publicTimer = setInterval(() => {
     loadPublicChannels();
   }, 15_000);
-  onEvent("channel:message", (e: { conferenceNumber: number; peerNumber: number; text: string }) => {
-    const name = myChannels.value.find((c) => c.conferenceNumber === e.conferenceNumber)?.name || `频道 #${e.conferenceNumber}`;
-    pushMessage({ conferenceNumber: e.conferenceNumber, channelName: name, peer: `#${e.peerNumber}`, text: e.text });
-  });
   onEvent("channel:connected", async (e: { conferenceNumber: number }) => {
     ensureMyChannel(e.conferenceNumber);
     conferenceNumber.value = e.conferenceNumber;
