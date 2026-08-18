@@ -47,7 +47,7 @@ onMounted(async () => {
     /* ignore */
   }
   try {
-    relayUrl.value = await api.getRelayUrl();
+    relayUrl.value = (await api.getRelayUrls()).join("\n");
   } catch {
     /* ignore */
   }
@@ -94,9 +94,18 @@ async function saveRelay() {
   if (relayBusy.value || !relayUrl.value.trim()) return;
   relayBusy.value = true;
   relaySaved.value = "";
+  const urls = relayUrl.value
+    .split("\n")
+    .map((u) => u.trim())
+    .filter(Boolean);
+  if (urls.length === 0) {
+    relayBusy.value = false;
+    alert("请至少填写一个 Relay 地址");
+    return;
+  }
   try {
-    await api.setRelayUrl(relayUrl.value.trim());
-    relaySaved.value = "Relay 地址已保存";
+    await api.setRelayUrls(urls);
+    relaySaved.value = `已保存 ${urls.length} 个 Relay 地址`;
   } catch (e) {
     alert(String(e));
   } finally {
@@ -223,14 +232,14 @@ async function save() {
 
     <div class="card">
       <label>Relay 服务器</label>
+      <textarea v-model="relayUrl" class="mono" rows="3" placeholder="https://relay1.example.com&#10;https://relay2.example.com"></textarea>
       <div class="row">
-        <input v-model="relayUrl" class="mono" placeholder="https://your-relay.example.com" />
         <button class="primary" :disabled="relayBusy || !relayUrl.trim()" @click="saveRelay">
           {{ relayBusy ? t("processing") : "保存" }}
         </button>
       </div>
       <p v-if="relaySaved" class="ok">{{ relaySaved }}</p>
-      <p class="tip">留空则使用默认 Relay。修改后公共频道/目录/公开帖子会切换到该服务器。</p>
+      <p class="tip">每行一个 Relay 地址，可填多个。客户端会同时读写所有 Relay，并自动合并目录/公共频道/公开帖子。</p>
     </div>
 
     <div class="card">

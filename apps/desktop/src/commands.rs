@@ -148,7 +148,7 @@ pub fn get_own_info(state: State<AppState>) -> OwnInfo {
 
 #[tauri::command]
 pub async fn get_network_status(state: State<'_, AppState>) -> Result<NetworkStatus, String> {
-    let relay_url = current_relay(&state);
+    let relays = relay_urls(&state);
     let (connection, friends, online) = {
         let session = state.session.lock().unwrap();
         let connection = session.self_connection();
@@ -159,9 +159,13 @@ pub async fn get_network_status(state: State<'_, AppState>) -> Result<NetworkSta
             .count();
         (connection, friends.len(), online)
     };
-    let relay_ok = crate::relay::check_relay(&relay_url)
-        .await
-        .unwrap_or(false);
+    let mut relay_ok = false;
+    for relay in &relays {
+        if crate::relay::check_relay(relay).await.unwrap_or(false) {
+            relay_ok = true;
+            break;
+        }
+    }
     Ok(NetworkStatus {
         connected: connection != Connection::None,
         connection: match connection {
@@ -222,18 +226,20 @@ pub async fn set_profile(
             }
         }
     }
-    // Also publish public profile to Relay for discoverability.
-    let relay_url = current_relay(&state);
+    // Also publish public profile to Relay(s) for discoverability.
+    let relays = relay_urls(&state);
     let pubkey = state.session.lock().unwrap().self_public_key();
     let toxid = state.session.lock().unwrap().self_address();
-    let _ = crate::relay::register_profile(
-        &relay_url,
-        name.trim(),
-        &pubkey,
-        &toxid,
-        &avatar,
-    )
-    .await;
+    for relay in &relays {
+        let _ = crate::relay::register_profile(
+            relay,
+            name.trim(),
+            &pubkey,
+            &toxid,
+            &avatar,
+        )
+        .await;
+    }
     Ok(())
 }
 
@@ -285,17 +291,19 @@ pub async fn set_avatar(state: State<'_, AppState>, data_base64: String) -> Resu
             }
         }
     }
-    let relay_url = current_relay(&state);
+    let relays = relay_urls(&state);
     let pubkey = state.session.lock().unwrap().self_public_key();
     let toxid = state.session.lock().unwrap().self_address();
-    let _ = crate::relay::register_profile(
-        &relay_url,
-        &name,
-        &pubkey,
-        &toxid,
-        &url,
-    )
-    .await;
+    for relay in &relays {
+        let _ = crate::relay::register_profile(
+            relay,
+            &name,
+            &pubkey,
+            &toxid,
+            &url,
+        )
+        .await;
+    }
     Ok(url)
 }
 
@@ -339,17 +347,19 @@ pub async fn set_avatar_url(state: State<'_, AppState>, url: String) -> Result<(
             }
         }
     }
-    let relay_url = current_relay(&state);
+    let relays = relay_urls(&state);
     let pubkey = state.session.lock().unwrap().self_public_key();
     let toxid = state.session.lock().unwrap().self_address();
-    let _ = crate::relay::register_profile(
-        &relay_url,
-        &name,
-        &pubkey,
-        &toxid,
-        &url,
-    )
-    .await;
+    for relay in &relays {
+        let _ = crate::relay::register_profile(
+            relay,
+            &name,
+            &pubkey,
+            &toxid,
+            &url,
+        )
+        .await;
+    }
     Ok(())
 }
 
@@ -480,13 +490,15 @@ pub async fn publish_post(
         fan_out(&state, env)?;
     }
     if is_public {
-        let relay = current_relay(&state);
+        let relays = relay_urls(&state);
         let pubkey = post.author.clone();
         let id = post.id.clone();
         let ts = post.ts;
         let text = post.text.clone();
-        if let Err(e) = crate::relay::publish_post(&relay, &pubkey, &id, ts, &text, &post.sig).await {
-            eprintln!("[toxsocial] relay publish failed: {e}");
+        for relay in &relays {
+            if let Err(e) = crate::relay::publish_post(relay, &pubkey, &id, ts, &text, &post.sig).await {
+                eprintln!("[toxsocial] relay publish failed: {e}");
+            }
         }
     }
     state.persist();
@@ -855,6 +867,28 @@ pub fn set_relay_url(state: State<AppState>, url: String) -> Result<(), String> 
 }
 
 #[tauri::command]
+pub fn get_relay_urls(state: State<AppState>) -> Result<Vec<String>, String> {
+    Ok(relay_urls(&state))
+}
+
+#[tauri::command]
+pub fn set_relay_urls(state: State<AppState>, urls: Vec<String>) -> Result<(), String> {
+    let urls: Vec<String> = urls
+        .into_iter()
+        .map(|u| u.trim().trim_end_matches('/').to_string())
+        .filter(|u| u.starts_with("http://") || u.starts_with("https://"))
+        .collect();
+    if urls.is_empty() {
+        return Err("至少需要一个有效的 Relay URL".to_string());
+    }
+    let engine = state.engine.lock().unwrap();
+    engine
+        .store()
+        .kv_set("relay_urls", &serde_json::to_string(&urls).unwrap_or_default())
+        .map_err(|e| format!("failed to save Relay URLs: {e}"))
+}
+
+#[tauri::command]
 pub fn get_auto_start(app: tauri::AppHandle) -> Result<bool, String> {
     let autolaunch = app.autolaunch();
     autolaunch.is_enabled().map_err(|e| e.to_string())
@@ -1142,53 +1176,64 @@ pub fn request_public_posts(state: State<AppState>, since: Option<i64>, depth: O
 
 #[tauri::command]
 pub async fn search_relay_directory(state: State<'_, AppState>, query: String) -> Result<Vec<DirectoryEntryInfo>, String> {
-    let relay_url = current_relay(&state);
-    let entries = crate::relay::search_directory(&relay_url, query.trim()).await?;
-    Ok(entries
-        .into_iter()
-        .map(|e| DirectoryEntryInfo {
-            name: e.name,
-            pubkey: e.pubkey,
-            toxid: e.toxid,
-            avatar: e.avatar,
-            relay: e.relay,
-            source: "relay".to_string(),
-        })
-        .collect())
+    let relays = relay_urls(&state);
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for relay in &relays {
+        let entries = crate::relay::search_directory(relay, query.trim())
+            .await
+            .unwrap_or_default();
+        for e in entries {
+            if !seen.insert(e.pubkey.clone()) {
+                continue;
+            }
+            out.push(DirectoryEntryInfo {
+                name: e.name,
+                pubkey: e.pubkey,
+                toxid: e.toxid,
+                avatar: e.avatar,
+                relay: e.relay,
+                source: "relay".to_string(),
+            });
+        }
+    }
+    Ok(out)
 }
 
 #[tauri::command]
 pub async fn fetch_relay_public_posts(state: State<'_, AppState>, since: Option<i64>) -> Result<usize, String> {
     let since = since.unwrap_or(0);
-    let relay_url = current_relay(&state);
-    let items = crate::relay::fetch_outbox(&relay_url, since).await?;
-    let engine = state.engine.lock().unwrap();
+    let relays = relay_urls(&state);
     let received_at = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0);
     let mut count = 0;
-    for item in &items {
-        let id = item["id"].as_str().unwrap_or("").to_string();
-        let pubkey = item["pubkey"].as_str().unwrap_or("").to_string();
-        let text = item["text"].as_str().unwrap_or("").to_string();
-        let ts = item["ts"].as_i64().unwrap_or(0);
-        let sig = item["sig"].as_str().unwrap_or("").to_string();
-        if id.is_empty() || pubkey.is_empty() {
-            continue;
-        }
-        let post = tox_social::envelope::Post {
-            v: tox_social::envelope::PROTOCOL_VERSION,
-            id,
-            author: pubkey.clone(),
-            ts,
-            text,
-            public: true,
-            sig,
-        };
-        let env = Envelope::Post(post);
-        if engine.persist(&env, &pubkey, received_at) {
-            count += 1;
+    for relay in &relays {
+        let items = crate::relay::fetch_outbox(relay, since).await?;
+        let engine = state.engine.lock().unwrap();
+        for item in &items {
+            let id = item["id"].as_str().unwrap_or("").to_string();
+            let pubkey = item["pubkey"].as_str().unwrap_or("").to_string();
+            let text = item["text"].as_str().unwrap_or("").to_string();
+            let ts = item["ts"].as_i64().unwrap_or(0);
+            let sig = item["sig"].as_str().unwrap_or("").to_string();
+            if id.is_empty() || pubkey.is_empty() {
+                continue;
+            }
+            let post = tox_social::envelope::Post {
+                v: tox_social::envelope::PROTOCOL_VERSION,
+                id,
+                author: pubkey.clone(),
+                ts,
+                text,
+                public: true,
+                sig,
+            };
+            let env = Envelope::Post(post);
+            if engine.persist(&env, &pubkey, received_at) {
+                count += 1;
+            }
         }
     }
     Ok(count)
@@ -1204,14 +1249,17 @@ pub async fn add_channel_host(
         let session = state.session.lock().unwrap();
         session.self_address()
     };
-    let relay_url = current_relay(&state);
-    crate::relay::add_channel_host(
-        &relay_url,
-        &channel_id,
-        &requester,
-        new_host_toxid.trim(),
-    )
-    .await
+    let relays = relay_urls(&state);
+    for relay in &relays {
+        crate::relay::add_channel_host(
+            relay,
+            &channel_id,
+            &requester,
+            new_host_toxid.trim(),
+        )
+        .await?;
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -1224,14 +1272,17 @@ pub async fn remove_channel_host(
         let session = state.session.lock().unwrap();
         session.self_address()
     };
-    let relay_url = current_relay(&state);
-    crate::relay::remove_channel_host(
-        &relay_url,
-        &channel_id,
-        &requester,
-        remove_host_toxid.trim(),
-    )
-    .await
+    let relays = relay_urls(&state);
+    for relay in &relays {
+        crate::relay::remove_channel_host(
+            relay,
+            &channel_id,
+            &requester,
+            remove_host_toxid.trim(),
+        )
+        .await?;
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -1240,25 +1291,35 @@ pub async fn delete_public_channel(state: State<'_, AppState>, channel_id: Strin
         let session = state.session.lock().unwrap();
         session.self_address()
     };
-    let relay_url = current_relay(&state);
-    crate::relay::delete_channel(&relay_url, &channel_id, &host_toxid).await
+    let relays = relay_urls(&state);
+    for relay in &relays {
+        crate::relay::delete_channel(relay, &channel_id, &host_toxid).await?;
+    }
+    Ok(())
 }
 
 #[tauri::command]
 pub async fn list_public_channels(state: State<'_, AppState>) -> Result<Vec<PublicChannelInfo>, String> {
-    let relay_url = current_relay(&state);
-    let channels = crate::relay::list_channels(&relay_url).await?;
-    Ok(channels
-        .into_iter()
-        .map(|c| PublicChannelInfo {
-            name: c.name,
-            desc: c.desc,
-            host_toxid: c.host_toxid,
-            channel_id: c.channel_id,
-            hosts: c.hosts,
-            members: c.members,
-        })
-        .collect())
+    let relays = relay_urls(&state);
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for relay in &relays {
+        let channels = crate::relay::list_channels(relay).await.unwrap_or_default();
+        for c in channels {
+            if !seen.insert(c.channel_id.clone()) {
+                continue;
+            }
+            out.push(PublicChannelInfo {
+                name: c.name,
+                desc: c.desc,
+                host_toxid: c.host_toxid,
+                channel_id: c.channel_id,
+                hosts: c.hosts,
+                members: c.members,
+            });
+        }
+    }
+    Ok(out)
 }
 
 #[tauri::command]
@@ -1271,10 +1332,14 @@ pub async fn report_channel_memberships(state: State<'_, AppState>) -> Result<us
         let session = state.session.lock().unwrap();
         session.conference_chatlist()
     };
-    let relay_url = current_relay(&state);
-    let public = crate::relay::list_channels(&relay_url).await?;
-    let public_ids: std::collections::HashSet<String> =
-        public.into_iter().map(|c| c.channel_id).collect();
+    let relays = relay_urls(&state);
+    let mut public_ids = std::collections::HashSet::new();
+    for relay in &relays {
+        let channels = crate::relay::list_channels(relay).await.unwrap_or_default();
+        for c in channels {
+            public_ids.insert(c.channel_id);
+        }
+    }
     let mut reported = 0;
     for n in conferences {
         let channel_id = {
@@ -1282,12 +1347,14 @@ pub async fn report_channel_memberships(state: State<'_, AppState>) -> Result<us
             session.conference_get_id(n).map_err(|e| e.to_string())?
         };
         if public_ids.contains(&channel_id) {
-            crate::relay::report_channel_membership(
-                &relay_url,
-                &channel_id,
-                &own_toxid,
-            )
-            .await?;
+            for relay in &relays {
+                crate::relay::report_channel_membership(
+                    relay,
+                    &channel_id,
+                    &own_toxid,
+                )
+                .await?;
+            }
             reported += 1;
         }
     }
@@ -1310,44 +1377,70 @@ pub async fn register_public_channel(
         let pubkey = session.self_public_key();
         (channel_id, host_toxid, pubkey)
     };
-    let relay_url = current_relay(&state);
-    let existing = crate::relay::list_channels(&relay_url).await?;
-    let already_public = existing.iter().find(|c| c.channel_id == channel_id);
-    let is_host = already_public
-        .map(|c| {
-            c.hosts.iter().any(|h| {
+    let relays = relay_urls(&state);
+    let mut is_host = false;
+    for relay in &relays {
+        let existing = crate::relay::list_channels(relay).await.unwrap_or_default();
+        if let Some(c) = existing.iter().find(|c| c.channel_id == channel_id) {
+            if c.hosts.iter().any(|h| {
                 h == &host_toxid
                     || h == &pubkey
                     || host_toxid.starts_with(h)
                     || h.starts_with(&pubkey)
-            })
-        })
-        .unwrap_or(false);
+            }) {
+                is_host = true;
+                break;
+            }
+        }
+    }
     if !is_owned_channel(&state, &channel_id) && !is_host {
         return Err("只有频道创建者或 host 才能发布为公共频道".to_string());
     }
-    crate::relay::register_channel(
-        &relay_url,
-        name.trim(),
-        desc.trim(),
-        &host_toxid,
-        &channel_id,
-    )
-    .await
+    for relay in &relays {
+        crate::relay::register_channel(
+            relay,
+            name.trim(),
+            desc.trim(),
+            &host_toxid,
+            &channel_id,
+        )
+        .await?;
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------
 
-/// Return the configured Relay URL, defaulting to the built-in public relay.
-fn current_relay(state: &State<AppState>) -> String {
+/// Return all configured Relay URLs, defaulting to the built-in public relay.
+fn relay_urls(state: &State<AppState>) -> Vec<String> {
     let engine = state.engine.lock().unwrap();
-    engine
+    let raw = engine
         .store()
-        .kv_get("relay_url")
+        .kv_get("relay_urls")
         .unwrap_or_default()
-        .unwrap_or_else(|| crate::relay::DEFAULT_RELAY.to_string())
+        .unwrap_or_default();
+    let mut urls: Vec<String> = serde_json::from_str(&raw).unwrap_or_default();
+    if urls.is_empty() {
+        let single = engine
+            .store()
+            .kv_get("relay_url")
+            .unwrap_or_default()
+            .unwrap_or_default();
+        if !single.is_empty() {
+            urls.push(single);
+        }
+    }
+    if urls.is_empty() {
+        urls.push(crate::relay::DEFAULT_RELAY.to_string());
+    }
+    urls
+}
+
+/// Return the first configured Relay URL, defaulting to the built-in public relay.
+fn current_relay(state: &State<AppState>) -> String {
+    relay_urls(state).into_iter().next().unwrap_or_else(|| crate::relay::DEFAULT_RELAY.to_string())
 }
 
 /// Whether the current user created this channel locally.
