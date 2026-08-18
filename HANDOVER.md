@@ -40,7 +40,7 @@ crates/tox-social/  TSP/1 协议：envelope + FeedEngine（签名校验、持久
 crates/tox-store/   SQLite：kv/friends/posts/directory 等表
 crates/tox-cli/     命令行客户端（init/show/add/send/post/timeline/run）
 apps/desktop/       Tauri v2 应用（Rust 后端 + Vue3/Vite 前端 ui/）
-server/             Cloudflare Pages Functions + D1（Relay：目录/Outbox/公共频道）
+server/             （已移至独立仓库 https://github.com/148i00/toxsocial-relay）
 scripts/            bundle.ps1（打包）、upload-release.sh（GitHub Release 上传）
 docs/               PLAN.md / ARCHITECTURE.md / PROTOCOL.md
 ```
