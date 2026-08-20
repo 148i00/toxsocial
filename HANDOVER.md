@@ -136,6 +136,7 @@ CLI 双实例联调：
 - v0.2.21：文件接收手动确认、开机自启、主动推送帖子、join_channel 拉人修复
 - v0.2.22：多 Relay 支持、公共频道权限限制、频道消息全局缓冲、头像兜底、Relay 警告、英文补充
 - v0.2.23：全面中英文国际化、README 双语、Relay 独立仓库
+- v0.2.24：频道消息持久化、实际 DHT 节点数、公开帖子签名验证修复（birational map）+ Relay 端 WebCrypto 验证
 
 ## 5. 关键技术事实与踩坑（务必先读 docs/PLAN.md §9）
 
@@ -159,13 +160,23 @@ CLI 双实例联调：
 ## 6. 当前已知问题 / 下一步
 
 ### 需要用户验证
-- 频道消息是否真的能稳定收到：目前是全局内存缓冲，**重启后会丢**；如果仍收不到，需要抓双方日志确认是否在同一频道/已连接。
+- 频道消息持久化：重启应用后历史消息应还在（按频道加载最近 300 条）。
+- DHT 节点数显示是否为合理值（close list 一般 0–8，连上 DHT 后通常 ≥1）。
+- 公开帖子跨实例验证：发布公开帖子后，好友端/Relay 拉取应能显示（此前因签名验证 bug 大概率被丢弃）。**注意**：Relay 已要求新格式（sig+edPk），旧版客户端发布公开帖子会被 Relay 拒绝（400 bad signature），请用新版本。
 - v0.2.19 的卡顿/未响应修复是否长期稳定。
 
-### 待办功能
-- 频道消息持久化到 SQLite（目前重启即丢）。
-- 实际 DHT 节点数（Tox API 不直接暴露，当前显示配置 bootstrap 数）。
-- Relay 公开帖子 Ed25519 签名验证（防伪造垃圾数据）。
+### 已知问题
+- 频道消息无未读计数；历史加载上限 300 条（与内存缓冲一致）。
+- `dht_node_count` 依赖 c-toxcore 内部布局（v0.2.23），升级 submodule 后需重跑 `dht_node_count_reads_real_instance` 测试。
+- Relay 长帖子（>20KB body）仍会被防滥用体积限制拒绝（既有行为）。
+
+### 待办功能（v0.2.24 已完成全部三项）
+- ✅ **频道消息持久化到 SQLite**：新表 `channel_messages`（conference_number/channel_id/peer_name/peer_key/text/ts/direction）；收到/发送时写入，`channel_messages` 命令按会议号（或稳定 channel_id 兜底）取最近 300 条；前端切换频道时合并历史并去重（按行 id 或 peer+text+ts）；删除频道时同步删历史。
+- ✅ **实际 DHT 节点数**：c-toxcore 公开 API 不暴露，通过读取固定内部布局（`struct Tox` → `Messenger*` @8，`struct Messenger` → `DHT*` @64，仅对 vendored v0.2.23 有效）调用 `dht_get_num_closelist`（close list 存活邻居数）。`ToxSession::dht_node_count()` 已加真实实例单测；设置页文案改为“DHT 节点（已连接）”。
+- ✅ **Relay 公开帖子 Ed25519 签名验证**：
+  - **修复重要 bug**：原 `verify_signature` 直接把 X25519 公钥字节当 Ed25519 公钥验证——数学上必然失败（两种密钥是 birational map 关系而非同一点）。现改为 `y = (u-1)/(u+1) mod p` 转换 + 双符号位尝试（tox-core 单测覆盖）。
+  - 客户端发布公开帖子（长短贴都）签名，并上传 `edPk`（同一 seed 派生的真实 Ed25519 公钥，`ToxSession::self_ed25519_public_key`）。
+  - Relay 端（`functions/api/[[path]].js`，已推送到独立仓库 `toxsocial-relay`，Cloudflare Pages 自动部署）：WebCrypto Ed25519 验证 + edPk→X25519 映射必须等于作者 pubkey（防冒名）。注意 **JS 端解析 hex 必须按 little-endian**（`hexLeToBigInt`），直接 `BigInt("0x"+hex)` 是大端会验不过。
 
 ### 可选的进一步优化
 - 用 `<KeepAlive>` 缓存 ChannelsPanel，避免每次切换页面都重新加载频道/公共列表。
