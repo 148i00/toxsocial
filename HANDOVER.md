@@ -6,10 +6,11 @@
 
 ## 0. 当前状态一句话
 
-ToxSocial 已完成 M0–M4 和大部分 M5 功能；桌面端已能打包发布，最新版本 **v0.2.19**（代码中已包含尚未打 tag 的 v0.2.20 功能：好友 bio 展示 + 文件发送 UI + Relay 频道成员上报 + 评论回复嵌套 + 文件接收确认 + 开机自启）。最近重点做了：
-1. 把频道页改成 **QQ 群聊式两栏布局**（左频道列表 + 右聊天窗口）。
-2. 修复了用户反馈的 **操作卡顿/启动未响应**：根因是 c-toxcore FFI 被多线程并发调用，现已加全局串行锁。
-3. 完成 **好友资料 bio 展示**、**文件发送 UI**、**Relay 频道成员上报**、**评论回复嵌套**（尚未发布）。
+ToxSocial 已完成 M0–M4 和大部分 M5 功能；桌面端已能打包发布，最新版本 **v0.2.23**。最近重点做了：
+1. 频道页 **QQ 群聊式两栏布局**（左频道列表 + 右聊天窗口）。
+2. 修复 **操作卡顿/启动未响应**：根因是 c-toxcore FFI 被多线程并发调用，现已加全局串行锁。
+3. 完成 **好友 bio、文件发送、Relay 成员上报、评论嵌套、文件接收确认、开机自启、多 Relay、全面中英文国际化**。
+4. Relay 服务端已独立到 `https://github.com/148i00/toxsocial-relay`，并加了基础防滥用。
 
 ## 1. 环境事实（重要，勿重复踩坑）
 
@@ -23,7 +24,7 @@ ToxSocial 已完成 M0–M4 和大部分 M5 功能；桌面端已能打包发布
 | c-toxcore | submodule 在 `third_party/c-toxcore`（master=v0.2.23） |
 | c-toxcore 静态库 | `build/c-toxcore/Release/toxcore_static.lib`（**注意是顶层 `build/`，不是 third_party 下**；构建产物不入 git） |
 | 网络 | 走 clash-verge 代理（127.0.0.1:7897）；GitHub releases 大文件下载慢 |
-| Relay | `https://toxsocial-relay.vcst.top`（Cloudflare Pages + D1，旧 Worker 已删除） |
+| Relay | `https://toxsocial-relay.vcst.top`（Cloudflare Pages + D1；源码独立仓库 `https://github.com/148i00/toxsocial-relay`） |
 
 **构建必需环境变量**（每次新 shell 都要设）：
 ```powershell
@@ -51,8 +52,11 @@ docs/               PLAN.md / ARCHITECTURE.md / PROTOCOL.md
 # 前端构建（tauri-build 嵌入 dist，必须先跑）
 cd apps/desktop/ui; npm run build; cd ../..
 
-# 开发构建
+# 开发构建（注意：纯 cargo build 的 exe 会连 localhost:1420，不能独立运行）
 cargo build -p toxsocial-desktop
+
+# 如果要得到可独立运行的 debug exe（内嵌前端），必须用 Tauri CLI：
+# cd apps/desktop && .\ui\node_modules\.bin\tauri.cmd build --debug
 
 # 启动（数据在 %APPDATA%\dev.toxsocial.desktop\：profile.tox + profile.db）
 .\target\debug\toxsocial-desktop.exe
@@ -92,18 +96,18 @@ CLI 双实例联调：
   4. 事件泵从 `recv_timeout(250ms)` 持有 session 锁改为 `try_recv()` + 50ms sleep，避免长时间阻塞 UI 命令。
   5. bootstrap 从“一次性锁住 session 循环 22 个节点”改为“每个节点单独拿锁/放锁”。
 
-### 4.3 好友资料 bio + 文件发送 UI（未发布）
+### 4.3 好友资料 bio + 文件发送 UI
 - 好友资料页现在显示 bio：`friends` 表新增 `bio` 字段并自动迁移；收到 TSP Profile 或 Tox 状态消息时更新并持久化。
 - 关注列表新增“文件”按钮，可直接选择文件发送给好友（后端新增 `send_file_to_friend_by_toxid`，并兼容 `data:` URL 前缀）。
 - 收到文件时后端已保存到 `media/`，前端通知中心提示保存路径。
 
-### 4.4 Relay 频道成员上报 + 评论回复嵌套（未发布）
+### 4.4 Relay 频道成员上报 + 评论回复嵌套
 - Relay 公共频道新增 `members` 字段和 `POST /api/channels/members/report`：客户端定期上报“我在哪些公共频道”，Relay 5 分钟 TTL 过滤在线成员。
 - 客户端加入公共频道时不再只找 host，而是按 host → co-host → 任意在线成员依次尝试 `join_channel` 申请。
 - 评论回复支持嵌套：`thread_for` 改为递归 CTE，评论可以回复到某条评论（`reply_to` 指向评论 id），前端按缩进展示层级。
 - 修复删除频道后重启又出现：创建/删除/加入频道后都会立即 `state.persist()` 保存 Tox 会话。
 
-### 4.5 文件确认 + 公共频道加入修复 + 开机自启（未发布）
+### 4.5 文件确认 + 公共频道加入修复 + 开机自启
 - 接收好友文件不再自动接受，改为弹窗手动“接受/拒绝”。
 - 修复“已经是好友的人无法通过 `join_channel` 加入公共频道”：好友发来的普通 `join_channel <id>` 消息现在也会触发自动邀请。
 - 好友上线时除了 `sync_req`，还会主动把自己的帖子推送过去，避免好友看不到首页/个人主页帖子。
@@ -128,6 +132,10 @@ CLI 双实例联调：
 - v0.2.17：频道聊天区 QQ 气泡化（只改频道区域）
 - v0.2.18：QQ 式两栏布局 + 消息/日志上限
 - v0.2.19：修复 c-toxcore 多线程并发导致的卡死/未响应
+- v0.2.20：好友 bio、文件发送 UI、Relay 成员上报、评论嵌套、频道持久化修复
+- v0.2.21：文件接收手动确认、开机自启、主动推送帖子、join_channel 拉人修复
+- v0.2.22：多 Relay 支持、公共频道权限限制、频道消息全局缓冲、头像兜底、Relay 警告、英文补充
+- v0.2.23：全面中英文国际化、README 双语、Relay 独立仓库
 
 ## 5. 关键技术事实与踩坑（务必先读 docs/PLAN.md §9）
 
@@ -151,36 +159,43 @@ CLI 双实例联调：
 ## 6. 当前已知问题 / 下一步
 
 ### 需要用户验证
-- v0.2.19 的卡顿/未响应修复是否生效。如果还卡，需要继续排查：
-  - 是否特定操作卡（如频道切换、发消息、公共页刷新）。
-  - 是否启动时卡（可能 `AppState::load` 里 `sync_friends` 同步执行较慢，可考虑移到后台）。
-  - 是否 Relay 慢导致公共频道 15s 轮询卡 UI（可降低频率或改手动刷新）。
+- 频道消息是否真的能稳定收到：目前是全局内存缓冲，**重启后会丢**；如果仍收不到，需要抓双方日志确认是否在同一频道/已连接。
+- v0.2.19 的卡顿/未响应修复是否长期稳定。
 
 ### 待办功能
+- 频道消息持久化到 SQLite（目前重启即丢）。
 - 实际 DHT 节点数（Tox API 不直接暴露，当前显示配置 bootstrap 数）。
+- Relay 公开帖子 Ed25519 签名验证（防伪造垃圾数据）。
 
 ### 可选的进一步优化
 - 用 `<KeepAlive>` 缓存 ChannelsPanel，避免每次切换页面都重新加载频道/公共列表。
 - 公共频道轮询从 15s 降低到 30s，或只在展开公共频道时刷新。
 - 频道成员很多时做懒加载/限制显示。
 - 消息列表继续增长时可做虚拟滚动。
+- 让 Cloudflare Pages 的 GitHub check 显示在独立 relay 仓库而不是主仓库（已完成切换）。
 
 ## 7. 发布流程
 
-```bash
-# 1. 前端构建 + 打包
-cd apps/desktop/ui && npm run build && cd ../..
-powershell -ExecutionPolicy Bypass -File scripts/bundle.ps1
+```powershell
+# 1. 构建 release 安装包
+powershell -ExecutionPolicy Bypass -File scripts\bundle.ps1
 
 # 2. 打 tag 并推送
 git tag -a vX.Y.Z -m "ToxSocial vX.Y.Z"
 git push origin vX.Y.Z
 
-# 3. 上传 GitHub Release（读取 ~/.toxsocial_gh_token 或 GITHUB_TOKEN）
-bash scripts/upload-release.sh vX.Y.Z "ToxSocial vX.Y.Z" "更新说明" \
-  target/release/bundle/msi/ToxSocial_0.1.0_x64_en-US.msi \
-  target/release/bundle/nsis/ToxSocial_0.1.0_x64-setup.exe
+# 3. 创建 GitHub Release（注意：必须用 UTF-8 bytes，否则中文变问号）
+$token = (Get-Content "$env:USERPROFILE\.toxsocial_gh_token" -Raw).Trim()
+$headers = @{ Authorization = "token $token"; Accept = "application/vnd.github+json" }
+$body = @{ tag_name = "vX.Y.Z"; name = "ToxSocial vX.Y.Z"; body = "更新说明"; draft = $false; prerelease = $false } | ConvertTo-Json
+$bytes = [System.Text.Encoding]::UTF8.GetBytes($body)
+Invoke-RestMethod -Method Post -Uri "https://api.github.com/repos/148i00/toxsocial/releases" -Headers $headers -Body $bytes -ContentType "application/json; charset=utf-8"
+
+# 4. 上传两个安装包
+# 用 Invoke-RestMethod 上传到 uploads.github.com，参考 scripts/upload-release.sh 的 asset 路径
 ```
+
+> 注意：`scripts/upload-release.sh` 在 Git-bash 下会因为 `$HOME` 不是 Windows 用户目录而找不到 token；建议直接用上面的 PowerShell + UTF-8 方式。
 
 ## 8. 约定与备忘
 
@@ -189,3 +204,5 @@ bash scripts/upload-release.sh vX.Y.Z "ToxSocial vX.Y.Z" "更新说明" \
 - 许可证：c-toxcore GPLv3，本项目整体 GPL-3.0-or-later。
 - 用户明确要求：**只改频道相关时不要顺手改其他页面**；如果改动范围超出频道，先和用户确认。
 - 用户偏好：中文交流；喜欢直接给可安装的 Release。
+- Relay/服务端改动请到独立仓库 `https://github.com/148i00/toxsocial-relay`，主仓库已不含 `server/`。
+- Cloudflare Pages 项目 `toxsocial-relay` 已连接 `toxsocial-relay` 仓库；主仓库 push 不再触发 Pages 构建。
