@@ -169,6 +169,7 @@ CLI 双实例联调：
 - 频道消息无未读计数；历史加载上限 300 条（与内存缓冲一致）。
 - `dht_node_count` 依赖 c-toxcore 内部布局（v0.2.23），升级 submodule 后需重跑 `dht_node_count_reads_real_instance` 测试。
 - Relay 长帖子（>20KB body）仍会被防滥用体积限制拒绝（既有行为）。
+- **帖子 ts 可被作者伪造**（自签 ts 无法验证真伪）：Relay 已拒绝未来（>now+5min）与过老（<now-365d）的 ts，但窗口内的任意日期仍可伪造——这是自签时间戳的固有局限，客户端按 ts 排序显示。
 
 ### 待办功能（v0.2.24 已完成全部三项）
 - ✅ **频道消息持久化到 SQLite**：新表 `channel_messages`（conference_number/channel_id/peer_name/peer_key/text/ts/direction）；收到/发送时写入，`channel_messages` 命令按会议号（或稳定 channel_id 兜底）取最近 300 条；前端切换频道时合并历史并去重（按行 id 或 peer+text+ts）；删除频道时同步删历史。
