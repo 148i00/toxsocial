@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { onMounted, onUnmounted, ref } from "vue";
 import QRCode from "qrcode";
 import { api } from "../api";
 import { locale, setLocale, t } from "../i18n";
@@ -32,6 +32,16 @@ const avatarFile = ref<HTMLInputElement | null>(null);
 const avatarBusy = ref(false);
 const avatarUrl = ref("");
 
+let statusTimer: ReturnType<typeof setInterval> | undefined;
+
+async function refreshNetworkStatus() {
+  try {
+    networkStatus.value = await api.getNetworkStatus();
+  } catch {
+    networkStatus.value = null;
+  }
+}
+
 onMounted(async () => {
   if (props.own) {
     name.value = props.own.name;
@@ -56,16 +66,18 @@ onMounted(async () => {
   } catch {
     /* ignore */
   }
-  try {
-    networkStatus.value = await api.getNetworkStatus();
-  } catch {
-    networkStatus.value = null;
-  }
+  await refreshNetworkStatus();
+  // 连接状态自动刷新（DHT 节点数/Relay 状态/好友在线数实时变化）
+  statusTimer = setInterval(refreshNetworkStatus, 5_000);
   try {
     appVersion.value = await api.getAppVersion();
   } catch {
     appVersion.value = "";
   }
+});
+
+onUnmounted(() => {
+  if (statusTimer) clearInterval(statusTimer);
 });
 
 async function copyToxid() {
