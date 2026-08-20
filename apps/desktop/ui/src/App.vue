@@ -11,6 +11,7 @@ import FriendsPanel from "./components/FriendsPanel.vue";
 import SettingsPanel from "./components/SettingsPanel.vue";
 import ChannelsPanel from "./components/ChannelsPanel.vue";
 import Avatar from "./components/Avatar.vue";
+import logoUrl from "./assets/logo.png";
 
 const view = ref<"timeline" | "friends" | "settings" | "channels" | "public" | "profile">("timeline");
 const own = ref<OwnInfo | null>(null);
@@ -272,11 +273,14 @@ onMounted(async () => {
   refreshTransfers();
   loading.value = false;
 
-  // Check for a new version once at startup (best-effort; GitHub may be
-  // unreachable behind a firewall).
+  // Check for a new version at startup (best-effort; GitHub may be
+  // unreachable behind a firewall). Prompt with a dialog when an update
+  // exists so it cannot be missed.
   api.checkUpdate().then((u) => {
     if (u.hasUpdate) {
-      notify(t("updateAvailable", { version: u.latest }));
+      if (confirm(t("updateAvailablePrompt", { current: u.current, latest: u.latest }))) {
+        window.open(`https://github.com/148i00/toxsocial/releases/tag/v${u.latest}`, "_blank");
+      }
     }
   }).catch(() => {
     /* ignore network failures */
@@ -390,7 +394,7 @@ onBeforeUnmount(() => {
   <div class="layout">
     <!-- Left: navigation -->
     <aside class="sidebar">
-      <div class="logo">🦊 ToxSocial</div>
+      <div class="logo"><img :src="logoUrl" class="logo-img" alt="" /> ToxSocial</div>
       <nav>
         <button :class="{ active: view === 'timeline' && !threadPostId }" @click="backToTimeline(); view = 'timeline'">
           {{ t("home") }}
@@ -629,6 +633,14 @@ onBeforeUnmount(() => {
   font-size: 17px;
   font-weight: 700;
   padding: 4px 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.logo-img {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
 }
 
 nav {
