@@ -47,6 +47,9 @@ pub struct PostRow {
     pub channel_id: Option<String>,
     pub is_public: bool,
     pub sig: String,
+    /// Attachment metadata: `"filename|size_bytes"` (transferred over Tox
+    /// file transfer on request), or None.
+    pub attachment: Option<String>,
 }
 
 /// A persisted conference (channel) chat message.
@@ -115,6 +118,7 @@ CREATE TABLE IF NOT EXISTS posts (
   channel_id   TEXT,
   is_public    INTEGER NOT NULL DEFAULT 0,
   sig          TEXT DEFAULT '',
+  attachment   TEXT,
   UNIQUE(id, author)
 );
 CREATE INDEX IF NOT EXISTS idx_posts_author ON posts(author);
@@ -340,17 +344,23 @@ impl Store {
         Ok(self.conn.last_insert_rowid())
     }
 
-    /// Queued (undelivered) messages of a conference, oldest first. These are
-    /// sent by the user while nobody else was in the channel; they are
-    /// flushed once other members join.
-    pub fn channel_messages_pending(&self, conference_number: u32) -> Result<Vec<ChannelMessageRow>> {
+    /// Queued (undelivered) messages of a channel, oldest first. Keyed by the
+    /// stable channel id (with conference-number fallback), like
+    /// `channel_messages_for_conference`. These are sent by the user while
+    /// nobody else was in the channel; they are flushed once other members
+    /// join.
+    pub fn channel_messages_pending(
+        &self,
+        conference_number: u32,
+        channel_id: &str,
+    ) -> Result<Vec<ChannelMessageRow>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, conference_number, channel_id, peer_name, peer_key, text, ts, direction, pending
              FROM channel_messages
-             WHERE conference_number = ?1 AND pending = 1
+             WHERE pending = 1 AND ((?2 != '' AND channel_id = ?2) OR (?2 = '' AND conference_number = ?1))
              ORDER BY ts ASC, id ASC",
         )?;
-        let rows = stmt.query_map(params![conference_number], |r| {
+        let rows = stmt.query_map(params![conference_number, channel_id], |r| {
             Ok(ChannelMessageRow {
                 id: r.get(0)?,
                 conference_number: r.get(1)?,
@@ -375,9 +385,11 @@ impl Store {
         Ok(())
     }
 
-    /// Latest `limit` messages for a conference (or its channel id, which
-    /// stays stable across restarts even if the conference number changes),
-    /// returned in chronological order.
+    /// Latest `limit` messages for a conference. The stable `channel_id` is
+    /// authoritative: toxcore may reuse a conference *number* after a channel
+    /// is deleted (or across restarts), so matching by number alone can mix
+    /// messages from different channels. The number is only used as a
+    /// fallback when no channel id is known.
     pub fn channel_messages_for_conference(
         &self,
         conference_number: u32,
@@ -387,7 +399,7 @@ impl Store {
         let mut stmt = self.conn.prepare(
             "SELECT id, conference_number, channel_id, peer_name, peer_key, text, ts, direction, pending
              FROM channel_messages
-             WHERE conference_number = ?1 OR (?2 != '' AND channel_id = ?2)
+             WHERE (?2 != '' AND channel_id = ?2) OR (?2 = '' AND conference_number = ?1)
              ORDER BY ts DESC, id DESC LIMIT ?3",
         )?;
         let rows = stmt.query_map(params![conference_number, channel_id, limit], |r| {
@@ -408,6 +420,17 @@ impl Store {
         Ok(out)
     }
 
+    /// Delete persisted messages for a deleted channel, keyed by its stable
+    /// id. Deleting by conference number is unsafe because the number may be
+    /// reused by a newer channel (see `channel_messages_for_conference`).
+    pub fn channel_messages_delete_by_channel(&self, channel_id: &str) -> Result<()> {
+        self.conn.execute(
+            "DELETE FROM channel_messages WHERE channel_id = ?1",
+            params![channel_id],
+        )?;
+        Ok(())
+    }
+
     /// Delete persisted messages for a deleted conference (best-effort).
     pub fn channel_messages_delete(&self, conference_number: u32) -> Result<()> {
         self.conn.execute(
@@ -424,8 +447,8 @@ impl Store {
     pub fn post_upsert(&self, p: &PostRow) -> Result<bool> {
         let n = self.conn.execute(
             "INSERT OR IGNORE INTO posts
-               (id, author, kind, parent_id, text, emoji, ts, received_at, source, channel_id, is_public, sig)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+               (id, author, kind, parent_id, text, emoji, ts, received_at, source, channel_id, is_public, sig, attachment)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             params![
                 p.id,
                 p.author,
@@ -439,6 +462,7 @@ impl Store {
                 p.channel_id,
                 p.is_public,
                 p.sig,
+                p.attachment,
             ],
         )?;
         Ok(n > 0)
@@ -447,7 +471,7 @@ impl Store {
     pub fn post_get(&self, id: &str) -> Result<Option<PostRow>> {
         self.conn
             .query_row(
-                "SELECT id, author, kind, parent_id, text, emoji, ts, received_at, source, channel_id, is_public, sig
+                "SELECT id, author, kind, parent_id, text, emoji, ts, received_at, source, channel_id, is_public, sig, attachment
                  FROM posts WHERE id = ?1",
                 params![id],
                 row_to_post,
@@ -458,7 +482,7 @@ impl Store {
     /// Timeline: newest-first posts by the given authors (following feed).
     pub fn timeline(&self, authors: &[String], limit: u32) -> Result<Vec<PostRow>> {
         let mut sql = String::from(
-            "SELECT id, author, kind, parent_id, text, emoji, ts, received_at, source, channel_id, is_public, sig
+            "SELECT id, author, kind, parent_id, text, emoji, ts, received_at, source, channel_id, is_public, sig, attachment
              FROM posts WHERE kind = 0 AND author IN (",
         );
         let placeholders: Vec<String> = (1..=authors.len()).map(|i| format!("?{i}")).collect();
@@ -491,6 +515,16 @@ impl Store {
         Ok(())
     }
 
+    /// Attach attachment metadata to a post (used after publishing, when the
+    /// file has been stored locally).
+    pub fn post_update_attachment(&self, id: &str, attachment: Option<&str>) -> Result<()> {
+        self.conn.execute(
+            "UPDATE posts SET attachment = ?1 WHERE id = ?2",
+            params![attachment, id],
+        )?;
+        Ok(())
+    }
+
     /// Remove all reactions by one author on one post (single-reaction rule).
     pub fn delete_reaction(&self, author: &str, parent_id: &str) -> Result<()> {
         self.conn.execute(
@@ -510,7 +544,7 @@ impl Store {
                UNION ALL
                SELECT p.id FROM posts p JOIN descendants d ON p.parent_id = d.id
              )
-             SELECT id, author, kind, parent_id, text, emoji, ts, received_at, source, channel_id, is_public, sig
+             SELECT id, author, kind, parent_id, text, emoji, ts, received_at, source, channel_id, is_public, sig, attachment
              FROM posts WHERE id IN (SELECT id FROM descendants) ORDER BY ts ASC, rowid ASC",
         )?;
         let rows = stmt.query_map(params![post_id], row_to_post)?;
@@ -536,7 +570,7 @@ impl Store {
         limit: u32,
     ) -> Result<Vec<PostRow>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, author, kind, parent_id, text, emoji, ts, received_at, source, channel_id, is_public, sig
+            "SELECT id, author, kind, parent_id, text, emoji, ts, received_at, source, channel_id, is_public, sig, attachment
              FROM posts WHERE author = ?1 AND ts > ?2
              ORDER BY ts ASC LIMIT ?3",
         )?;
@@ -547,7 +581,7 @@ impl Store {
     /// Public posts with `ts > since`, oldest first. Used for public outbox sync.
     pub fn public_posts_since(&self, since: i64, limit: u32) -> Result<Vec<PostRow>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, author, kind, parent_id, text, emoji, ts, received_at, source, channel_id, is_public, sig
+            "SELECT id, author, kind, parent_id, text, emoji, ts, received_at, source, channel_id, is_public, sig, attachment
              FROM posts WHERE kind = 0 AND is_public = 1 AND ts > ?1
              ORDER BY ts ASC LIMIT ?2",
         )?;
@@ -558,7 +592,7 @@ impl Store {
     /// Posts authored by one user, newest first.
     pub fn posts_by_author(&self, author: &str, limit: u32) -> Result<Vec<PostRow>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, author, kind, parent_id, text, emoji, ts, received_at, source, channel_id, is_public, sig
+            "SELECT id, author, kind, parent_id, text, emoji, ts, received_at, source, channel_id, is_public, sig, attachment
              FROM posts WHERE author = ?1 AND kind = 0
              ORDER BY ts DESC LIMIT ?2",
         )?;
@@ -570,7 +604,7 @@ impl Store {
     pub fn search_posts(&self, query: &str, limit: u32) -> Result<Vec<PostRow>> {
         let pattern = format!("%{}%", query.replace('%', "\\%").replace('_', "\\_"));
         let mut stmt = self.conn.prepare(
-            "SELECT id, author, kind, parent_id, text, emoji, ts, received_at, source, channel_id, is_public, sig
+            "SELECT id, author, kind, parent_id, text, emoji, ts, received_at, source, channel_id, is_public, sig, attachment
              FROM posts WHERE kind = 0 AND text LIKE ?1 ESCAPE '\\'
              ORDER BY ts DESC LIMIT ?2",
         )?;
@@ -646,6 +680,7 @@ fn migrate_posts_is_public(conn: &Connection) {
         [],
     );
     let _ = conn.execute("ALTER TABLE posts ADD COLUMN sig TEXT DEFAULT ''", []);
+    let _ = conn.execute("ALTER TABLE posts ADD COLUMN attachment TEXT", []);
 }
 
 fn migrate_channel_messages_pending(conn: &Connection) {
@@ -674,6 +709,7 @@ fn row_to_post(r: &rusqlite::Row) -> Result<PostRow> {
         channel_id: r.get(9)?,
         is_public: r.get(10)?,
         sig: r.get(11)?,
+        attachment: r.get(12)?,
     })
 }
 
@@ -704,6 +740,7 @@ mod tests {
             channel_id: None,
             is_public: false,
             sig: String::new(),
+            attachment: None,
         };
         assert!(store.post_upsert(&p).unwrap());
         assert!(!store.post_upsert(&p).unwrap()); // duplicate
@@ -750,10 +787,10 @@ mod tests {
     #[test]
     fn channel_messages_pending_flush_flow() {
         let store = Store::open_in_memory().unwrap();
-        let mk = |conf: u32, text: &str, ts: i64, pending: bool| ChannelMessageRow {
+        let mk = |conf: u32, ch: &str, text: &str, ts: i64, pending: bool| ChannelMessageRow {
             id: 0,
             conference_number: conf,
-            channel_id: "ccc".into(),
+            channel_id: ch.into(),
             peer_name: String::new(),
             peer_key: String::new(),
             text: text.into(),
@@ -761,24 +798,51 @@ mod tests {
             direction: 1,
             pending,
         };
-        let id1 = store.channel_message_insert(&mk(1, "离线1", 100, true)).unwrap();
-        let id2 = store.channel_message_insert(&mk(1, "在线", 200, false)).unwrap();
-        let id3 = store.channel_message_insert(&mk(1, "离线2", 300, true)).unwrap();
-        store.channel_message_insert(&mk(2, "别的频道", 400, true)).unwrap();
-        // Pending list: only pending, oldest first, this conference only.
-        let pending = store.channel_messages_pending(1).unwrap();
+        let id1 = store.channel_message_insert(&mk(1, "ccc", "离线1", 100, true)).unwrap();
+        let id2 = store.channel_message_insert(&mk(1, "ccc", "在线", 200, false)).unwrap();
+        let id3 = store.channel_message_insert(&mk(1, "ccc", "离线2", 300, true)).unwrap();
+        store.channel_message_insert(&mk(2, "ddd", "别的频道", 400, true)).unwrap();
+        // Pending list: only pending, oldest first, this channel only.
+        let pending = store.channel_messages_pending(1, "ccc").unwrap();
         assert_eq!(pending.iter().map(|m| m.text.as_str()).collect::<Vec<_>>(), ["离线1", "离线2"]);
         assert!(pending.iter().all(|m| m.pending));
         // Deliver one; the other stays queued.
         store.channel_message_mark_delivered(id2).unwrap(); // no-op on delivered
         store.channel_message_mark_delivered(id1).unwrap();
-        let pending = store.channel_messages_pending(1).unwrap();
+        let pending = store.channel_messages_pending(1, "ccc").unwrap();
         assert_eq!(pending.iter().map(|m| m.text.as_str()).collect::<Vec<_>>(), ["离线2"]);
         // History still contains everything (including the still-queued one).
-        let history = store.channel_messages_for_conference(1, "", 10).unwrap();
+        let history = store.channel_messages_for_conference(1, "ccc", 10).unwrap();
         assert_eq!(history.len(), 3);
         assert!(history.iter().any(|m| m.id == id3 && m.pending));
         assert!(!history.iter().find(|m| m.id == id1).unwrap().pending);
+    }
+
+    #[test]
+    fn channel_messages_keyed_by_channel_id_not_number() {
+        let store = Store::open_in_memory().unwrap();
+        let mk = |conf: u32, ch: &str, text: &str, ts: i64| ChannelMessageRow {
+            id: 0,
+            conference_number: conf,
+            channel_id: ch.into(),
+            peer_name: String::new(),
+            peer_key: String::new(),
+            text: text.into(),
+            ts,
+            direction: 1,
+            pending: false,
+        };
+        // Old channel on number 1, new channel reusing number 1 after delete.
+        store.channel_message_insert(&mk(1, "aaa", "旧频道消息", 100)).unwrap();
+        store.channel_message_insert(&mk(1, "bbb", "新频道消息", 200)).unwrap();
+        // Deleting the new channel by its id must not touch the old one.
+        store.channel_messages_delete_by_channel("bbb").unwrap();
+        let old = store.channel_messages_for_conference(1, "aaa", 10).unwrap();
+        assert_eq!(old.len(), 1);
+        assert_eq!(old[0].text, "旧频道消息");
+        // Querying the new channel id after the number was reused returns
+        // nothing for the old id.
+        assert!(store.channel_messages_for_conference(1, "bbb", 10).unwrap().is_empty());
     }
 
     #[test]
@@ -797,6 +861,7 @@ mod tests {
             channel_id: None,
             is_public: false,
             sig: String::new(),
+            attachment: None,
         };
         store.post_upsert(&mk("a", "x", 3)).unwrap();
         store.post_upsert(&mk("b", "y", 5)).unwrap();
@@ -822,6 +887,7 @@ mod tests {
             channel_id: None,
             is_public: false,
             sig: String::new(),
+            attachment: None,
         };
         store.post_upsert(&c).unwrap();
         let thread = store.thread_for("post-1").unwrap();
@@ -845,6 +911,7 @@ mod tests {
             channel_id: None,
             is_public: false,
             sig: String::new(),
+            attachment: None,
         };
         store.post_upsert(&mk("c1", Some("post-1"), 1)).unwrap();
         store.post_upsert(&mk("c2", Some("c1"), 2)).unwrap();
@@ -898,6 +965,7 @@ mod tests {
             channel_id: None,
             is_public: false,
             sig: String::new(),
+            attachment: None,
         };
         store.post_upsert(&mk("p1", "alice", PostKind::Post, 10)).unwrap();
         store.post_upsert(&mk("c1", "alice", PostKind::Comment, 20)).unwrap();
@@ -923,6 +991,7 @@ mod tests {
             channel_id: None,
             is_public: false,
             sig: String::new(),
+            attachment: None,
         };
         store.post_upsert(&mk("a", "x", PostKind::Post, 1)).unwrap();
         store.post_upsert(&mk("b", "x", PostKind::Comment, 2)).unwrap();
@@ -966,6 +1035,7 @@ mod tests {
             channel_id: None,
             is_public: false,
             sig: String::new(),
+            attachment: None,
         };
         store.post_upsert(&mk("a", "x", "hello world", 3)).unwrap();
         store.post_upsert(&mk("b", "x", "ToxSocial is cool", 5)).unwrap();

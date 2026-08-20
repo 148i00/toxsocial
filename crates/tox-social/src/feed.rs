@@ -119,6 +119,7 @@ impl FeedEngine {
                 channel_id: None,
                 is_public: p.public,
                 sig: p.sig.clone(),
+                attachment: p.attachment.clone(),
             }),
             Envelope::Comment(c) => Some(PostRow {
                 id: c.id.clone(),
@@ -133,6 +134,7 @@ impl FeedEngine {
                 channel_id: None,
                 is_public: false,
                 sig: String::new(),
+                attachment: None,
             }),
             Envelope::Reaction(r) => {
                 let _ = self.store.delete_reaction(author, &r.reply_to);
@@ -149,6 +151,7 @@ impl FeedEngine {
                     channel_id: None,
                     is_public: false,
                     sig: String::new(),
+                    attachment: None,
                 })
             }
             Envelope::Profile(_)
@@ -193,6 +196,7 @@ impl FeedEngine {
             channel_id: None,
             is_public: post.public,
             sig: post.sig.clone(),
+            attachment: None,
         };
         self.store
             .post_upsert(&row)
@@ -226,6 +230,7 @@ impl FeedEngine {
             channel_id: None,
             is_public: true,
             sig: post.sig.clone(),
+            attachment: None,
         };
         self.store
             .post_upsert(&row)
@@ -256,6 +261,7 @@ impl FeedEngine {
             channel_id: None,
             is_public: post.public,
             sig: post.sig.clone(),
+            attachment: None,
         };
         self.store
             .post_upsert(&row)
@@ -291,6 +297,7 @@ impl FeedEngine {
             channel_id: None,
             is_public: true,
             sig: post.sig.clone(),
+            attachment: None,
         };
         self.store
             .post_upsert(&row)
@@ -325,6 +332,7 @@ impl FeedEngine {
             text,
             public: false,
             sig: String::new(),
+            attachment: None,
         };
         let row = PostRow {
             id: post.id.clone(),
@@ -339,6 +347,7 @@ impl FeedEngine {
             channel_id: None,
             is_public: post.public,
             sig: post.sig.clone(),
+            attachment: None,
         };
         let _ = self.store.post_upsert(&row);
         let _ = self.store.chunk_delete(&post.id, sender_pk);
@@ -372,6 +381,7 @@ impl FeedEngine {
             channel_id: None,
             is_public: false,
             sig: String::new(),
+            attachment: None,
         };
         self.store
             .post_upsert(&row)
@@ -403,6 +413,7 @@ impl FeedEngine {
             channel_id: None,
             is_public: false,
             sig: String::new(),
+            attachment: None,
         };
         self.store
             .post_upsert(&row)
@@ -498,6 +509,7 @@ fn row_to_envelope(row: PostRow) -> Option<Envelope> {
             text: row.text.unwrap_or_default(),
             public: row.is_public,
             sig: row.sig,
+            attachment: row.attachment,
         })),
         PostKind::Comment => Some(Envelope::Comment(Comment {
             v: 1,

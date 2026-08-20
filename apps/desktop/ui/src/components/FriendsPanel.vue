@@ -9,46 +9,6 @@ const props = defineProps<{ friends: FriendInfo[] }>();
 const emit = defineEmits<{ changed: []; open: [pubkey: string] }>();
 
 const removing = ref<string | null>(null);
-const sendingFile = ref<string | null>(null);
-const fileTarget = ref<FriendInfo | null>(null);
-const fileInput = ref<HTMLInputElement | null>(null);
-
-function chooseFile(f: FriendInfo) {
-  fileTarget.value = f;
-  fileInput.value?.click();
-}
-
-async function onFileSelected(e: Event) {
-  const input = e.target as HTMLInputElement;
-  const file = input.files?.[0];
-  input.value = "";
-  const target = fileTarget.value;
-  fileTarget.value = null;
-  if (!file || !target || sendingFile.value) return;
-  if (file.size > 20 * 1024 * 1024) {
-    alert(t("fileTooLarge", { size: "20MB" }));
-    return;
-  }
-  sendingFile.value = target.pubkey;
-  try {
-    const dataUrl = await readFileAsDataUrl(file);
-    await api.sendFileToFriendByToxid(target.toxid, file.name, dataUrl);
-    alert(t("fileSent", { name: target.name || t("friend"), filename: file.name }));
-  } catch (err) {
-    alert(String(err));
-  } finally {
-    sendingFile.value = null;
-  }
-}
-
-function readFileAsDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ""));
-    reader.onerror = () => reject(reader.error || new Error(t("readFailed")));
-    reader.readAsDataURL(file);
-  });
-}
 
 async function remove(f: FriendInfo) {
   if (!confirm(t("confirmUnfollow", { name: f.name || f.toxid.slice(0, 8) }))) return;
@@ -72,8 +32,6 @@ function open(f: FriendInfo) {
   <div class="panel">
     <h2>{{ t("friendsTitle") }}</h2>
 
-    <input ref="fileInput" type="file" hidden @change="onFileSelected" />
-
     <div v-if="friends.length === 0" class="empty">
       {{ t("noFriends") }}
     </div>
@@ -85,9 +43,6 @@ function open(f: FriendInfo) {
         <div class="mono">{{ f.pubkey }}</div>
       </div>
       <span class="state">{{ f.online ? t("online") : t("offline") }}</span>
-      <button :disabled="sendingFile === f.pubkey" @click.stop="chooseFile(f)">
-        {{ sendingFile === f.pubkey ? t("sendingFile") : t("file") }}
-      </button>
       <button class="danger" :disabled="removing === f.pubkey" @click.stop="remove(f)">
         {{ t("unfollow") }}
       </button>

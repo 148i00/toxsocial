@@ -63,6 +63,7 @@ pub struct TimelineItem {
     pub reactions: Vec<ReactionSummary>,
     pub is_own: bool,
     pub ts_verified: bool,
+    pub attachment: Option<String>,
     pub source: String,
 }
 
@@ -132,6 +133,62 @@ pub struct ChannelMessageInfo {
 #[tauri::command]
 pub fn get_app_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateInfo {
+    pub current: String,
+    pub latest: String,
+    pub has_update: bool,
+}
+
+/// Check GitHub Releases for a newer version. Best-effort: any network
+/// failure is surfaced as an error the caller may ignore.
+#[tauri::command]
+pub async fn check_update() -> Result<UpdateInfo, String> {
+    let current = env!("CARGO_PKG_VERSION").to_string();
+    let client = reqwest::Client::new();
+    let resp = client
+        .get("https://api.github.com/repos/148i00/toxsocial/releases/latest")
+        .header("User-Agent", "ToxSocial")
+        .header("Accept", "application/vnd.github+json")
+        .timeout(std::time::Duration::from_secs(10))
+        .send()
+        .await
+        .map_err(|e| format!("update check failed: {e}"))?;
+    let json: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("update check response invalid: {e}"))?;
+    let latest = json["tag_name"]
+        .as_str()
+        .unwrap_or("")
+        .trim_start_matches('v')
+        .to_string();
+    if latest.is_empty() {
+        return Err("no release found".to_string());
+    }
+    let has_update = compare_versions(&latest, &current) > 0;
+    Ok(UpdateInfo {
+        current,
+        latest,
+        has_update,
+    })
+}
+
+/// Numeric segment-by-segment comparison ("0.2.25" > "0.2.24").
+fn compare_versions(a: &str, b: &str) -> i32 {
+    let pa: Vec<i64> = a.split('.').filter_map(|s| s.parse().ok()).collect();
+    let pb: Vec<i64> = b.split('.').filter_map(|s| s.parse().ok()).collect();
+    for i in 0..pa.len().max(pb.len()) {
+        let x = pa.get(i).copied().unwrap_or(0);
+        let y = pb.get(i).copied().unwrap_or(0);
+        if x != y {
+            return if x > y { 1 } else { -1 };
+        }
+    }
+    0
 }
 
 #[tauri::command]
@@ -456,6 +513,8 @@ pub async fn publish_post(
     state: State<'_, AppState>,
     text: String,
     public: Option<bool>,
+    attachment_data: Option<String>,
+    attachment_name: Option<String>,
 ) -> Result<Post, String> {
     let me = state.session.lock().unwrap().self_public_key();
     let text = text.trim().to_string();
@@ -483,6 +542,45 @@ pub async fn publish_post(
                 .map_err(|e| e.to_string())?;
             (post.clone(), vec![Envelope::Post(post)])
         }
+    };
+    // Optional attachment: decode the data URL, store the file locally, and
+    // attach `"filename|size"` metadata to the post. Friends can then request
+    // the file, which is delivered over Tox's file-transfer channel.
+    let _attachment_meta = if let Some(data_url) = attachment_data {
+        if attachment_name.as_deref().unwrap_or("").is_empty() {
+            return Err("attachment name is empty".to_string());
+        }
+        let bytes = decode_data_url(&data_url)?;
+        if bytes.is_empty() {
+            return Err("attachment is empty".to_string());
+        }
+        if bytes.len() > 20 * 1024 * 1024 {
+            return Err("attachment too large (max 20MB)".to_string());
+        }
+        let dir = state.data_dir.join("media").join("attachments");
+        std::fs::create_dir_all(&dir)
+            .map_err(|e| format!("create attachments dir failed: {e}"))?;
+        let path = dir.join(&post.id);
+        std::fs::write(&path, &bytes)
+            .map_err(|e| format!("save attachment failed: {e}"))?;
+        let name = attachment_name.unwrap_or_default();
+        let meta = format!("{name}|{}", bytes.len());
+        // Persist metadata and put it on the envelope sent to friends.
+        {
+            let engine = state.engine.lock().unwrap();
+            engine
+                .store()
+                .post_update_attachment(&post.id, Some(&meta))
+                .map_err(|e| e.to_string())?;
+        }
+        post.attachment = Some(meta.clone());
+        // Rebuild envelopes so the attachment travels with the post.
+        if text.chars().count() <= tox_social::MAX_POST_CHARS {
+            envelopes = vec![Envelope::Post(post.clone())];
+        }
+        Some(meta)
+    } else {
+        None
     };
     // Sign public posts with our Ed25519 identity (short and long alike), so
     // the Relay and other clients can verify authenticity.
@@ -972,18 +1070,26 @@ pub fn is_channel_owned(state: State<AppState>, conference_number: u32) -> Resul
 
 #[tauri::command]
 pub fn conference_delete(state: State<AppState>, conference_number: u32) -> Result<(), String> {
-    {
+    let channel_id = {
         let mut session = state.session.lock().unwrap();
+        let id = session
+            .conference_get_id(conference_number)
+            .unwrap_or_default();
         session
             .conference_delete(conference_number)
             .map_err(|e| format!("delete conference failed: {e}"))?;
-    }
-    // Drop persisted chat history for the deleted channel.
+        id
+    };
+    // Drop persisted chat history keyed by the stable channel id. Deleting by
+    // conference number is unsafe: toxcore reuses numbers after a channel is
+    // deleted, which would wipe (or leak into) a newer channel's messages.
     let engine = state.engine.lock().unwrap();
-    engine
-        .store()
-        .channel_messages_delete(conference_number)
-        .map_err(|e| format!("delete channel messages failed: {e}"))?;
+    if !channel_id.is_empty() {
+        engine
+            .store()
+            .channel_messages_delete_by_channel(&channel_id)
+            .map_err(|e| format!("delete channel messages failed: {e}"))?;
+    }
     drop(engine);
     state.persist();
     Ok(())
@@ -1361,6 +1467,7 @@ pub async fn fetch_relay_public_posts(state: State<'_, AppState>, since: Option<
                 text,
                 public: true,
                 sig,
+                attachment: None,
             };
             let env = Envelope::Post(post);
             if engine.persist(&env, &pubkey, received_at) {
@@ -1403,6 +1510,81 @@ pub async fn verify_post_on_relay(
         }
     }
     Ok(false)
+}
+
+/// Decode a `data:` URL (or raw base64) into bytes.
+fn decode_data_url(data: &str) -> Result<Vec<u8>, String> {
+    use base64::engine::general_purpose::STANDARD as BASE64;
+    use base64::Engine as _;
+    let b64 = data
+        .trim()
+        .strip_prefix("data:")
+        .and_then(|s| s.split_once(',').map(|(_, b)| b))
+        .unwrap_or(data.trim());
+    BASE64.decode(b64).map_err(|e| format!("invalid base64: {e}"))
+}
+
+/// Request the attachment of a post from its author. The author's client
+/// receives a `get_file <post_id>` message and automatically sends the file
+/// over Tox's file-transfer channel.
+#[tauri::command]
+pub fn request_attachment(state: State<AppState>, post_id: String) -> Result<(), String> {
+    let author = {
+        let engine = state.engine.lock().unwrap();
+        match engine.store().post_get(&post_id) {
+            Ok(Some(p)) => p.author,
+            _ => return Err("post not found".to_string()),
+        }
+    };
+    let friend_number = {
+        let session = state.session.lock().unwrap();
+        session
+            .friend_list()
+            .into_iter()
+            .find(|n| {
+                session
+                    .friend_public_key(*n)
+                    .map(|pk| pk == author)
+                    .unwrap_or(false)
+            })
+            .ok_or_else(|| "author is not in your following list".to_string())?
+    };
+    {
+        let session = state.session.lock().unwrap();
+        session
+            .send_message(friend_number, &format!("get_file {post_id}"))
+            .map_err(|e| format!("request failed: {e}"))?;
+    }
+    Ok(())
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct FileTransferInfo {
+    pub direction: String,
+    pub friend_number: u32,
+    pub file_number: u32,
+    pub filename: String,
+    pub sent: u64,
+    pub total: u64,
+}
+
+/// In-flight file transfers (both directions) for the transfer-status UI.
+#[tauri::command]
+pub fn file_transfers(state: State<AppState>) -> Result<Vec<FileTransferInfo>, String> {
+    let session = state.session.lock().unwrap();
+    Ok(session
+        .file_transfers()
+        .into_iter()
+        .map(|t| FileTransferInfo {
+            direction: t.direction,
+            friend_number: t.friend_number,
+            file_number: t.file_number,
+            filename: t.filename,
+            sent: t.sent,
+            total: t.total,
+        })
+        .collect())
 }
 
 #[tauri::command]

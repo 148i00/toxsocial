@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { api, onEvent } from "./api";
 import { pushChannelMessage } from "./channelStore";
 import { t } from "./i18n";
-import type { DirectoryEntryInfo, FriendInfo, NetworkStatus, OwnInfo, TimelineItem } from "./types";
+import type { DirectoryEntryInfo, FileTransferInfo, FriendInfo, NetworkStatus, OwnInfo, TimelineItem } from "./types";
 import PostComposer from "./components/PostComposer.vue";
 import PostCard from "./components/PostCard.vue";
 import ThreadView from "./components/ThreadView.vue";
@@ -34,17 +34,40 @@ const currentFileRequest = computed(() => fileRequests.value[0] || null);
 let fileRequestId = 0;
 const showAddFriend = ref(false);
 const addToxid = ref("");
-const addMsg = ref(t("defaultFriendRequest"));
 const addBusy = ref(false);
 const addError = ref("");
 const userSearchResults = ref<DirectoryEntryInfo[]>([]);
 const searchingUsers = ref(false);
+const followBusy = ref(false);
+const transfers = ref<FileTransferInfo[]>([]);
 let notificationId = 0;
 let statusTimer: ReturnType<typeof setInterval> | undefined;
+let transferTimer: ReturnType<typeof setInterval> | undefined;
 
 function notify(text: string) {
   notifications.value.unshift({ id: ++notificationId, text, time: Date.now() });
   unread.value++;
+  // No left-side notification button anymore; show the panel automatically
+  // so new notifications are visible.
+  showNotifications.value = true;
+}
+
+/** Attachment download request sent to the author. */
+function onAttachmentRequested() {
+  notify(t("attachmentRequested"));
+}
+
+async function refreshTransfers() {
+  try {
+    transfers.value = await api.fileTransfers();
+  } catch {
+    transfers.value = [];
+  }
+}
+
+function transferPct(tr: FileTransferInfo): number {
+  if (!tr.total) return 0;
+  return Math.min(100, Math.round((tr.sent / tr.total) * 100));
 }
 
 function formatFileSize(bytes: number): string {
@@ -88,19 +111,8 @@ async function submitAddFriend() {
   addError.value = "";
   userSearchResults.value = [];
   try {
-    // If it looks like a ToxID (76 hex), add directly.
-    if (q.length >= 70) {
-      if (friends.value.some((f) => f.toxid === q || f.toxid.startsWith(q))) {
-        addError.value = t("alreadyFollowing");
-        return;
-      }
-      await api.addFriend(q, addMsg.value);
-      addToxid.value = "";
-      showAddFriend.value = false;
-      await refreshAll();
-      return;
-    }
-    // Otherwise search local + relay + friend network.
+    // Search only (local store + Relay directory). Results open the user's
+    // profile page, where a follow button is available.
     searchingUsers.value = true;
     const local = await api.searchDirectory(q, 20);
     let relay: DirectoryEntryInfo[] = [];
@@ -115,7 +127,18 @@ async function submitAddFriend() {
       seen.add(d.pubkey);
       return true;
     });
-    await api.requestDirectorySearch(q, 2);
+    // A full ToxID (76 hex) can still be inspected: view its profile and
+    // follow from there.
+    if (/^[0-9a-fA-F]{76}$/.test(q) && !seen.has(q.slice(0, 64))) {
+      userSearchResults.value.unshift({
+        name: t("userByToxid"),
+        pubkey: q.slice(0, 64).toLowerCase(),
+        toxid: q.toLowerCase(),
+        avatar: "",
+        relay: "",
+        source: "input",
+      });
+    }
     addError.value = userSearchResults.value.length === 0 ? t("noUserFound") : "";
   } catch (e) {
     addError.value = String(e);
@@ -125,20 +148,48 @@ async function submitAddFriend() {
   }
 }
 
-async function addFromSearch(d: DirectoryEntryInfo) {
-  const toxid = d.toxid || d.pubkey;
-  if (friends.value.some((f) => f.toxid === toxid || f.pubkey === d.pubkey || f.toxid.startsWith(d.pubkey))) {
-    addError.value = t("alreadyFollowing");
-    return;
-  }
+/** Open a searched user's profile page (posts + follow button). */
+async function viewSearchedUser(d: DirectoryEntryInfo) {
+  const pubkey = (d.pubkey || "").toLowerCase();
+  if (!pubkey) return;
+  const f = friends.value.find((x) => x.pubkey === pubkey || x.toxid.startsWith(pubkey));
+  profileUser.value = {
+    pubkey,
+    name: f?.name || d.name || t("unnamed"),
+    avatar: f?.avatar || d.avatar || "",
+    bio: f?.bio || "",
+  };
+  friendFilter.value = pubkey;
+  friendPosts.value = await api.fetchPostsByAuthor(pubkey, 50);
+  showAddFriend.value = false;
+  view.value = "profile";
+}
+
+/** Follow (add as friend) the user whose profile is open. */
+async function followProfileUser() {
+  const u = profileUser.value;
+  if (!u || followBusy.value) return;
+  followBusy.value = true;
   try {
-    await api.addFriend(toxid, addMsg.value);
-    addToxid.value = "";
-    showAddFriend.value = false;
+    await api.addFriend(u.pubkey, t("followMessage"));
+    notify(t("followingStarted", { name: u.name }));
     await refreshAll();
   } catch (e) {
-    addError.value = String(e);
+    const msg = String(e);
+    if (msg.includes("已发送") || msg.includes("already")) {
+      notify(t("followingStarted", { name: u.name }));
+    } else {
+      alert(msg);
+    }
+  } finally {
+    followBusy.value = false;
   }
+}
+
+function isFollowingUser(pubkey: string): boolean {
+  return friends.value.some(
+    (f) => f.pubkey === pubkey || f.toxid.startsWith(pubkey) || pubkey.startsWith(f.pubkey),
+  );
 }
 
 async function refreshOwn() {
@@ -217,7 +268,19 @@ onMounted(async () => {
     refreshNetworkStatus();
     refreshFriends();
   }, 10_000);
+  transferTimer = setInterval(refreshTransfers, 3_000);
+  refreshTransfers();
   loading.value = false;
+
+  // Check for a new version once at startup (best-effort; GitHub may be
+  // unreachable behind a firewall).
+  api.checkUpdate().then((u) => {
+    if (u.hasUpdate) {
+      notify(t("updateAvailable", { version: u.latest }));
+    }
+  }).catch(() => {
+    /* ignore network failures */
+  });
 
   // Live updates from the backend.
   onEvent("feed:post", () => {
@@ -318,6 +381,7 @@ async function runSearch() {
 }
 onBeforeUnmount(() => {
   if (statusTimer) clearInterval(statusTimer);
+  if (transferTimer) clearInterval(transferTimer);
 });
 </script>
 
@@ -336,15 +400,13 @@ onBeforeUnmount(() => {
         </button>
         <button :class="{ active: view === 'channels' }" @click="view = 'channels'">{{ t("channels") }}</button>
         <button :class="{ active: view === 'public' }" @click="openPublic">{{ t("public") }}</button>
-        <button @click="showNotifications = !showNotifications">
-          {{ t("notifications") }} <span v-if="unread" class="count">{{ unread }}</span>
-        </button>
         <button :class="{ active: view === 'settings' }" @click="view = 'settings'">{{ t("settings") }}</button>
       </nav>
       <div v-if="showNotifications" class="notif-panel">
         <div class="notif-head">
-          <span>{{ t("notifications") }}</span>
+          <span>{{ t("notifications") }} <span v-if="unread" class="count">{{ unread }}</span></span>
           <button class="mini" @click="markAllRead">{{ t("markAllRead") }}</button>
+          <button class="mini" @click="showNotifications = false">✕</button>
         </div>
         <div v-if="notifications.length === 0" class="empty">{{ t("noNotifications") }}</div>
         <div v-for="n in notifications" :key="n.id" class="notif-item">
@@ -372,7 +434,7 @@ onBeforeUnmount(() => {
         <div v-if="threadPostId" class="thread-header">
           <button @click="backToTimeline()">{{ t("backToTimeline") }}</button>
         </div>
-        <ThreadView v-if="threadPostId" :post-id="threadPostId" @refresh="refreshThreadAndTimeline" />
+        <ThreadView v-if="threadPostId" :post-id="threadPostId" @refresh="refreshThreadAndTimeline" @attachmentRequested="onAttachmentRequested" />
         <template v-else>
           <div v-if="friendFilter" class="thread-header">
             <button @click="backFromFriend()">{{ t("backToTimeline") }}</button>
@@ -385,7 +447,7 @@ onBeforeUnmount(() => {
               :item="p"
               :own="own"
               @open="openThreadWithData"
-              @reacted="refreshTimeline"
+              @reacted="refreshTimeline" @attachmentRequested="onAttachmentRequested"
             />
           </template>
           <template v-else>
@@ -405,7 +467,7 @@ onBeforeUnmount(() => {
                 :item="p"
                 :own="own"
                 @open="openThreadWithData"
-                @reacted="refreshTimeline"
+                @reacted="refreshTimeline" @attachmentRequested="onAttachmentRequested"
               />
             </template>
             <template v-else>
@@ -420,7 +482,7 @@ onBeforeUnmount(() => {
                 :item="p"
                 :own="own"
                 @open="openThreadWithData"
-                @reacted="refreshTimeline"
+                @reacted="refreshTimeline" @attachmentRequested="onAttachmentRequested"
               />
             </template>
           </template>
@@ -438,6 +500,15 @@ onBeforeUnmount(() => {
             <div class="mono">{{ profileUser.pubkey }}</div>
             <div v-if="profileUser.bio" class="profile-bio">{{ profileUser.bio }}</div>
           </div>
+          <button
+            v-if="!isFollowingUser(profileUser.pubkey)"
+            class="primary follow-btn"
+            :disabled="followBusy"
+            @click="followProfileUser"
+          >
+            {{ followBusy ? t("processing") : t("follow") }}
+          </button>
+          <span v-else class="followed-tag">{{ t("following") }}</span>
         </div>
         <div v-if="friendPosts.length === 0" class="empty">{{ t("noPostsYet") }}</div>
         <PostCard
@@ -446,7 +517,7 @@ onBeforeUnmount(() => {
           :item="p"
           :own="own"
           @open="openThreadWithData"
-          @reacted="refreshTimeline"
+          @reacted="refreshTimeline" @attachmentRequested="onAttachmentRequested"
         />
       </div>
       <FriendsPanel v-else-if="view === 'friends'" :friends="friends" @changed="refreshAll" @open="viewFriend" />
@@ -463,7 +534,7 @@ onBeforeUnmount(() => {
           :item="p"
           :own="own"
           @open="openThreadWithData"
-          @reacted="refreshPublicTimeline"
+          @reacted="refreshPublicTimeline" @attachmentRequested="onAttachmentRequested"
         />
       </div>
       <SettingsPanel v-else :own="own" @saved="refreshAll" />
@@ -488,23 +559,22 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <!-- Add friend modal -->
+    <!-- Add friend / search users modal -->
     <div v-if="showAddFriend" class="modal-overlay" @click.self="showAddFriend = false">
       <div class="modal">
         <h3>{{ t("searchUsers") }}</h3>
-        <input v-model="addToxid" class="mono" :placeholder="t('searchUserPlaceholder')" />
-        <input v-model="addMsg" :placeholder="t('addFriendMsgPlaceholder')" />
+        <input v-model="addToxid" class="mono" :placeholder="t('searchUserPlaceholder')" @keydown.enter.prevent="submitAddFriend" />
         <p v-if="addError" class="error">{{ addError }}</p>
         <div v-if="searchingUsers" class="empty">{{ t("searchingUsers") }}</div>
         <div v-for="d in userSearchResults" :key="d.pubkey" class="search-result">
           <span>{{ d.name || t("unnamed") }}</span>
           <span class="mono">{{ d.pubkey.slice(0, 12) }}…</span>
-          <button @click="addFromSearch(d)">{{ t("add") }}</button>
+          <button @click="viewSearchedUser(d)">{{ t("viewProfile") }}</button>
         </div>
         <div class="row">
           <button @click="showAddFriend = false">{{ t("cancel") }}</button>
           <button class="primary" :disabled="addBusy || !addToxid.trim()" @click="submitAddFriend">
-            {{ addBusy ? t("processing") : t("searchAdd") }}
+            {{ addBusy ? t("processing") : t("search") }}
           </button>
         </div>
       </div>
@@ -521,6 +591,20 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </aside>
+
+    <!-- Attachment/file transfer status -->
+    <div v-if="transfers.length > 0" class="transfer-panel">
+      <div class="transfer-head">📤 {{ t("transfers") }}</div>
+      <div v-for="(tr, i) in transfers" :key="`${tr.direction}-${tr.friendNumber}-${tr.fileNumber}`" class="transfer-item">
+        <span class="transfer-name" :title="tr.filename">
+          {{ tr.direction === "send" ? "↑" : "↓" }} {{ tr.filename }}
+        </span>
+        <div class="progress">
+          <div class="progress-bar" :style="{ width: transferPct(tr) + '%' }"></div>
+        </div>
+        <span class="transfer-pct">{{ transferPct(tr) }}%</span>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -553,7 +637,8 @@ nav {
 }
 
 nav button {
-  text-align: left;
+  text-align: center;
+  justify-content: center;
   font-size: 14px;
   padding: 10px 12px;
 }
@@ -640,6 +725,62 @@ nav button.active {
 .profile-name {
   font-size: 16px;
   font-weight: 700;
+}
+.follow-btn {
+  margin-left: auto;
+}
+.followed-tag {
+  margin-left: auto;
+  color: var(--text-dim);
+  font-size: 13px;
+}
+.transfer-panel {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  width: 320px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  z-index: 50;
+}
+.transfer-head {
+  font-weight: 600;
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+.transfer-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  padding: 4px 0;
+}
+.transfer-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.transfer-pct {
+  color: var(--text-dim);
+  min-width: 36px;
+  text-align: right;
+}
+.progress {
+  width: 90px;
+  height: 6px;
+  background: var(--bg-3);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.progress-bar {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 999px;
+  transition: width 0.3s;
 }
 .profile-bio {
   margin-top: 4px;

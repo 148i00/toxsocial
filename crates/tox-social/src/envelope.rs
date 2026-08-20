@@ -23,6 +23,10 @@ pub struct Post {
     pub public: bool,
     #[serde(rename = "sig", default)]
     pub sig: String,
+    /// Attachment metadata `"filename|size_bytes"`, or None. The file itself
+    /// travels over Tox's file-transfer channel on request (`get_file`).
+    #[serde(rename = "att", default, skip_serializing_if = "Option::is_none")]
+    pub attachment: Option<String>,
 }
 
 /// A comment attached to a post.
@@ -272,6 +276,7 @@ impl Post {
             text: text.to_string(),
             public: false,
             sig: String::new(),
+            attachment: None,
         }
     }
 }

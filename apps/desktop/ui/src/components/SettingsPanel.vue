@@ -31,6 +31,23 @@ const syncing = ref(false);
 const avatarFile = ref<HTMLInputElement | null>(null);
 const avatarBusy = ref(false);
 const avatarUrl = ref("");
+const updateStatus = ref<"idle" | "checking" | "update" | "ok" | "error">("idle");
+const updateLatest = ref("");
+
+async function checkForUpdate() {
+  updateStatus.value = "checking";
+  try {
+    const info = await api.checkUpdate();
+    if (info.hasUpdate) {
+      updateLatest.value = info.latest;
+      updateStatus.value = "update";
+    } else {
+      updateStatus.value = "ok";
+    }
+  } catch {
+    updateStatus.value = "error";
+  }
+}
 
 let statusTimer: ReturnType<typeof setInterval> | undefined;
 
@@ -240,6 +257,15 @@ async function save() {
       <div class="conn-detail">{{ t("relayStatus", { status: networkStatus ? (networkStatus.relayOk ? t("relayOk") : t("relayDown")) : t("checking") }) }}</div>
       <div class="conn-detail">{{ t("friendStats", { friends: networkStatus?.friends ?? "…", online: networkStatus?.onlineFriends ?? "…" }) }}</div>
       <div class="conn-detail">{{ t("version", { version: appVersion || "…" }) }}</div>
+      <div class="conn-detail">
+        <span v-if="updateStatus === 'checking'">{{ t("checkingUpdate") }}</span>
+        <span v-else-if="updateStatus === 'update'">{{ t("updateAvailable", { version: updateLatest }) }}</span>
+        <span v-else-if="updateStatus === 'ok'">{{ t("upToDate") }}</span>
+        <span v-else-if="updateStatus === 'error'">{{ t("updateCheckFailed") }}</span>
+        <button class="mini" :disabled="updateStatus === 'checking'" @click="checkForUpdate">
+          {{ t("checkUpdate") }}
+        </button>
+      </div>
     </div>
 
     <div class="card">

@@ -37,6 +37,8 @@ export interface TimelineItem {
   isOwn: boolean;
   /** Timestamp verified by the Relay server clock (or our own post). */
   tsVerified: boolean;
+  /** Attachment metadata "filename|size" if the post carries one. */
+  attachment: string | null;
   source: string;
 }
 
@@ -91,4 +93,19 @@ export interface ConferenceSendResult {
   id: number;
   /** Message queued offline (no other members); flushed when someone joins. */
   queued: boolean;
+}
+
+export interface UpdateInfo {
+  current: string;
+  latest: string;
+  hasUpdate: boolean;
+}
+
+export interface FileTransferInfo {
+  direction: "send" | "recv";
+  friendNumber: number;
+  fileNumber: number;
+  filename: string;
+  sent: number;
+  total: number;
 }

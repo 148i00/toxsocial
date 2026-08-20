@@ -584,7 +584,10 @@ onBeforeUnmount(() => {
         <div v-if="publicChannels.length === 0" class="empty">{{ t("noPublicChannels") }}</div>
         <div v-for="ch in publicChannels" :key="ch.channelId" class="public-item">
           <div class="public-item-info" @click="joinPublic(ch)">
-            <div class="channel-item-name">{{ ch.name }}</div>
+            <div class="channel-item-name">
+              {{ ch.name }}
+              <span class="member-count" :title="t('onlineMembersTitle')">👥 {{ ch.members?.length ?? 0 }}</span>
+            </div>
             <div class="channel-item-desc">{{ ch.desc || t("noDescription") }}</div>
           </div>
           <div class="public-item-actions">
@@ -767,6 +770,12 @@ onBeforeUnmount(() => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.member-count {
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-left: 6px;
 }
 .channel-item-desc {
   font-size: 11px;

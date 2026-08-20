@@ -72,6 +72,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::get_own_info,
             commands::get_app_version,
+            commands::check_update,
             commands::get_network_status,
             commands::set_profile,
             commands::set_avatar,
@@ -88,6 +89,8 @@ pub fn run() {
             commands::get_friends,
             commands::send_file_to_friend,
             commands::send_file_to_friend_by_toxid,
+            commands::request_attachment,
+            commands::file_transfers,
             commands::accept_file,
             commands::reject_file,
             commands::send_join_channel,

@@ -1,18 +1,22 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { locale } from "./i18n";
-import type { ChannelMessageInfo, ConferencePeerInfo, ConferenceSendResult, DirectoryEntryInfo, FriendInfo, MediaConfig, NetworkStatus, OwnInfo, PublicChannelInfo, TimelineItem } from "./types";
+import type { ChannelMessageInfo, ConferencePeerInfo, ConferenceSendResult, DirectoryEntryInfo, FileTransferInfo, FriendInfo, MediaConfig, NetworkStatus, OwnInfo, PublicChannelInfo, TimelineItem, UpdateInfo } from "./types";
 
 export const api = {
   getOwnInfo: () => invoke<OwnInfo>("get_own_info"),
   getAppVersion: () => invoke<string>("get_app_version"),
+  checkUpdate: () => invoke<UpdateInfo>("check_update"),
   getNetworkStatus: () => invoke<NetworkStatus>("get_network_status"),
   setProfile: (name: string, bio: string) => invoke<void>("set_profile", { name, bio }),
   addFriend: (toxid: string, message: string) => invoke<number>("add_friend", { toxid, message }),
   removeFriend: (friendNumber: number) => invoke<void>("remove_friend", { friendNumber }),
   removeFriendByToxid: (toxid: string) => invoke<void>("remove_friend_by_toxid", { toxid }),
-  publishPost: (text: string, isPublic?: boolean) =>
-    invoke<TimelineItem>("publish_post", { text, public: isPublic }),
+  publishPost: (text: string, isPublic?: boolean, attachmentData?: string, attachmentName?: string) =>
+    invoke<TimelineItem>("publish_post", { text, public: isPublic, attachmentData, attachmentName }),
+  requestAttachment: (postId: string) =>
+    invoke<void>("request_attachment", { postId }),
+  fileTransfers: () => invoke<FileTransferInfo[]>("file_transfers"),
   publishComment: (postId: string, text: string, replyTo?: string) =>
     invoke<TimelineItem>("publish_comment", { postId, text, replyTo }),
   publishReaction: (postId: string, emoji: string) =>

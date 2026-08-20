@@ -11,7 +11,7 @@ function md(text?: string | null): string {
 }
 
 const props = defineProps<{ postId: string }>();
-const emit = defineEmits<{ refresh: [] }>();
+const emit = defineEmits<{ refresh: []; attachmentRequested: [postId: string] }>();
 
 const post = ref<TimelineItem | null>(null);
 const comments = ref<TimelineItem[]>([]);
@@ -61,6 +61,29 @@ async function load() {
   reactions.value = items.filter((i) => i.kind === "reaction");
 }
 
+/** "name|size" -> display name */
+function attachName(meta: string): string {
+  return meta.split("|")[0] || meta;
+}
+
+/** "name|size" -> human-readable size */
+function attachSize(meta: string): string {
+  const size = Number(meta.split("|")[1] || 0);
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+async function requestAttachment() {
+  if (!post.value?.id) return;
+  try {
+    await api.requestAttachment(post.value.id);
+    emit("attachmentRequested", post.value.id);
+  } catch (e) {
+    alert(String(e));
+  }
+}
+
 function replyTo(c: TimelineItem) {
   replyTarget.value = c.id;
   commentText.value = `@${c.authorName} `;
@@ -104,6 +127,11 @@ onMounted(load);
         <span v-if="!post.tsVerified" class="tag warn" :title="t('timeUnverifiedTitle')">{{ t("timeUnverified") }}</span>
       </div>
       <div class="body markdown" v-html="md(post.text)"></div>
+      <div v-if="post.attachment" class="attach" @click.stop>
+        <span class="attach-name" :title="attachName(post.attachment)">📎 {{ attachName(post.attachment) }}</span>
+        <span class="attach-size">{{ attachSize(post.attachment) }}</span>
+        <button class="mini" @click="requestAttachment">{{ t("download") }}</button>
+      </div>
       <div class="stats">
         <span>💬 {{ t("commentCount", { count: comments.length }) }}</span>
         <span>⚡ {{ t("reactionSummary", { count: reactions.length, summary: reactionSummary || t("none") }) }}</span>
@@ -166,6 +194,28 @@ onMounted(load);
   border-radius: 8px;
   font-size: 11px;
   padding: 0 6px;
+}
+.attach {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  margin: 6px 0;
+  font-size: 13px;
+}
+.attach-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 60%;
+}
+.attach-size {
+  color: var(--text-dim);
+  font-size: 12px;
 }
 .head {
   display: flex;

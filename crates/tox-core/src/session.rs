@@ -21,13 +21,26 @@ static TOX_FFI_LOCK: Mutex<()> = Mutex::new(());
 pub const MAX_NAME_LENGTH: usize = TOX_MAX_NAME_LENGTH;
 pub const MAX_STATUS_MESSAGE_LENGTH: usize = TOX_MAX_STATUS_MESSAGE_LENGTH;
 
+/// One in-flight file transfer (see `ToxSession::file_transfers`).
+#[derive(Debug, Clone)]
+pub struct FileTransferInfo {
+    pub direction: String, // "send" | "recv"
+    pub friend_number: u32,
+    pub file_number: u32,
+    pub filename: String,
+    pub sent: u64,
+    pub total: u64,
+}
+
 struct OutgoingFile {
     data: Vec<u8>,
     pos: usize,
+    filename: String,
 }
 
 struct IncomingFile {
     filename: String,
+    file_size: u64,
     data: Vec<u8>,
 }
 
@@ -247,7 +260,14 @@ unsafe extern "C" fn on_file_recv(
     let name = String::from_utf8_lossy(std::slice::from_raw_parts(filename, filename_length)).into_owned();
     {
         let mut incoming = ctx.incoming.lock().unwrap();
-        incoming.insert((friend_number, file_number), IncomingFile { filename: name.clone(), data: Vec::new() });
+        incoming.insert(
+            (friend_number, file_number),
+            IncomingFile {
+                filename: name.clone(),
+                file_size,
+                data: Vec::new(),
+            },
+        );
     }
     // Do not auto-accept: the UI must confirm before we send RESUME.
     send(
@@ -773,6 +793,7 @@ impl ToxSession {
             OutgoingFile {
                 data: data.to_vec(),
                 pos: 0,
+                filename: filename.to_string(),
             },
         );
         Ok(file_number)
@@ -803,6 +824,41 @@ impl ToxSession {
             return Err(ToxError::File(err));
         }
         Ok(())
+    }
+
+    /// Snapshot of in-flight file transfers (both directions), for the
+    /// transfer-status UI. `sent`/`total` are byte counts; `total == 0`
+    /// means the total is not known yet (incoming transfer awaiting
+    /// acceptance).
+    pub fn file_transfers(&self) -> Vec<FileTransferInfo> {
+        let mut out = Vec::new();
+        {
+            let outgoing = self.outgoing.lock().unwrap();
+            for ((friend_number, file_number), f) in outgoing.iter() {
+                out.push(FileTransferInfo {
+                    direction: "send".to_string(),
+                    friend_number: *friend_number,
+                    file_number: *file_number,
+                    filename: f.filename.clone(),
+                    sent: f.pos as u64,
+                    total: f.data.len() as u64,
+                });
+            }
+        }
+        {
+            let incoming = self.incoming.lock().unwrap();
+            for ((friend_number, file_number), f) in incoming.iter() {
+                out.push(FileTransferInfo {
+                    direction: "recv".to_string(),
+                    friend_number: *friend_number,
+                    file_number: *file_number,
+                    filename: f.filename.clone(),
+                    sent: f.data.len() as u64,
+                    total: f.file_size,
+                });
+            }
+        }
+        out
     }
 
     // --- conferences ------------------------------------------------------------
