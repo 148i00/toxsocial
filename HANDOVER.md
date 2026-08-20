@@ -175,6 +175,7 @@ CLI 双实例联调：
 - **帖子 ts 可被作者伪造**（自签 ts 无法验证真伪）：Relay 已拒绝超出 ±15s 的 ts，但窗口内的任意日期仍可伪造——这是自签时间戳的固有局限，客户端按 ts 排序显示。
 - 附件仅走好友直传/同步传播（TSP Post 的 `att` 字段）；Relay 不存 attachment，从 Relay 拉取的帖子不显示附件。
 - **注意**：不要用 PowerShell `Get-Content/Set-Content` 重写含中文/emoji 的源码文件（会损坏 UTF-8，曾损坏 store.rs/feed.rs/App.vue）；统一用编辑工具或 Python（`encoding="utf-8"`）。
+- 图标：当前是程序化占位图（几何狐狸+节点连线，teal→purple 渐变），由 `scripts/make-icon.py` 生成 `scripts/icon-master.png`，再跑 `tauri icon` 产出全套。正式设计稿就绪后：替换 `icon-master.png` → `cd apps/desktop && .\ui\node_modules\.bin\tauri.cmd icon ..\..\scripts\icon-master.png` → 重新打包。
 
 ### 待办功能（v0.2.24 已完成全部三项）
 - ✅ **频道消息持久化到 SQLite**：新表 `channel_messages`（conference_number/channel_id/peer_name/peer_key/text/ts/direction）；收到/发送时写入，`channel_messages` 命令按会议号（或稳定 channel_id 兜底）取最近 300 条；前端切换频道时合并历史并去重（按行 id 或 peer+text+ts）；删除频道时同步删历史。
