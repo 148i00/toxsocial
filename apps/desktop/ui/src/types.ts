@@ -76,3 +76,11 @@ export interface PublicChannelInfo {
   hosts: string[];
   members: string[];
 }
+
+export interface ChannelMessageInfo {
+  id: number;
+  peerName: string;
+  text: string;
+  ts: number;
+  direction: number; // 0 = received, 1 = sent by us
+}

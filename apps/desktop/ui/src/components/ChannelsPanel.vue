@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { api, onEvent } from "../api";
-import { channelMessages, pushChannelMessage } from "../channelStore";
+import { channelMessages, mergeChannelHistory, pushChannelMessage } from "../channelStore";
 import { t } from "../i18n";
 import type { ConferencePeerInfo, FriendInfo, PublicChannelInfo } from "../types";
 
@@ -399,7 +399,35 @@ async function switchChannel(n: number) {
   await refreshChannelId();
   await refreshPeerCount();
   await loadPeers();
+  await loadHistory(n);
   isCurrentChannelOwned.value = await api.isChannelOwned(n).catch(() => false);
+}
+
+/** Load persisted chat history for this channel (survives restarts). */
+async function loadHistory(n: number) {
+  try {
+    const msgs = await api.channelMessages(n, 300);
+    if (msgs.length === 0) return;
+    const name =
+      myChannels.value.find((c) => c.conferenceNumber === n)?.name ||
+      t("channelNameWithNumber", { number: n });
+    const added = mergeChannelHistory(
+      msgs.map((m) => ({
+        id: m.id,
+        conferenceNumber: n,
+        channelName: name,
+        peer: m.direction === 1 ? ME_PEER : m.peerName || `#${n}`,
+        text: m.text,
+        ts: m.ts,
+      })),
+    );
+    if (added > 0) {
+      await nextTick();
+      chatMessagesRef.value?.scrollTo({ top: chatMessagesRef.value.scrollHeight });
+    }
+  } catch {
+    // history load failure is non-fatal
+  }
 }
 
 async function create() {
@@ -471,9 +499,9 @@ async function send() {
   busy.value = true;
   error.value = "";
   try {
-    await api.conferenceSend(conferenceNumber.value, message.value.trim());
+    const id = await api.conferenceSend(conferenceNumber.value, message.value.trim());
     const name = myChannels.value.find((c) => c.conferenceNumber === conferenceNumber.value)?.name || t("channelNameWithNumber", { number: conferenceNumber.value });
-    pushChannelMessage({ conferenceNumber: conferenceNumber.value, channelName: name, peer: ME_PEER, text: message.value.trim() });
+    pushChannelMessage({ id, conferenceNumber: conferenceNumber.value, channelName: name, peer: ME_PEER, text: message.value.trim(), ts: Date.now() });
     message.value = "";
   } catch (e) {
     error.value = String(e);

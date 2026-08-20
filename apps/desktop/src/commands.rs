@@ -8,7 +8,7 @@ use tauri_plugin_autostart::ManagerExt;
 
 use tox_core::{Connection, ToxError};
 use tox_social::envelope::{Comment, Envelope, Post, Profile, Reaction, SyncReq};
-use tox_store::{PostKind, PostRow};
+use tox_store::{ChannelMessageRow, PostKind, PostRow};
 
 use crate::events;
 use crate::state::AppState;
@@ -114,6 +114,16 @@ pub struct PublicChannelInfo {
     pub members: Vec<String>,
 }
 
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ChannelMessageInfo {
+    pub id: i64,
+    pub peer_name: String,
+    pub text: String,
+    pub ts: i64,
+    pub direction: i64,
+}
+
 // ---------------------------------------------------------------------------
 // Commands
 // ---------------------------------------------------------------------------
@@ -149,7 +159,7 @@ pub fn get_own_info(state: State<AppState>) -> OwnInfo {
 #[tauri::command]
 pub async fn get_network_status(state: State<'_, AppState>) -> Result<NetworkStatus, String> {
     let relays = relay_urls(&state);
-    let (connection, friends, online) = {
+    let (connection, friends, online, dht_nodes) = {
         let session = state.session.lock().unwrap();
         let connection = session.self_connection();
         let friends = session.friend_list();
@@ -157,7 +167,8 @@ pub async fn get_network_status(state: State<'_, AppState>) -> Result<NetworkSta
             .iter()
             .filter(|n| session.friend_connection(**n) != Connection::None)
             .count();
-        (connection, friends.len(), online)
+        let dht_nodes = session.dht_node_count() as usize;
+        (connection, friends.len(), online, dht_nodes)
     };
     let mut relay_ok = false;
     for relay in &relays {
@@ -175,7 +186,7 @@ pub async fn get_network_status(state: State<'_, AppState>) -> Result<NetworkSta
         },
         friends,
         online_friends: online,
-        dht_nodes: tox_core::DEFAULT_BOOTSTRAP_NODES.len(),
+        dht_nodes,
         relay_ok,
     })
 }
@@ -471,20 +482,25 @@ pub async fn publish_post(
             (post.clone(), vec![Envelope::Post(post)])
         }
     };
-    // Sign short public posts with our Ed25519 identity.
-    if is_public && text.chars().count() <= tox_social::MAX_POST_CHARS {
+    // Sign public posts with our Ed25519 identity (short and long alike), so
+    // the Relay and other clients can verify authenticity.
+    let mut ed_pk = String::new();
+    if is_public {
         let session = state.session.lock().unwrap();
         let sig = session
             .sign_data(post.signing_string().as_bytes())
             .map_err(|e| e.to_string())?;
         let sig_hex = hex::encode(sig);
         post.sig = sig_hex.clone();
+        ed_pk = session.self_ed25519_public_key();
         let engine = state.engine.lock().unwrap();
         engine
             .store()
             .post_update_sig(&post.id, &sig_hex)
             .map_err(|e| e.to_string())?;
-        envelopes = vec![Envelope::Post(post.clone())];
+        if text.chars().count() <= tox_social::MAX_POST_CHARS {
+            envelopes = vec![Envelope::Post(post.clone())];
+        }
     }
     for env in envelopes {
         fan_out(&state, env)?;
@@ -496,7 +512,17 @@ pub async fn publish_post(
         let ts = post.ts;
         let text = post.text.clone();
         for relay in &relays {
-            if let Err(e) = crate::relay::publish_post(relay, &pubkey, &id, ts, &text, &post.sig).await {
+            if let Err(e) = crate::relay::publish_post(
+                relay,
+                &pubkey,
+                &id,
+                ts,
+                &text,
+                &post.sig,
+                &ed_pk,
+            )
+            .await
+            {
                 eprintln!("[toxsocial] relay publish failed: {e}");
             }
         }
@@ -943,6 +969,13 @@ pub fn conference_delete(state: State<AppState>, conference_number: u32) -> Resu
             .conference_delete(conference_number)
             .map_err(|e| format!("delete conference failed: {e}"))?;
     }
+    // Drop persisted chat history for the deleted channel.
+    let engine = state.engine.lock().unwrap();
+    engine
+        .store()
+        .channel_messages_delete(conference_number)
+        .map_err(|e| format!("delete channel messages failed: {e}"))?;
+    drop(engine);
     state.persist();
     Ok(())
 }
@@ -990,11 +1023,79 @@ pub fn conference_send(
     state: State<AppState>,
     conference_number: u32,
     text: String,
-) -> Result<(), String> {
-    let session = state.session.lock().unwrap();
-    session
-        .conference_send_message(conference_number, text.trim())
-        .map_err(|e| format!("send to conference failed: {e}"))
+) -> Result<i64, String> {
+    let text = text.trim().to_string();
+    if text.is_empty() {
+        return Err("empty message".to_string());
+    }
+    {
+        let session = state.session.lock().unwrap();
+        session
+            .conference_send_message(conference_number, &text)
+            .map_err(|e| format!("send to conference failed: {e}"))?;
+    }
+    // Persist the outbound message so history survives restarts.
+    let (channel_id, me) = {
+        let session = state.session.lock().unwrap();
+        (
+            session
+                .conference_get_id(conference_number)
+                .unwrap_or_default(),
+            session.self_public_key(),
+        )
+    };
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0);
+    let engine = state.engine.lock().unwrap();
+    let id = engine
+        .store()
+        .channel_message_insert(&ChannelMessageRow {
+            id: 0,
+            conference_number,
+            channel_id,
+            peer_name: String::new(),
+            peer_key: me,
+            text: text.clone(),
+            ts,
+            direction: 1,
+        })
+        .map_err(|e| format!("persist channel message failed: {e}"))?;
+    Ok(id)
+}
+
+/// Persisted chat history for a conference (newest-first capped, returned in
+/// chronological order). Falls back to the stable channel id so history
+/// survives restarts even if the conference number changed.
+#[tauri::command]
+pub fn channel_messages(
+    state: State<AppState>,
+    conference_number: u32,
+    limit: Option<u32>,
+) -> Result<Vec<ChannelMessageInfo>, String> {
+    let limit = limit.unwrap_or(300).min(1000);
+    let channel_id = {
+        let session = state.session.lock().unwrap();
+        session
+            .conference_get_id(conference_number)
+            .unwrap_or_default()
+    };
+    let engine = state.engine.lock().unwrap();
+    let rows = engine
+        .store()
+        .channel_messages_for_conference(conference_number, &channel_id, limit)
+        .map_err(|e| format!("load channel messages failed: {e}"))?;
+    Ok(rows
+        .into_iter()
+        .map(|r| ChannelMessageInfo {
+            id: r.id,
+            peer_name: r.peer_name,
+            text: r.text,
+            ts: r.ts,
+            direction: r.direction,
+        })
+        .collect())
 }
 
 #[tauri::command]

@@ -312,10 +312,59 @@ fn handle_event(app: &AppHandle, state: &State<AppState>, ev: Event) {
             message_type: _,
             text,
         } => {
-            println!("[toxsocial] conference #{conference_number} peer {peer_number}: {text}");
+            // Persist the message so it survives restarts (see channel_messages
+            // command). Grab session data first, then write to the store.
+            let (channel_id, peer_name, peer_key, ts) = {
+                let session = state.session.lock().unwrap();
+                let channel_id = session
+                    .conference_get_id(conference_number)
+                    .unwrap_or_default();
+                let peer_name = session
+                    .conference_peer_name(conference_number, peer_number)
+                    .unwrap_or_default();
+                let peer_key = session
+                    .conference_peer_public_key(conference_number, peer_number)
+                    .unwrap_or_default();
+                let ts = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis() as i64)
+                    .unwrap_or(0);
+                (channel_id, peer_name, peer_key, ts)
+            };
+            let display_name = if peer_name.is_empty() {
+                format!("#{peer_number}")
+            } else {
+                peer_name
+            };
+            let msg_id = {
+                let engine = state.engine.lock().unwrap();
+                engine
+                    .store()
+                    .channel_message_insert(&tox_store::ChannelMessageRow {
+                        id: 0,
+                        conference_number,
+                        channel_id,
+                        peer_name: display_name.clone(),
+                        peer_key,
+                        text: text.clone(),
+                        ts,
+                        direction: 0,
+                    })
+                    .unwrap_or(0)
+            };
+            println!(
+                "[toxsocial] conference #{conference_number} peer {peer_number} ({display_name}): {text}"
+            );
             let _ = app.emit(
                 "channel:message",
-                json!({ "conferenceNumber": conference_number, "peerNumber": peer_number, "text": text }),
+                json!({
+                    "conferenceNumber": conference_number,
+                    "peerNumber": peer_number,
+                    "peerName": display_name,
+                    "text": text,
+                    "id": msg_id,
+                    "ts": ts,
+                }),
             );
         }
         Event::ConferencePeerName {

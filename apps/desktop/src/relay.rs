@@ -46,7 +46,15 @@ pub async fn search_directory(relay: &str, query: &str) -> Result<Vec<RelayDirec
     Ok(out)
 }
 
-pub async fn publish_post(relay: &str, pubkey: &str, id: &str, ts: i64, text: &str, sig: &str) -> Result<(), String> {
+pub async fn publish_post(
+    relay: &str,
+    pubkey: &str,
+    id: &str,
+    ts: i64,
+    text: &str,
+    sig: &str,
+    ed_pk: &str,
+) -> Result<(), String> {
     let url = format!("{}/api/outbox", relay.trim_end_matches('/'));
     let body = serde_json::json!({
         "pubkey": pubkey,
@@ -54,6 +62,7 @@ pub async fn publish_post(relay: &str, pubkey: &str, id: &str, ts: i64, text: &s
         "ts": ts,
         "text": text,
         "sig": sig,
+        "edPk": ed_pk,
         "type": "post",
     });
     let client = reqwest::Client::new();

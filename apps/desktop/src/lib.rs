@@ -110,6 +110,7 @@ pub fn run() {
             commands::get_conference_id,
             commands::get_conference_peer_count,
             commands::list_conferences,
+            commands::channel_messages,
             commands::request_sync_all,
             commands::search_posts,
             commands::search_directory,
