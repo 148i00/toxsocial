@@ -27,6 +27,9 @@ pub enum PostSource {
     SelfPublished = 0,
     FriendDirect = 1,
     Channel = 2,
+    /// Fetched from the Relay, whose server clock validated the timestamp
+    /// (within ±15s). Used to warn about unverified author-claimed times.
+    RelayVerified = 3,
 }
 
 /// A row in the `posts` table.
@@ -437,6 +440,16 @@ impl Store {
         Ok(())
     }
 
+    /// Mark a post as fetched from the Relay (its timestamp was validated by
+    /// the Relay server clock, see `PostSource::RelayVerified`).
+    pub fn post_mark_relay_verified(&self, id: &str) -> Result<()> {
+        self.conn.execute(
+            "UPDATE posts SET source = 3 WHERE id = ?1",
+            params![id],
+        )?;
+        Ok(())
+    }
+
     /// Remove all reactions by one author on one post (single-reaction rule).
     pub fn delete_reaction(&self, author: &str, parent_id: &str) -> Result<()> {
         self.conn.execute(
@@ -607,6 +620,7 @@ fn row_to_post(r: &rusqlite::Row) -> Result<PostRow> {
         source: match r.get::<_, i64>(8)? {
             0 => PostSource::SelfPublished,
             2 => PostSource::Channel,
+            3 => PostSource::RelayVerified,
             _ => PostSource::FriendDirect,
         },
         channel_id: r.get(9)?,
