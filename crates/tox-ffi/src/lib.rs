@@ -373,6 +373,12 @@ extern "C" {
         callback: Option<unsafe extern "C" fn(*mut Tox, u32, Tox_Connection, *mut c_void)>,
         user_data: *mut c_void,
     );
+
+    // --- internal DHT helpers (not part of the public tox.h API) ------------
+    // Linked from the vendored c-toxcore static library; `DHT*` is obtained by
+    // reading the pinned internal `Tox -> Messenger -> DHT` layout (see
+    // `ToxSession::dht_node_count` in tox-core).
+    pub fn dht_get_num_closelist(dht: *const c_void) -> u16;
 }
 
 // ---------------------------------------------------------------------------

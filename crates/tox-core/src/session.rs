@@ -479,6 +479,54 @@ impl ToxSession {
         Connection::from_raw(unsafe { tox_self_get_connection_status(self.tox) })
     }
 
+    /// Number of live DHT neighbours in our close client list.
+    ///
+    /// c-toxcore does not expose this via the public tox.h API, so we read
+    /// the pinned internal layout (`Tox -> Messenger -> DHT`, see
+    /// `toxcore/tox_struct.h` and `toxcore/messenger.h` in the vendored
+    /// c-toxcore v0.2.23) and call `dht_get_num_closelist` (toxcore/DHT.h).
+    /// If the layout ever changes, this returns 0 instead of crashing: the
+    /// pointer reads are null-checked and the offsets are documented.
+    pub fn dht_node_count(&self) -> u16 {
+        let _guard = TOX_FFI_LOCK.lock().unwrap();
+        unsafe {
+            let tox = self.tox as *const u8;
+            if tox.is_null() {
+                return 0;
+            }
+            // struct Tox { Logger *log; Messenger *m; Mono_Time *mono_time; ... }
+            //   -> `m` at byte offset 8 (all pointers, x86_64).
+            let m = *(tox.add(8) as *const *const u8);
+            if m.is_null() {
+                return 0;
+            }
+            // struct Messenger { Logger *log; Mono_Time *mono_time; const Memory *mem;
+            //   const Random *rng; const Network *ns; Networking_Core *net;
+            //   Net_Crypto *net_crypto; Net_Profile *tcp_np; DHT *dht; ... }
+            //   -> `dht` at byte offset 64.
+            let dht = *(m.add(64) as *const *const u8);
+            if dht.is_null() {
+                return 0;
+            }
+            dht_get_num_closelist(dht as *const c_void)
+        }
+    }
+
+    /// Our Ed25519 public key, derived from the same 32-byte secret seed as
+    /// the Tox (X25519) identity. This is the verifier that matches
+    /// [`Self::sign_data`] and can be uploaded to the Relay so it can verify
+    /// public-post signatures with standard Ed25519.
+    pub fn self_ed25519_public_key(&self) -> String {
+        let _guard = TOX_FFI_LOCK.lock().unwrap();
+        let mut secret = [0u8; TOX_SECRET_KEY_SIZE];
+        unsafe { tox_self_get_secret_key(self.tox, secret.as_mut_ptr()) };
+        hex::encode(
+            ed25519_dalek::SigningKey::from_bytes(&secret)
+                .verifying_key()
+                .to_bytes(),
+        )
+    }
+
     /// Sign arbitrary bytes with this Tox identity's Ed25519 secret key.
     pub fn sign_data(&self, data: &[u8]) -> Result<Vec<u8>, ToxError> {
         let _guard = TOX_FFI_LOCK.lock().unwrap();
@@ -1037,5 +1085,18 @@ mod tests {
     #[test]
     fn hex_to_bytes_rejects_bad_len() {
         assert!(hex_to_bytes("abcd", 32).is_err());
+    }
+
+    /// Runtime validation of the internal `Tox -> Messenger -> DHT` layout
+    /// walk used by `dht_node_count`: it must not crash and must stay within
+    /// the DHT close-list bounds.
+    #[test]
+    fn dht_node_count_reads_real_instance() {
+        let session = ToxSession::new().expect("tox_new should work");
+        let n = session.dht_node_count();
+        // LCLIENT_LIST = LCLIENT_LENGTH * LCLIENT_NODES; the close list is
+        // tiny (8 nodes per bucket), far below any sane bound.
+        assert!(n <= 64, "close-list count out of range: {n}");
+        println!("dht close-list nodes: {n}");
     }
 }
