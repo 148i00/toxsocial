@@ -63,10 +63,11 @@ cargo build -p toxsocial-desktop
 
 # 打包 Windows 安装包
 powershell -ExecutionPolicy Bypass -File scripts\bundle.ps1
-# 产物：
-#   target\release\bundle\msi\ToxSocial_0.1.0_x64_en-US.msi
-#   target\release\bundle\nsis\ToxSocial_0.1.0_x64-setup.exe
+# 产物（v0.2.25 起版本号与 tag 同步，不再是 0.1.0）：
+#   target\release\bundle\msi\ToxSocial_<version>_x64_en-US.msi
+#   target\release\bundle\nsis\ToxSocial_<version>_x64-setup.exe
 ```
+> **发布前必做**：把 `apps/desktop/Cargo.toml` 和 `apps/desktop/tauri.conf.json` 的 `version` 改为新版本号（已同步到 v0.2.25），否则安装包文件名/设置页版本与 tag 不一致。
 
 CLI 双实例联调：
 ```powershell
@@ -137,6 +138,8 @@ CLI 双实例联调：
 - v0.2.22：多 Relay 支持、公共频道权限限制、频道消息全局缓冲、头像兜底、Relay 警告、英文补充
 - v0.2.23：全面中英文国际化、README 双语、Relay 独立仓库
 - v0.2.24：频道消息持久化、实际 DHT 节点数、公开帖子签名验证修复（birational map）+ Relay 端 WebCrypto 验证
+- v0.2.25：设置页连接状态自动刷新、±15s 时间校验、时间未验证提醒、直传帖子找 Relay 验证、空频道离线消息
+- v0.2.26（开发中）：发帖附件（📎 + get_file 自动上传 + 传输状态面板）、新版本检测、搜索用户只留搜索+主页关注按钮、去掉给好友发文件入口、左侧导航去掉通知按钮+文字居中、公共频道在线人数、修复频道编号复用导致数据串、版本号与 tag 同步（0.2.25）
 
 ## 5. 关键技术事实与踩坑（务必先读 docs/PLAN.md §9）
 
@@ -169,7 +172,9 @@ CLI 双实例联调：
 - 频道消息无未读计数；历史加载上限 300 条（与内存缓冲一致）。
 - `dht_node_count` 依赖 c-toxcore 内部布局（v0.2.23），升级 submodule 后需重跑 `dht_node_count_reads_real_instance` 测试。
 - Relay 长帖子（>20KB body）仍会被防滥用体积限制拒绝（既有行为）。
-- **帖子 ts 可被作者伪造**（自签 ts 无法验证真伪）：Relay 已拒绝未来（>now+5min）与过老（<now-365d）的 ts，但窗口内的任意日期仍可伪造——这是自签时间戳的固有局限，客户端按 ts 排序显示。
+- **帖子 ts 可被作者伪造**（自签 ts 无法验证真伪）：Relay 已拒绝超出 ±15s 的 ts，但窗口内的任意日期仍可伪造——这是自签时间戳的固有局限，客户端按 ts 排序显示。
+- 附件仅走好友直传/同步传播（TSP Post 的 `att` 字段）；Relay 不存 attachment，从 Relay 拉取的帖子不显示附件。
+- **注意**：不要用 PowerShell `Get-Content/Set-Content` 重写含中文/emoji 的源码文件（会损坏 UTF-8，曾损坏 store.rs/feed.rs/App.vue）；统一用编辑工具或 Python（`encoding="utf-8"`）。
 
 ### 待办功能（v0.2.24 已完成全部三项）
 - ✅ **频道消息持久化到 SQLite**：新表 `channel_messages`（conference_number/channel_id/peer_name/peer_key/text/ts/direction）；收到/发送时写入，`channel_messages` 命令按会议号（或稳定 channel_id 兜底）取最近 300 条；前端切换频道时合并历史并去重（按行 id 或 peer+text+ts）；删除频道时同步删历史。
