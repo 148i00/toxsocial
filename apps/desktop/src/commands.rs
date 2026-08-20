@@ -1027,22 +1027,43 @@ pub fn conference_invite_by_toxid(
         .map_err(|e| format!("invite failed: {e}"))
 }
 
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ConferenceSendResult {
+    pub id: i64,
+    /// True when the message was queued offline because nobody else was in
+    /// the channel; it will be flushed automatically when members join.
+    pub queued: bool,
+}
+
 #[tauri::command]
 pub fn conference_send(
     state: State<AppState>,
     conference_number: u32,
     text: String,
-) -> Result<i64, String> {
+) -> Result<ConferenceSendResult, String> {
     let text = text.trim().to_string();
     if text.is_empty() {
         return Err("empty message".to_string());
     }
-    {
+    // When the channel has no other members, toxcore cannot deliver the
+    // message (nothing to broadcast to), so queue it as an offline message
+    // and flush it later once someone joins (see
+    // `flush_pending_channel_messages` in events.rs).
+    let queued = {
         let session = state.session.lock().unwrap();
-        session
-            .conference_send_message(conference_number, &text)
-            .map_err(|e| format!("send to conference failed: {e}"))?;
-    }
+        let peers = session
+            .conference_peer_count(conference_number)
+            .unwrap_or(1);
+        if peers > 1 {
+            session
+                .conference_send_message(conference_number, &text)
+                .map_err(|e| format!("send to conference failed: {e}"))?;
+            false
+        } else {
+            true
+        }
+    };
     // Persist the outbound message so history survives restarts.
     let (channel_id, me) = {
         let session = state.session.lock().unwrap();
@@ -1069,9 +1090,10 @@ pub fn conference_send(
             text: text.clone(),
             ts,
             direction: 1,
+            pending: queued,
         })
         .map_err(|e| format!("persist channel message failed: {e}"))?;
-    Ok(id)
+    Ok(ConferenceSendResult { id, queued })
 }
 
 /// Persisted chat history for a conference (newest-first capped, returned in
@@ -1350,6 +1372,37 @@ pub async fn fetch_relay_public_posts(state: State<'_, AppState>, since: Option<
         }
     }
     Ok(count)
+}
+
+/// Check the Relay(s) for a post that arrived directly from a friend. If the
+/// Relay has it (same author + timestamp), its timestamp passed the Relay's
+/// ±15s server-clock check, so we can mark it verified and drop the UI
+/// warning. Best-effort: network/relay failures just leave it unverified.
+pub async fn verify_post_on_relay(
+    state: &State<'_, AppState>,
+    post_id: &str,
+) -> Result<bool, String> {
+    let relays = relay_urls(state);
+    let (author, ts) = {
+        let engine = state.engine.lock().unwrap();
+        match engine.store().post_get(post_id) {
+            Ok(Some(p)) => (p.author, p.ts),
+            _ => return Ok(false),
+        }
+    };
+    for relay in &relays {
+        let Ok(Some(item)) = crate::relay::fetch_post_by_id(relay, post_id).await else {
+            continue;
+        };
+        let item_pubkey = item["pubkey"].as_str().unwrap_or("");
+        let item_ts = item["ts"].as_i64().unwrap_or(0);
+        if item_pubkey.eq_ignore_ascii_case(&author) && item_ts == ts {
+            let engine = state.engine.lock().unwrap();
+            let _ = engine.store().post_mark_relay_verified(post_id);
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 #[tauri::command]

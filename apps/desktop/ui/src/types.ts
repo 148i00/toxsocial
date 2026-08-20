@@ -86,3 +86,9 @@ export interface ChannelMessageInfo {
   ts: number;
   direction: number; // 0 = received, 1 = sent by us
 }
+
+export interface ConferenceSendResult {
+  id: number;
+  /** Message queued offline (no other members); flushed when someone joins. */
+  queued: boolean;
+}

@@ -265,9 +265,18 @@ onMounted(async () => {
     notify(t("channelMessageReceived"));
   });
   onEvent("channel:connected", () => notify(t("channelConnected")));
+  onEvent("channel:pending_flushed", (e: { count: number }) =>
+    notify(t("channelPendingFlushed", { count: e.count })),
+  );
   onEvent("relay:publish_failed", (e: { error: string }) =>
     notify(t("relayPublishFailed", { error: e.error })),
   );
+  onEvent("post:ts_verified", () => {
+    // A directly-received post was found on the Relay; its timestamp is now
+    // verified, so refresh to drop the "unverified" warning.
+    refreshTimeline();
+    refreshPublicTimeline();
+  });
   onEvent("file:request", (p: { friendNumber: number; fileNumber: number; friendName: string; filename: string; fileSize: number }) => {
     fileRequests.value.push({ id: ++fileRequestId, ...p });
     notify(t("fileRequestReceived", { filename: p.filename }));

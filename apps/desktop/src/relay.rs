@@ -100,6 +100,35 @@ pub async fn fetch_outbox(relay: &str, since: i64) -> Result<Vec<serde_json::Val
     Ok(json["items"].as_array().cloned().unwrap_or_default())
 }
 
+/// Look up a single post by id on the Relay. Used to verify that a post
+/// received directly from a friend also exists on the Relay, which means its
+/// timestamp was validated by the Relay server clock.
+pub async fn fetch_post_by_id(
+    relay: &str,
+    post_id: &str,
+) -> Result<Option<serde_json::Value>, String> {
+    let url = url::Url::parse_with_params(
+        &format!("{}/api/outbox", relay.trim_end_matches('/')),
+        &[("id", post_id)],
+    )
+    .map_err(|e| e.to_string())?;
+    let resp = reqwest::get(url)
+        .await
+        .map_err(|e| format!("relay request failed: {e}"))?;
+    let status = resp.status();
+    let json: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("relay response invalid: {e}"))?;
+    if !status.is_success() {
+        return Err(format!("relay error {}: {}", status, json));
+    }
+    Ok(json["items"]
+        .as_array()
+        .and_then(|a| a.first())
+        .cloned())
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct RelayChannel {
     pub name: String,

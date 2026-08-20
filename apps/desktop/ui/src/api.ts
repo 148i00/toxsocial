@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { locale } from "./i18n";
-import type { ChannelMessageInfo, ConferencePeerInfo, DirectoryEntryInfo, FriendInfo, MediaConfig, NetworkStatus, OwnInfo, PublicChannelInfo, TimelineItem } from "./types";
+import type { ChannelMessageInfo, ConferencePeerInfo, ConferenceSendResult, DirectoryEntryInfo, FriendInfo, MediaConfig, NetworkStatus, OwnInfo, PublicChannelInfo, TimelineItem } from "./types";
 
 export const api = {
   getOwnInfo: () => invoke<OwnInfo>("get_own_info"),
@@ -54,7 +54,7 @@ export const api = {
   conferenceInviteByToxid: (conferenceNumber: number, toxid: string) =>
     invoke<void>("conference_invite_by_toxid", { conferenceNumber, toxid }),
   conferenceSend: (conferenceNumber: number, text: string) =>
-    invoke<number>("conference_send", { conferenceNumber, text }),
+    invoke<ConferenceSendResult>("conference_send", { conferenceNumber, text }),
   channelMessages: (conferenceNumber: number, limit?: number) =>
     invoke<ChannelMessageInfo[]>("channel_messages", { conferenceNumber, limit }),
   conferencePeers: (conferenceNumber: number) =>

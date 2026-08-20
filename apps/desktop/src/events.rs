@@ -125,6 +125,7 @@ fn handle_event(app: &AppHandle, state: &State<AppState>, ev: Event) {
                     match env {
                         Envelope::Post(p) => {
                             println!("[toxsocial] post received from {name}: {}", p.text);
+                            verify_post_via_relay(app, p.id.clone());
                             let _ = app.emit(
                                 "feed:post",
                                 json!({ "id": p.id, "author": p.author, "authorName": name, "text": p.text, "ts": p.ts }),
@@ -301,6 +302,7 @@ fn handle_event(app: &AppHandle, state: &State<AppState>, ev: Event) {
         }
         Event::ConferenceConnected { conference_number } => {
             println!("[toxsocial] connected to conference #{conference_number}");
+            flush_pending_channel_messages(&state, app, conference_number);
             let _ = app.emit(
                 "channel:connected",
                 json!({ "conferenceNumber": conference_number }),
@@ -349,6 +351,7 @@ fn handle_event(app: &AppHandle, state: &State<AppState>, ev: Event) {
                         text: text.clone(),
                         ts,
                         direction: 0,
+                        pending: false,
                     })
                     .unwrap_or(0)
             };
@@ -378,6 +381,9 @@ fn handle_event(app: &AppHandle, state: &State<AppState>, ev: Event) {
         }
         Event::ConferencePeerListChanged { conference_number } => {
             println!("[toxsocial] conference #{conference_number} peer list changed");
+            // Someone joined/left: flush any messages queued while the
+            // channel had no other members.
+            flush_pending_channel_messages(&state, app, conference_number);
             let _ = app.emit(
                 "channel:peer_list_changed",
                 json!({ "conferenceNumber": conference_number }),
@@ -535,6 +541,7 @@ fn handle_sync_posts(
         match env {
             Envelope::Post(p) => {
                 println!("[toxsocial] post received from {name} (sync): {}", p.text);
+                verify_post_via_relay(app, p.id.clone());
                 let _ = app.emit(
                     "feed:post",
                     json!({ "id": p.id, "author": p.author, "authorName": name, "text": p.text, "ts": p.ts }),
@@ -700,6 +707,77 @@ fn handle_outbox_req(state: &State<AppState>, friend_number: u32, req: &OutboxRe
     }
 }
 
+/// Best-effort: verify a directly-received post against the Relay(s). If the
+/// Relay has the same post (author + ts match), its timestamp was validated
+/// by the Relay server clock; mark it verified so the UI stops warning, then
+/// tell the frontend to refresh.
+fn verify_post_via_relay(app: &AppHandle, post_id: String) {
+    let handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let state = handle.state::<AppState>();
+        match crate::commands::verify_post_on_relay(&state, &post_id).await {
+            Ok(true) => {
+                println!("[toxsocial] post {post_id} verified via Relay (ts validated)");
+                let _ = handle.emit("post:ts_verified", json!({ "postId": post_id }));
+            }
+            _ => {}
+        }
+    });
+}
+
+/// Deliver messages that were queued while the channel had no other members
+/// (see `conference_send`). Called on connect/peer-list changes; only runs
+/// when the channel now has at least two peers (self + at least one other).
+fn flush_pending_channel_messages(
+    state: &State<AppState>,
+    app: &AppHandle,
+    conference_number: u32,
+) {
+    let peer_count = {
+        let session = state.session.lock().unwrap();
+        session
+            .conference_peer_count(conference_number)
+            .unwrap_or(0)
+    };
+    if peer_count <= 1 {
+        return;
+    }
+    let pending = {
+        let engine = state.engine.lock().unwrap();
+        engine
+            .store()
+            .channel_messages_pending(conference_number)
+            .unwrap_or_default()
+    };
+    if pending.is_empty() {
+        return;
+    }
+    let mut flushed = 0;
+    for m in &pending {
+        let ok = {
+            let session = state.session.lock().unwrap();
+            session
+                .conference_send_message(conference_number, &m.text)
+                .is_ok()
+        };
+        if !ok {
+            break; // still offline; retry on the next peer-list change
+        }
+        let engine = state.engine.lock().unwrap();
+        let _ = engine.store().channel_message_mark_delivered(m.id);
+        flushed += 1;
+    }
+    if flushed > 0 {
+        println!(
+            "[toxsocial] flushed {flushed} queued message(s) to conference #{conference_number}"
+        );
+        let _ = app.emit(
+            "channel:pending_flushed",
+            json!({ "conferenceNumber": conference_number, "count": flushed }),
+        );
+    }
+}
+
 fn handle_outbox_resp(state: &State<AppState>, app: &AppHandle, sender_pk: &str, resp: &OutboxResp) {
     let received_at = now_ms();
     let mut new_posts = Vec::new();
@@ -716,6 +794,7 @@ fn handle_outbox_resp(state: &State<AppState>, app: &AppHandle, sender_pk: &str,
     let name = state.name_for(sender_pk);
     for p in new_posts {
         println!("[toxsocial] public post received via outbox from {name}: {}", p.text);
+        verify_post_via_relay(app, p.id.clone());
         let _ = app.emit(
             "feed:post",
             json!({ "id": p.id, "author": p.author, "authorName": name, "text": p.text, "ts": p.ts }),

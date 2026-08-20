@@ -499,10 +499,13 @@ async function send() {
   busy.value = true;
   error.value = "";
   try {
-    const id = await api.conferenceSend(conferenceNumber.value, message.value.trim());
+    const result = await api.conferenceSend(conferenceNumber.value, message.value.trim());
     const name = myChannels.value.find((c) => c.conferenceNumber === conferenceNumber.value)?.name || t("channelNameWithNumber", { number: conferenceNumber.value });
-    pushChannelMessage({ id, conferenceNumber: conferenceNumber.value, channelName: name, peer: ME_PEER, text: message.value.trim(), ts: Date.now() });
+    pushChannelMessage({ id: result.id, conferenceNumber: conferenceNumber.value, channelName: name, peer: ME_PEER, text: message.value.trim(), ts: Date.now() });
     message.value = "";
+    if (result.queued) {
+      pushLog(t("channelQueuedOffline"));
+    }
   } catch (e) {
     error.value = String(e);
   } finally {
