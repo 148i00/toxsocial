@@ -265,6 +265,9 @@ onMounted(async () => {
     notify(t("channelMessageReceived"));
   });
   onEvent("channel:connected", () => notify(t("channelConnected")));
+  onEvent("relay:publish_failed", (e: { error: string }) =>
+    notify(t("relayPublishFailed", { error: e.error })),
+  );
   onEvent("file:request", (p: { friendNumber: number; fileNumber: number; friendName: string; filename: string; fileSize: number }) => {
     fileRequests.value.push({ id: ++fileRequestId, ...p });
     notify(t("fileRequestReceived", { filename: p.filename }));

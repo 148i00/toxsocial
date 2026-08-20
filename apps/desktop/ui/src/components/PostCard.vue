@@ -30,6 +30,7 @@ async function react(emoji: string) {
       <span class="author">{{ item.authorName }}</span>
       <span v-if="item.isOwn" class="tag">{{ t("me") }}</span>
       <span class="time">{{ formatTime(item.ts) }}</span>
+      <span v-if="!item.tsVerified" class="tag warn" :title="t('timeUnverifiedTitle')">{{ t("timeUnverified") }}</span>
     </div>
     <div class="body markdown" v-html="bodyHtml"></div>
     <div class="foot">
@@ -79,6 +80,13 @@ async function react(emoji: string) {
   color: var(--text-dim);
   font-size: 12px;
   margin-left: auto;
+}
+.tag.warn {
+  color: #b8860b;
+  border: 1px solid #b8860b55;
+  border-radius: 8px;
+  font-size: 11px;
+  padding: 0 6px;
 }
 .body {
   margin: 8px 0;

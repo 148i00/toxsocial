@@ -101,6 +101,7 @@ onMounted(load);
         <span class="author">{{ post.authorName }}</span>
         <span v-if="post.isOwn" class="tag">{{ t("me") }}</span>
         <span class="time">{{ formatTime(post.ts) }}</span>
+        <span v-if="!post.tsVerified" class="tag warn" :title="t('timeUnverifiedTitle')">{{ t("timeUnverified") }}</span>
       </div>
       <div class="body markdown" v-html="md(post.text)"></div>
       <div class="stats">
@@ -141,6 +142,7 @@ onMounted(load);
         <span class="author">{{ c.authorName }}</span>
         <span v-if="parentCommentName(c)" class="reply-to">{{ t("replyToName", { name: parentCommentName(c) }) }}</span>
         <span class="time">{{ formatTime(c.ts) }}</span>
+        <span v-if="!c.tsVerified" class="tag warn" :title="t('timeUnverifiedTitle')">{{ t("timeUnverified") }}</span>
       </div>
       <div class="body markdown" v-html="md(c.text)"></div>
       <div class="comment-actions">
@@ -157,6 +159,13 @@ onMounted(load);
   border-radius: var(--radius);
   padding: 12px 14px;
   margin-bottom: 10px;
+}
+.tag.warn {
+  color: #b8860b;
+  border: 1px solid #b8860b55;
+  border-radius: 8px;
+  font-size: 11px;
+  padding: 0 6px;
 }
 .head {
   display: flex;

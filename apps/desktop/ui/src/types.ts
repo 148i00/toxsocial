@@ -35,6 +35,8 @@ export interface TimelineItem {
   reactionCount: number;
   reactions: ReactionSummary[];
   isOwn: boolean;
+  /** Timestamp verified by the Relay server clock (or our own post). */
+  tsVerified: boolean;
   source: string;
 }
 

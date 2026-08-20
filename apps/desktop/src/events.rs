@@ -873,10 +873,12 @@ pub(crate) fn item_from_row_with_meta(
         reaction_count,
         reactions,
         is_own: row.author == me,
+        ts_verified: row.source == PostSource::RelayVerified || row.author == me,
         source: match row.source {
             PostSource::SelfPublished => "self",
             PostSource::FriendDirect => "friend",
             PostSource::Channel => "channel",
+            PostSource::RelayVerified => "relay",
         }
         .to_string(),
     }

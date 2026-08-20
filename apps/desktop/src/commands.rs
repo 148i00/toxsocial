@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use serde::Serialize;
-use tauri::State;
+use tauri::{AppHandle, Emitter, State};
 use tauri_plugin_autostart::ManagerExt;
 
 use tox_core::{Connection, ToxError};
@@ -62,6 +62,7 @@ pub struct TimelineItem {
     pub reaction_count: usize,
     pub reactions: Vec<ReactionSummary>,
     pub is_own: bool,
+    pub ts_verified: bool,
     pub source: String,
 }
 
@@ -451,6 +452,7 @@ pub fn remove_friend_by_toxid(state: State<AppState>, toxid: String) -> Result<(
 
 #[tauri::command]
 pub async fn publish_post(
+    app: AppHandle,
     state: State<'_, AppState>,
     text: String,
     public: Option<bool>,
@@ -524,6 +526,13 @@ pub async fn publish_post(
             .await
             {
                 eprintln!("[toxsocial] relay publish failed: {e}");
+                // The Relay may have rejected the post (bad signature,
+                // out-of-sync timestamp, etc.); tell the user instead of
+                // silently succeeding.
+                let _ = app.emit(
+                    "relay:publish_failed",
+                    serde_json::json!({ "relay": relay, "error": e }),
+                );
             }
         }
     }
@@ -1324,7 +1333,7 @@ pub async fn fetch_relay_public_posts(state: State<'_, AppState>, since: Option<
             }
             let post = tox_social::envelope::Post {
                 v: tox_social::envelope::PROTOCOL_VERSION,
-                id,
+                id: id.clone(),
                 author: pubkey.clone(),
                 ts,
                 text,
@@ -1334,6 +1343,9 @@ pub async fn fetch_relay_public_posts(state: State<'_, AppState>, since: Option<
             let env = Envelope::Post(post);
             if engine.persist(&env, &pubkey, received_at) {
                 count += 1;
+                // Relay validated the timestamp (within ±15s), so it can be
+                // trusted for display; mark it so the UI stops warning.
+                let _ = engine.store().post_mark_relay_verified(&id);
             }
         }
     }
