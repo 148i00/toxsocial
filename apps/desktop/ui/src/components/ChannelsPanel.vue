@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { api, onEvent } from "../api";
-import { channelMessages, mergeChannelHistory, pushChannelMessage } from "../channelStore";
+import { channelMessages, clearChannelMessages, mergeChannelHistory, pushChannelMessage } from "../channelStore";
 import { t } from "../i18n";
 import type { ConferencePeerInfo, FriendInfo, PublicChannelInfo } from "../types";
 
@@ -35,7 +35,14 @@ const currentChannelName = computed(() => {
   return myChannels.value.find((c) => c.conferenceNumber === n)?.name || t("channelNameWithNumber", { number: n });
 });
 const currentMessages = computed(() =>
-  channelMessages.filter((m) => m.conferenceNumber === conferenceNumber.value),
+  channelMessages.filter(
+    (m) =>
+      // Prefer the stable channel id: toxcore reuses conference numbers
+      // after deletion, so matching by number alone would leak the old
+      // channel's messages into a new channel on the same number.
+      (m.channelId !== undefined && m.channelId === channelId.value) ||
+      (m.channelId === undefined && m.conferenceNumber === conferenceNumber.value),
+  ),
 );
 const chatMessagesRef = ref<HTMLElement | null>(null);
 const showManage = ref(false);
@@ -355,7 +362,13 @@ async function deleteChannel(n: number) {
   busy.value = true;
   error.value = "";
   try {
+    // Remember the channel id before deletion so we can drop its buffered
+    // messages; toxcore will reuse the number for the next channel.
+    const deletedChannelId = await api.getConferenceId(n).catch(() => "");
     await api.conferenceDelete(n);
+    if (deletedChannelId) {
+      clearChannelMessages(deletedChannelId, n);
+    }
     myChannels.value = myChannels.value.filter((c) => c.conferenceNumber !== n);
     saveChannelNames();
     if (conferenceNumber.value === n) {
@@ -415,6 +428,7 @@ async function loadHistory(n: number) {
       msgs.map((m) => ({
         id: m.id,
         conferenceNumber: n,
+        channelId: channelId.value || undefined,
         channelName: name,
         peer: m.direction === 1 ? ME_PEER : m.peerName || `#${n}`,
         text: m.text,
@@ -501,7 +515,7 @@ async function send() {
   try {
     const result = await api.conferenceSend(conferenceNumber.value, message.value.trim());
     const name = myChannels.value.find((c) => c.conferenceNumber === conferenceNumber.value)?.name || t("channelNameWithNumber", { number: conferenceNumber.value });
-    pushChannelMessage({ id: result.id, conferenceNumber: conferenceNumber.value, channelName: name, peer: ME_PEER, text: message.value.trim(), ts: Date.now() });
+    pushChannelMessage({ id: result.id, conferenceNumber: conferenceNumber.value, channelId: channelId.value || undefined, channelName: name, peer: ME_PEER, text: message.value.trim(), ts: Date.now() });
     message.value = "";
     if (result.queued) {
       pushLog(t("channelQueuedOffline"));

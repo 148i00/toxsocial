@@ -352,7 +352,7 @@ fn handle_event(app: &AppHandle, state: &State<AppState>, ev: Event) {
                     .channel_message_insert(&tox_store::ChannelMessageRow {
                         id: 0,
                         conference_number,
-                        channel_id,
+                        channel_id: channel_id.clone(),
                         peer_name: display_name.clone(),
                         peer_key,
                         text: text.clone(),
@@ -369,6 +369,7 @@ fn handle_event(app: &AppHandle, state: &State<AppState>, ev: Event) {
                 "channel:message",
                 json!({
                     "conferenceNumber": conference_number,
+                    "channelId": channel_id,
                     "peerNumber": peer_number,
                     "peerName": display_name,
                     "text": text,

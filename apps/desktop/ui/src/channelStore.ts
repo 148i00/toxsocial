@@ -4,6 +4,9 @@ export interface ChannelMessage {
   /** Persisted row id (present once the message is in SQLite). */
   id?: number;
   conferenceNumber: number;
+  /** Stable channel id. The display filter prefers it over the conference
+   * number, because toxcore reuses numbers after a channel is deleted. */
+  channelId?: string;
   channelName: string;
   peer: string;
   text: string;
@@ -19,6 +22,22 @@ export function pushChannelMessage(message: ChannelMessage) {
   if (channelMessages.length > MAX_CHANNEL_MESSAGES) {
     channelMessages.splice(0, channelMessages.length - MAX_CHANNEL_MESSAGES);
   }
+}
+
+/**
+ * Drop all in-memory messages of a deleted channel. Required because toxcore
+ * reuses conference numbers: without this, a new channel on the same number
+ * would display the old channel's buffered messages (including queued ones).
+ */
+export function clearChannelMessages(channelId: string, conferenceNumber: number) {
+  const before = channelMessages.length;
+  for (let i = channelMessages.length - 1; i >= 0; i--) {
+    const m = channelMessages[i];
+    if ((m.channelId && m.channelId === channelId) || (!m.channelId && m.conferenceNumber === conferenceNumber)) {
+      channelMessages.splice(i, 1);
+    }
+  }
+  return before - channelMessages.length;
 }
 
 /**

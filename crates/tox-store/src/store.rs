@@ -422,8 +422,13 @@ impl Store {
 
     /// Delete persisted messages for a deleted channel, keyed by its stable
     /// id. Deleting by conference number is unsafe because the number may be
-    /// reused by a newer channel (see `channel_messages_for_conference`).
+    /// reused by a newer channel (see `channel_messages_for_conference`);
+    /// an empty channel id must never match (legacy rows without an id stay
+    /// untouched rather than wiping another channel's data).
     pub fn channel_messages_delete_by_channel(&self, channel_id: &str) -> Result<()> {
+        if channel_id.is_empty() {
+            return Ok(());
+        }
         self.conn.execute(
             "DELETE FROM channel_messages WHERE channel_id = ?1",
             params![channel_id],

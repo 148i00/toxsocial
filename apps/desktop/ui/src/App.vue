@@ -316,10 +316,11 @@ onMounted(async () => {
   onEvent("friend:bio", () => {
     refreshFriends();
   });
-  onEvent("channel:message", (e: { conferenceNumber: number; peerNumber: number; peerName?: string; text: string; id?: number; ts?: number }) => {
+  onEvent("channel:message", (e: { conferenceNumber: number; channelId?: string; peerNumber: number; peerName?: string; text: string; id?: number; ts?: number }) => {
     pushChannelMessage({
       id: e.id,
       conferenceNumber: e.conferenceNumber,
+      channelId: e.channelId,
       channelName: t("channelNameWithNumber", { number: e.conferenceNumber }),
       peer: e.peerName || `#${e.peerNumber}`,
       text: e.text,
