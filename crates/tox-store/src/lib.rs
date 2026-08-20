@@ -5,4 +5,6 @@
 
 pub mod store;
 
-pub use store::{DirectoryEntry, FriendRow, PostKind, PostRow, PostSource, Store};
+pub use store::{
+    ChannelMessageRow, DirectoryEntry, FriendRow, PostKind, PostRow, PostSource, Store,
+};

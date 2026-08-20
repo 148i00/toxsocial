@@ -46,6 +46,19 @@ pub struct PostRow {
     pub sig: String,
 }
 
+/// A persisted conference (channel) chat message.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ChannelMessageRow {
+    pub id: i64,
+    pub conference_number: u32,
+    pub channel_id: String,
+    pub peer_name: String,
+    pub peer_key: String,
+    pub text: String,
+    pub ts: i64,
+    pub direction: i64, // 0 = received, 1 = sent by us
+}
+
 /// A row in the `friends` table (a friend == someone you follow).
 #[derive(Debug, Clone, PartialEq)]
 pub struct FriendRow {
@@ -124,6 +137,17 @@ CREATE TABLE IF NOT EXISTS directory (
   updated_at  INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_directory_name ON directory(name);
+CREATE TABLE IF NOT EXISTS channel_messages (
+  id                INTEGER PRIMARY KEY AUTOINCREMENT,
+  conference_number INTEGER NOT NULL,
+  channel_id        TEXT DEFAULT '',
+  peer_name         TEXT DEFAULT '',
+  peer_key          TEXT DEFAULT '',
+  text              TEXT NOT NULL,
+  ts                INTEGER NOT NULL,
+  direction         INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_channel_messages_conf ON channel_messages(conference_number, ts);
 ";
 
 pub struct Store {
@@ -287,6 +311,68 @@ impl Store {
         rows.collect()
     }
 
+    // --- channel messages ---------------------------------------------------
+
+    /// Insert one conference (channel) chat message. Returns its row id.
+    pub fn channel_message_insert(&self, m: &ChannelMessageRow) -> Result<i64> {
+        self.conn.execute(
+            "INSERT INTO channel_messages
+               (conference_number, channel_id, peer_name, peer_key, text, ts, direction)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                m.conference_number,
+                m.channel_id,
+                m.peer_name,
+                m.peer_key,
+                m.text,
+                m.ts,
+                m.direction,
+            ],
+        )?;
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    /// Latest `limit` messages for a conference (or its channel id, which
+    /// stays stable across restarts even if the conference number changes),
+    /// returned in chronological order.
+    pub fn channel_messages_for_conference(
+        &self,
+        conference_number: u32,
+        channel_id: &str,
+        limit: u32,
+    ) -> Result<Vec<ChannelMessageRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, conference_number, channel_id, peer_name, peer_key, text, ts, direction
+             FROM channel_messages
+             WHERE conference_number = ?1 OR (?2 != '' AND channel_id = ?2)
+             ORDER BY ts DESC, id DESC LIMIT ?3",
+        )?;
+        let rows = stmt.query_map(params![conference_number, channel_id, limit], |r| {
+            Ok(ChannelMessageRow {
+                id: r.get(0)?,
+                conference_number: r.get(1)?,
+                channel_id: r.get(2)?,
+                peer_name: r.get(3)?,
+                peer_key: r.get(4)?,
+                text: r.get(5)?,
+                ts: r.get(6)?,
+                direction: r.get(7)?,
+            })
+        })?;
+        let mut out: Vec<ChannelMessageRow> = rows.collect::<Result<_>>()?;
+        out.reverse();
+        Ok(out)
+    }
+
+    /// Delete persisted messages for a deleted conference (best-effort).
+    pub fn channel_messages_delete(&self, conference_number: u32) -> Result<()> {
+        self.conn.execute(
+            "DELETE FROM channel_messages WHERE conference_number = ?1",
+            params![conference_number],
+        )?;
+        Ok(())
+    }
+
     // --- posts -----------------------------------------------------------------
 
     /// Insert a timeline entry. Returns `false` if the (id, author) pair
@@ -361,7 +447,8 @@ impl Store {
     }
 
     /// All comments/reactions attached to a post, including nested comment
-    /// replies, oldest first.
+    /// replies, oldest first. `rowid` breaks ties when two entries share a
+    /// millisecond timestamp (insertion order).
     pub fn thread_for(&self, post_id: &str) -> Result<Vec<PostRow>> {
         let mut stmt = self.conn.prepare(
             "WITH RECURSIVE descendants(id) AS (
@@ -370,7 +457,7 @@ impl Store {
                SELECT p.id FROM posts p JOIN descendants d ON p.parent_id = d.id
              )
              SELECT id, author, kind, parent_id, text, emoji, ts, received_at, source, channel_id, is_public, sig
-             FROM posts WHERE id IN (SELECT id FROM descendants) ORDER BY ts ASC",
+             FROM posts WHERE id IN (SELECT id FROM descendants) ORDER BY ts ASC, rowid ASC",
         )?;
         let rows = stmt.query_map(params![post_id], row_to_post)?;
         rows.collect()
@@ -559,6 +646,42 @@ mod tests {
         assert!(store.post_upsert(&p).unwrap());
         assert!(!store.post_upsert(&p).unwrap()); // duplicate
         assert_eq!(store.post_get("post-1").unwrap().unwrap(), p);
+    }
+
+    #[test]
+    fn channel_messages_persist_and_query() {
+        let store = Store::open_in_memory().unwrap();
+        let mk = |conf: u32, ch: &str, text: &str, ts: i64, dir: i64| ChannelMessageRow {
+            id: 0,
+            conference_number: conf,
+            channel_id: ch.into(),
+            peer_name: String::new(),
+            peer_key: String::new(),
+            text: text.into(),
+            ts,
+            direction: dir,
+        };
+        let id1 = store.channel_message_insert(&mk(1, "aaa", "hi", 100, 0)).unwrap();
+        let id2 = store.channel_message_insert(&mk(1, "aaa", "yo", 200, 1)).unwrap();
+        store.channel_message_insert(&mk(2, "bbb", "other", 300, 0)).unwrap();
+        assert!(id2 > id1);
+        // Query by conference number; chronological order, newest capped.
+        let msgs = store.channel_messages_for_conference(1, "", 10).unwrap();
+        assert_eq!(msgs.len(), 2);
+        assert_eq!(msgs[0].text, "hi");
+        assert_eq!(msgs[1].text, "yo");
+        assert_eq!(msgs[0].direction, 0);
+        // Limit works and orders by ts desc before truncation.
+        let capped = store.channel_messages_for_conference(1, "", 1).unwrap();
+        assert_eq!(capped.len(), 1);
+        assert_eq!(capped[0].text, "yo");
+        // Fallback by stable channel id.
+        let by_ch = store.channel_messages_for_conference(99, "aaa", 10).unwrap();
+        assert_eq!(by_ch.len(), 2);
+        // Delete removes only this conference.
+        store.channel_messages_delete(1).unwrap();
+        assert_eq!(store.channel_messages_for_conference(1, "", 10).unwrap().len(), 0);
+        assert_eq!(store.channel_messages_for_conference(2, "", 10).unwrap().len(), 1);
     }
 
     #[test]
