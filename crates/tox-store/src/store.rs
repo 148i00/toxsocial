@@ -60,6 +60,7 @@ pub struct ChannelMessageRow {
     pub text: String,
     pub ts: i64,
     pub direction: i64, // 0 = received, 1 = sent by us
+    pub pending: bool,  // queued offline (no other members yet), not delivered
 }
 
 /// A row in the `friends` table (a friend == someone you follow).
@@ -148,7 +149,8 @@ CREATE TABLE IF NOT EXISTS channel_messages (
   peer_key          TEXT DEFAULT '',
   text              TEXT NOT NULL,
   ts                INTEGER NOT NULL,
-  direction         INTEGER NOT NULL DEFAULT 0
+  direction         INTEGER NOT NULL DEFAULT 0,
+  pending           INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_channel_messages_conf ON channel_messages(conference_number, ts);
 ";
@@ -164,6 +166,7 @@ impl Store {
         migrate_friends_avatar(&conn);
         migrate_friends_bio(&conn);
         migrate_posts_is_public(&conn);
+        migrate_channel_messages_pending(&conn);
         Ok(Store { conn })
     }
 
@@ -174,6 +177,7 @@ impl Store {
         migrate_friends_avatar(&conn);
         migrate_friends_bio(&conn);
         migrate_posts_is_public(&conn);
+        migrate_channel_messages_pending(&conn);
         Ok(Store { conn })
     }
 
@@ -320,8 +324,8 @@ impl Store {
     pub fn channel_message_insert(&self, m: &ChannelMessageRow) -> Result<i64> {
         self.conn.execute(
             "INSERT INTO channel_messages
-               (conference_number, channel_id, peer_name, peer_key, text, ts, direction)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+               (conference_number, channel_id, peer_name, peer_key, text, ts, direction, pending)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 m.conference_number,
                 m.channel_id,
@@ -330,9 +334,45 @@ impl Store {
                 m.text,
                 m.ts,
                 m.direction,
+                m.pending,
             ],
         )?;
         Ok(self.conn.last_insert_rowid())
+    }
+
+    /// Queued (undelivered) messages of a conference, oldest first. These are
+    /// sent by the user while nobody else was in the channel; they are
+    /// flushed once other members join.
+    pub fn channel_messages_pending(&self, conference_number: u32) -> Result<Vec<ChannelMessageRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, conference_number, channel_id, peer_name, peer_key, text, ts, direction, pending
+             FROM channel_messages
+             WHERE conference_number = ?1 AND pending = 1
+             ORDER BY ts ASC, id ASC",
+        )?;
+        let rows = stmt.query_map(params![conference_number], |r| {
+            Ok(ChannelMessageRow {
+                id: r.get(0)?,
+                conference_number: r.get(1)?,
+                channel_id: r.get(2)?,
+                peer_name: r.get(3)?,
+                peer_key: r.get(4)?,
+                text: r.get(5)?,
+                ts: r.get(6)?,
+                direction: r.get(7)?,
+                pending: r.get::<_, i64>(8)? != 0,
+            })
+        })?;
+        rows.collect()
+    }
+
+    /// Mark a queued message as delivered (flushed to the conference).
+    pub fn channel_message_mark_delivered(&self, id: i64) -> Result<()> {
+        self.conn.execute(
+            "UPDATE channel_messages SET pending = 0 WHERE id = ?1",
+            params![id],
+        )?;
+        Ok(())
     }
 
     /// Latest `limit` messages for a conference (or its channel id, which
@@ -345,7 +385,7 @@ impl Store {
         limit: u32,
     ) -> Result<Vec<ChannelMessageRow>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, conference_number, channel_id, peer_name, peer_key, text, ts, direction
+            "SELECT id, conference_number, channel_id, peer_name, peer_key, text, ts, direction, pending
              FROM channel_messages
              WHERE conference_number = ?1 OR (?2 != '' AND channel_id = ?2)
              ORDER BY ts DESC, id DESC LIMIT ?3",
@@ -360,6 +400,7 @@ impl Store {
                 text: r.get(5)?,
                 ts: r.get(6)?,
                 direction: r.get(7)?,
+                pending: r.get::<_, i64>(8)? != 0,
             })
         })?;
         let mut out: Vec<ChannelMessageRow> = rows.collect::<Result<_>>()?;
@@ -607,6 +648,13 @@ fn migrate_posts_is_public(conn: &Connection) {
     let _ = conn.execute("ALTER TABLE posts ADD COLUMN sig TEXT DEFAULT ''", []);
 }
 
+fn migrate_channel_messages_pending(conn: &Connection) {
+    let _ = conn.execute(
+        "ALTER TABLE channel_messages ADD COLUMN pending INTEGER NOT NULL DEFAULT 0",
+        [],
+    );
+}
+
 fn row_to_post(r: &rusqlite::Row) -> Result<PostRow> {
     Ok(PostRow {
         id: r.get(0)?,
@@ -674,6 +722,7 @@ mod tests {
             text: text.into(),
             ts,
             direction: dir,
+            pending: false,
         };
         let id1 = store.channel_message_insert(&mk(1, "aaa", "hi", 100, 0)).unwrap();
         let id2 = store.channel_message_insert(&mk(1, "aaa", "yo", 200, 1)).unwrap();
@@ -696,6 +745,40 @@ mod tests {
         store.channel_messages_delete(1).unwrap();
         assert_eq!(store.channel_messages_for_conference(1, "", 10).unwrap().len(), 0);
         assert_eq!(store.channel_messages_for_conference(2, "", 10).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn channel_messages_pending_flush_flow() {
+        let store = Store::open_in_memory().unwrap();
+        let mk = |conf: u32, text: &str, ts: i64, pending: bool| ChannelMessageRow {
+            id: 0,
+            conference_number: conf,
+            channel_id: "ccc".into(),
+            peer_name: String::new(),
+            peer_key: String::new(),
+            text: text.into(),
+            ts,
+            direction: 1,
+            pending,
+        };
+        let id1 = store.channel_message_insert(&mk(1, "离线1", 100, true)).unwrap();
+        let id2 = store.channel_message_insert(&mk(1, "在线", 200, false)).unwrap();
+        let id3 = store.channel_message_insert(&mk(1, "离线2", 300, true)).unwrap();
+        store.channel_message_insert(&mk(2, "别的频道", 400, true)).unwrap();
+        // Pending list: only pending, oldest first, this conference only.
+        let pending = store.channel_messages_pending(1).unwrap();
+        assert_eq!(pending.iter().map(|m| m.text.as_str()).collect::<Vec<_>>(), ["离线1", "离线2"]);
+        assert!(pending.iter().all(|m| m.pending));
+        // Deliver one; the other stays queued.
+        store.channel_message_mark_delivered(id2).unwrap(); // no-op on delivered
+        store.channel_message_mark_delivered(id1).unwrap();
+        let pending = store.channel_messages_pending(1).unwrap();
+        assert_eq!(pending.iter().map(|m| m.text.as_str()).collect::<Vec<_>>(), ["离线2"]);
+        // History still contains everything (including the still-queued one).
+        let history = store.channel_messages_for_conference(1, "", 10).unwrap();
+        assert_eq!(history.len(), 3);
+        assert!(history.iter().any(|m| m.id == id3 && m.pending));
+        assert!(!history.iter().find(|m| m.id == id1).unwrap().pending);
     }
 
     #[test]
