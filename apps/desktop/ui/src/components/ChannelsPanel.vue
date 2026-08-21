@@ -35,14 +35,21 @@ const currentChannelName = computed(() => {
   return myChannels.value.find((c) => c.conferenceNumber === n)?.name || t("channelNameWithNumber", { number: n });
 });
 const currentMessages = computed(() =>
-  channelMessages.filter(
-    (m) =>
-      // Prefer the stable channel id: toxcore reuses conference numbers
-      // after deletion, so matching by number alone would leak the old
-      // channel's messages into a new channel on the same number.
-      (m.channelId !== undefined && m.channelId === channelId.value) ||
-      (m.channelId === undefined && m.conferenceNumber === conferenceNumber.value),
-  ),
+  channelMessages.filter((m) => {
+    // Prefer the stable channel id: toxcore reuses conference numbers after
+    // deletion, so matching by number alone would leak the old channel's
+    // messages into a new channel on the same number. BUT the channel id is
+    // only known after `refreshChannelId` succeeds (the conference may not
+    // be ready yet right after joining); while it is unknown, fall back to
+    // the conference number so the chat window is not blank.
+    if (channelId.value !== "") {
+      return (
+        (m.channelId !== undefined && m.channelId === channelId.value) ||
+        (m.channelId === undefined && m.conferenceNumber === conferenceNumber.value)
+      );
+    }
+    return m.conferenceNumber === conferenceNumber.value;
+  }),
 );
 const chatMessagesRef = ref<HTMLElement | null>(null);
 const showManage = ref(false);
@@ -105,11 +112,17 @@ function ensureMyChannel(n: number, name?: string) {
   }
 }
 
+/** Stable ids of channels we are (still) in — survives restarts because the
+ * tox conference list is persisted. Used to show public channels as
+ * "joined" even when they are not the currently selected channel. */
+const joinedChannelIds = ref<string[]>([]);
+
 async function loadMyChannels() {
   try {
     const nums = await api.listConferences();
     const saved = JSON.parse(localStorage.getItem("toxsocial_channel_names") || "{}");
     const merged: { name: string; conferenceNumber: number }[] = [];
+    const ids: string[] = [];
     for (const n of nums) {
       const existing = myChannels.value.find((c) => c.conferenceNumber === n);
       let name = existing?.name || "";
@@ -117,8 +130,11 @@ async function loadMyChannels() {
         name = saved[String(n)] || t("channelNameWithNumber", { number: n });
       }
       merged.push({ name, conferenceNumber: n });
+      const id = await api.getConferenceId(n).catch(() => "");
+      if (id) ids.push(id);
     }
     myChannels.value = merged;
+    joinedChannelIds.value = ids;
     saveChannelNames();
     if (conferenceNumber.value === null && nums.length > 0) {
       await switchChannel(nums[0]);
@@ -243,7 +259,7 @@ async function joinPublic(ch: PublicChannelInfo) {
   if (joiningChannelId.value) return;
   joiningChannelId.value = ch.channelId;
   try {
-    if (isOwnChannel(ch)) {
+    if (isOwnChannel(ch) || isJoined(ch)) {
       await enterOwnChannel(ch.channelId);
       return;
     }
@@ -266,6 +282,12 @@ async function joinPublic(ch: PublicChannelInfo) {
 
 function isChannelActive(ch: PublicChannelInfo): boolean {
   return !!ch.channelId && ch.channelId === channelId.value;
+}
+
+/** We are actually in this public channel (its conference is in our
+ * persisted list), so it should show as joined after restarts too. */
+function isJoined(ch: PublicChannelInfo): boolean {
+  return !!ch.channelId && joinedChannelIds.value.includes(ch.channelId);
 }
 
 function isRequested(ch: PublicChannelInfo): boolean {
@@ -368,6 +390,7 @@ async function deleteChannel(n: number) {
     await api.conferenceDelete(n);
     if (deletedChannelId) {
       clearChannelMessages(deletedChannelId, n);
+      joinedChannelIds.value = joinedChannelIds.value.filter((id) => id !== deletedChannelId);
     }
     myChannels.value = myChannels.value.filter((c) => c.conferenceNumber !== n);
     saveChannelNames();
@@ -414,6 +437,24 @@ async function switchChannel(n: number) {
   await loadPeers();
   await loadHistory(n);
   isCurrentChannelOwned.value = await api.isChannelOwned(n).catch(() => false);
+}
+
+/** Retry fetching the stable channel id until it succeeds (the conference
+ * may not be ready right after joining). */
+async function refreshChannelIdWithRetry(n: number, attempts = 5) {
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const id = await api.getConferenceId(n);
+      if (id) {
+        channelId.value = id;
+        return true;
+      }
+    } catch {
+      /* not ready yet */
+    }
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+  return false;
 }
 
 /** Load persisted chat history for this channel (survives restarts). */
@@ -544,13 +585,27 @@ onMounted(async () => {
   onEvent("channel:connected", async (e: { conferenceNumber: number }) => {
     ensureMyChannel(e.conferenceNumber);
     await switchChannel(e.conferenceNumber);
+    // The conference is ready now; make sure the stable channel id is known
+    // (it may have failed right after joining) and reload history under it.
+    if (await refreshChannelIdWithRetry(e.conferenceNumber, 5)) {
+      await loadHistory(e.conferenceNumber);
+      if (!joinedChannelIds.value.includes(channelId.value)) {
+        joinedChannelIds.value.push(channelId.value);
+      }
+    }
     requestedChannels.value = requestedChannels.value.filter((id) => id !== channelId.value);
     pushLog(t("channelConnectedNumber", { number: e.conferenceNumber }));
   });
   onEvent("channel:joined", async (e: { conferenceNumber: number; friendNumber: number }) => {
     ensureMyChannel(e.conferenceNumber);
-    requestedChannels.value = requestedChannels.value.filter((id) => id !== channelId.value);
     await switchChannel(e.conferenceNumber);
+    if (await refreshChannelIdWithRetry(e.conferenceNumber, 5)) {
+      await loadHistory(e.conferenceNumber);
+      if (!joinedChannelIds.value.includes(channelId.value)) {
+        joinedChannelIds.value.push(channelId.value);
+      }
+    }
+    requestedChannels.value = requestedChannels.value.filter((id) => id !== channelId.value);
     pushLog(t("joinedViaInvite", { friendNumber: e.friendNumber, number: e.conferenceNumber }));
   });
   onEvent("channel:peer_list_changed", async () => {
@@ -606,7 +661,7 @@ onBeforeUnmount(() => {
           </div>
           <div class="public-item-actions">
             <button class="mini" :disabled="busy || joiningChannelId === ch.channelId || isChannelActive(ch) || isRequested(ch)" @click="joinPublic(ch)">
-              {{ isChannelActive(ch) ? t("joined") : (isRequested(ch) ? t("requested") : t("join")) }}
+              {{ isChannelActive(ch) ? t("joined") : (isJoined(ch) ? t("enter") : (isRequested(ch) ? t("requested") : t("join"))) }}
             </button>
             <button class="mini" @click="copyPublicInvite(ch)">{{ t("copy") }}</button>
             <button v-if="ch.hosts && ch.hosts.includes(ownToxid)" class="mini danger" @click="deletePublic(ch)">{{ t("deleteShort") }}</button>

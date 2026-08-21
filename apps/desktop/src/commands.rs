@@ -1069,7 +1069,11 @@ pub fn is_channel_owned(state: State<AppState>, conference_number: u32) -> Resul
 }
 
 #[tauri::command]
-pub fn conference_delete(state: State<AppState>, conference_number: u32) -> Result<(), String> {
+pub async fn conference_delete(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    conference_number: u32,
+) -> Result<(), String> {
     let channel_id = {
         let mut session = state.session.lock().unwrap();
         let id = session
@@ -1083,15 +1087,30 @@ pub fn conference_delete(state: State<AppState>, conference_number: u32) -> Resu
     // Drop persisted chat history keyed by the stable channel id. Deleting by
     // conference number is unsafe: toxcore reuses numbers after a channel is
     // deleted, which would wipe (or leak into) a newer channel's messages.
-    let engine = state.engine.lock().unwrap();
-    if !channel_id.is_empty() {
-        engine
-            .store()
-            .channel_messages_delete_by_channel(&channel_id)
-            .map_err(|e| format!("delete channel messages failed: {e}"))?;
+    {
+        let engine = state.engine.lock().unwrap();
+        if !channel_id.is_empty() {
+            engine
+                .store()
+                .channel_messages_delete_by_channel(&channel_id)
+                .map_err(|e| format!("delete channel messages failed: {e}"))?;
+        }
     }
-    drop(engine);
     state.persist();
+    // Tell the Relay(s) we left this channel so its online-member count drops
+    // immediately (instead of waiting for the 5-minute TTL).
+    if !channel_id.is_empty() {
+        let relays = relay_urls(&state);
+        let own_toxid = state.session.lock().unwrap().self_address();
+        for relay in relays {
+            if let Err(e) =
+                crate::relay::report_channel_membership(&relay, &channel_id, &own_toxid, true)
+                    .await
+            {
+                eprintln!("[toxsocial] relay leave report failed: {e}");
+            }
+        }
+    }
     Ok(())
 }
 
@@ -1700,6 +1719,7 @@ pub async fn report_channel_memberships(state: State<'_, AppState>) -> Result<us
                     relay,
                     &channel_id,
                     &own_toxid,
+                    false,
                 )
                 .await?;
             }
