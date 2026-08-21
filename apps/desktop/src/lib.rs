@@ -9,7 +9,6 @@ mod state;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use tauri::Manager;
-use tauri_plugin_autostart::MacosLauncher;
 
 use state::AppState;
 
@@ -17,11 +16,28 @@ static ALLOW_EXIT: AtomicBool = AtomicBool::new(false);
 
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, None))
+        // Single instance: auto-start launches a hidden instance; launching
+        // the app again should focus the existing window, not open a second
+        // one on the same profile.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }))
         .setup(|app| {
             use tauri::menu::{Menu, MenuItem};
             use tauri::tray::TrayIconBuilder;
             use tauri::Manager;
+
+            // Silent auto-start (`--minimized`): stay in the tray without
+            // showing the main window.
+            if std::env::args().any(|a| a == "--minimized") {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.hide();
+                }
+                println!("[toxsocial] started minimized (auto-start)");
+            }
 
             let state = AppState::load(app).map_err(|e| {
                 eprintln!("[toxsocial] failed to init state: {e}");

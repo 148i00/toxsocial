@@ -4,7 +4,6 @@ use std::collections::HashMap;
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
-use tauri_plugin_autostart::ManagerExt;
 
 use tox_core::{Connection, ToxError};
 use tox_social::envelope::{Comment, Envelope, Post, Profile, Reaction, SyncReq};
@@ -1021,19 +1020,41 @@ pub fn set_relay_urls(state: State<AppState>, urls: Vec<String>) -> Result<(), S
         .map_err(|e| format!("failed to save Relay URLs: {e}"))
 }
 
+/// Windows registry "Run" key used for auto-start.
+const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
+const RUN_VALUE: &str = "ToxSocial";
+
+fn run_reg(args: &[&str]) -> bool {
+    std::process::Command::new("reg")
+        .args(args)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+/// Auto-start is implemented directly on the Windows Run key so we can add a
+/// `--minimized` flag: on boot the app starts hidden in the tray instead of
+/// popping a window.
 #[tauri::command]
-pub fn get_auto_start(app: tauri::AppHandle) -> Result<bool, String> {
-    let autolaunch = app.autolaunch();
-    autolaunch.is_enabled().map_err(|e| e.to_string())
+pub fn get_auto_start() -> Result<bool, String> {
+    Ok(run_reg(&["query", RUN_KEY, "/v", RUN_VALUE]))
 }
 
 #[tauri::command]
-pub fn set_auto_start(app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
-    let autolaunch = app.autolaunch();
+pub fn set_auto_start(enabled: bool) -> Result<(), String> {
     if enabled {
-        autolaunch.enable().map_err(|e| e.to_string())?;
-    } else {
-        autolaunch.disable().map_err(|e| e.to_string())?;
+        let exe = std::env::current_exe()
+            .map_err(|e| format!("cannot locate exe: {e}"))?;
+        let cmd = format!("\"{}\" --minimized", exe.display());
+        if !run_reg(&[
+            "add", RUN_KEY, "/v", RUN_VALUE, "/t", "REG_SZ", "/d", &cmd, "/f",
+        ]) {
+            return Err("failed to write auto-start registry entry".to_string());
+        }
+    } else if !run_reg(&["delete", RUN_KEY, "/v", RUN_VALUE, "/f"]) {
+        return Err("failed to remove auto-start registry entry".to_string());
     }
     Ok(())
 }

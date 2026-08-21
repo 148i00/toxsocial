@@ -416,6 +416,20 @@ fn handle_event(app: &AppHandle, state: &State<AppState>, ev: Event) {
             filename,
             file_size,
         } => {
+            // Security: reject absurdly large transfers up front (a malicious
+            // friend could otherwise exhaust our memory by sending a huge
+            // file and having us buffer it all).
+            const MAX_RECV_FILE: u64 = 100 * 1024 * 1024; // 100 MB
+            if file_size > MAX_RECV_FILE {
+                let session = state.session.lock().unwrap();
+                let _ = session.reject_file(friend_number, file_number);
+                drop(session);
+                eprintln!(
+                    "[toxsocial] rejected oversized incoming file from #{friend_number}: \
+                     {filename} ({file_size} bytes > 100MB)"
+                );
+                return;
+            }
             let friend_name = {
                 let pk = state
                     .session
@@ -445,6 +459,10 @@ fn handle_event(app: &AppHandle, state: &State<AppState>, ev: Event) {
             filename,
             data,
         } => {
+            // Security: never trust a friend-supplied filename — strip
+            // path components so `..\..\evil.exe` cannot escape the media
+            // directory (path traversal write).
+            let filename = sanitize_filename(&filename);
             let dir = state.data_dir.join("media");
             let _ = std::fs::create_dir_all(&dir);
             let path = dir.join(&filename);
@@ -460,6 +478,27 @@ fn handle_event(app: &AppHandle, state: &State<AppState>, ev: Event) {
             }
         }
     }
+}
+
+/// Strip anything that could escape the media directory from a filename
+/// received from a friend (path traversal defence).
+fn sanitize_filename(name: &str) -> String {
+    let base = name
+        .replace('\\', "/")
+        .rsplit('/')
+        .next()
+        .unwrap_or("file")
+        .trim()
+        .to_string();
+    if base.is_empty() || base == "." || base == ".." {
+        return "file".to_string();
+    }
+    let mut out: String = base.chars().take(180).collect();
+    // Windows forbids these characters in filenames.
+    for ch in ['<', '>', ':', '"', '|', '?', '*', '\0', '\u{1}'] {
+        out = out.replace(ch, "_");
+    }
+    out.trim().to_string()
 }
 
 fn send_sync_req(state: &State<AppState>, friend_number: u32, pk: &str) {
