@@ -323,7 +323,7 @@ fn handle_event(app: &AppHandle, state: &State<AppState>, ev: Event) {
         } => {
             // Persist the message so it survives restarts (see channel_messages
             // command). Grab session data first, then write to the store.
-            let (channel_id, peer_name, peer_key, ts) = {
+            let (channel_id, peer_name, peer_key, is_self, ts) = {
                 let session = state.session.lock().unwrap();
                 let channel_id = session
                     .conference_get_id(conference_number)
@@ -334,12 +334,23 @@ fn handle_event(app: &AppHandle, state: &State<AppState>, ev: Event) {
                 let peer_key = session
                     .conference_peer_public_key(conference_number, peer_number)
                     .unwrap_or_default();
+                let is_self = !peer_key.is_empty() && peer_key == session.self_public_key();
                 let ts = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|d| d.as_millis() as i64)
                     .unwrap_or(0);
-                (channel_id, peer_name, peer_key, ts)
+                (channel_id, peer_name, peer_key, is_self, ts)
             };
+            // toxcore echoes our own conference messages back to us. The UI
+            // already shows them optimistically (and `conference_send`
+            // persists them), so skip persist + emit: otherwise our own
+            // messages would appear twice, once as "someone else".
+            if is_self {
+                println!(
+                    "[toxsocial] conference #{conference_number} self-message echo ignored"
+                );
+                return;
+            }
             let display_name = if peer_name.is_empty() {
                 format!("#{peer_number}")
             } else {

@@ -273,6 +273,17 @@ onMounted(async () => {
   refreshTransfers();
   loading.value = false;
 
+  // Pull latest posts from friends who are already online (the per-friend
+  // sync_req only fires when *they* come online, so posts made while we were
+  // away would otherwise never arrive).
+  api.requestSyncAll().catch(() => {
+    /* best-effort */
+  });
+  setTimeout(() => {
+    refreshTimeline();
+    refreshFriends();
+  }, 1500);
+
   // Check for a new version at startup (best-effort; GitHub may be
   // unreachable behind a firewall). Prompt with a dialog when an update
   // exists so it cannot be missed.
@@ -528,10 +539,6 @@ onBeforeUnmount(() => {
       <FriendsPanel v-else-if="view === 'friends'" :friends="friends" @changed="refreshAll" @open="viewFriend" />
       <ChannelsPanel v-else-if="view === 'channels'" :friends="friends" />
       <div v-else-if="view === 'public'" class="public-page">
-        <div class="row">
-          <button class="primary" @click="requestPublic">{{ t("requestPublicContent") }}</button>
-          <button @click="refreshPublicTimeline">{{ t("refresh") }}</button>
-        </div>
         <div v-if="publicTimeline.length === 0" class="empty">{{ t("emptyPublicTimeline") }}</div>
         <PostCard
           v-for="p in publicTimeline"
