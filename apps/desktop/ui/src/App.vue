@@ -217,19 +217,37 @@ async function refreshPublicTimeline() {
   publicTimeline.value = await api.fetchPublicTimeline(50);
 }
 
+const publicLoading = ref(false);
+let publicTimer: ReturnType<typeof setInterval> | undefined;
+
 async function requestPublic() {
   // Never block the public page on a slow/unreachable Relay: show the local
   // cache and let the periodic refresh catch up later.
-  await Promise.allSettled([
-    api.requestPublicPosts(0, 2),
-    api.fetchRelayPublicPosts(0),
-  ]);
-  await refreshPublicTimeline();
+  publicLoading.value = true;
+  try {
+    await Promise.allSettled([
+      api.requestPublicPosts(0, 2),
+      api.fetchRelayPublicPosts(0),
+    ]);
+    await refreshPublicTimeline();
+  } finally {
+    publicLoading.value = false;
+  }
 }
 
 async function openPublic() {
   view.value = "public";
   await requestPublic();
+  // Auto-refresh the public page while it is visible (Relay fetch only; the
+  // friend-network request stays on open to avoid spamming friends).
+  if (publicTimer) clearInterval(publicTimer);
+  publicTimer = setInterval(() => {
+    api.fetchRelayPublicPosts(0)
+      .then(() => refreshPublicTimeline())
+      .catch(() => {
+        /* relay may be unreachable; keep the cache */
+      });
+  }, 30_000);
 }
 
 async function viewFriend(pubkey: string) {
@@ -400,6 +418,7 @@ async function runSearch() {
 onBeforeUnmount(() => {
   if (statusTimer) clearInterval(statusTimer);
   if (transferTimer) clearInterval(transferTimer);
+  if (publicTimer) clearInterval(publicTimer);
 });
 </script>
 
@@ -452,7 +471,7 @@ onBeforeUnmount(() => {
         <div v-if="threadPostId" class="thread-header">
           <button @click="backToTimeline()">{{ t("backToTimeline") }}</button>
         </div>
-        <ThreadView v-if="threadPostId" :post-id="threadPostId" @refresh="refreshThreadAndTimeline" @attachmentRequested="onAttachmentRequested" />
+        <ThreadView v-if="threadPostId" :post-id="threadPostId" @refresh="refreshThreadAndTimeline" @attachmentRequested="onAttachmentRequested" @author="viewFriend" />
         <template v-else>
           <div v-if="friendFilter" class="thread-header">
             <button @click="backFromFriend()">{{ t("backToTimeline") }}</button>
@@ -465,7 +484,7 @@ onBeforeUnmount(() => {
               :item="p"
               :own="own"
               @open="openThreadWithData"
-              @reacted="refreshTimeline" @attachmentRequested="onAttachmentRequested"
+              @reacted="refreshTimeline" @attachmentRequested="onAttachmentRequested" @author="viewFriend"
             />
           </template>
           <template v-else>
@@ -485,7 +504,7 @@ onBeforeUnmount(() => {
                 :item="p"
                 :own="own"
                 @open="openThreadWithData"
-                @reacted="refreshTimeline" @attachmentRequested="onAttachmentRequested"
+                @reacted="refreshTimeline" @attachmentRequested="onAttachmentRequested" @author="viewFriend"
               />
             </template>
             <template v-else>
@@ -500,7 +519,7 @@ onBeforeUnmount(() => {
                 :item="p"
                 :own="own"
                 @open="openThreadWithData"
-                @reacted="refreshTimeline" @attachmentRequested="onAttachmentRequested"
+                @reacted="refreshTimeline" @attachmentRequested="onAttachmentRequested" @author="viewFriend"
               />
             </template>
           </template>
@@ -535,20 +554,21 @@ onBeforeUnmount(() => {
           :item="p"
           :own="own"
           @open="openThreadWithData"
-          @reacted="refreshTimeline" @attachmentRequested="onAttachmentRequested"
+          @reacted="refreshTimeline" @attachmentRequested="onAttachmentRequested" @author="viewFriend"
         />
       </div>
       <FriendsPanel v-else-if="view === 'friends'" :friends="friends" @changed="refreshAll" @open="viewFriend" />
       <ChannelsPanel v-else-if="view === 'channels'" :friends="friends" />
       <div v-else-if="view === 'public'" class="public-page">
-        <div v-if="publicTimeline.length === 0" class="empty">{{ t("emptyPublicTimeline") }}</div>
+        <div v-if="publicLoading" class="empty">{{ t("loadingPublic") }}</div>
+        <div v-else-if="publicTimeline.length === 0" class="empty">{{ t("emptyPublicTimeline") }}</div>
         <PostCard
           v-for="p in publicTimeline"
           :key="p.id"
           :item="p"
           :own="own"
           @open="openThreadWithData"
-          @reacted="refreshPublicTimeline" @attachmentRequested="onAttachmentRequested"
+          @reacted="refreshPublicTimeline" @attachmentRequested="onAttachmentRequested" @author="viewFriend"
         />
       </div>
       <SettingsPanel v-else :own="own" @saved="refreshAll" />

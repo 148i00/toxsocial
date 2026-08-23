@@ -19,6 +19,8 @@ export interface OwnInfo {
 export interface ReactionSummary {
   emoji: string;
   count: number;
+  /** Whether the current user has reacted with this emoji. */
+  mine: boolean;
 }
 
 export interface TimelineItem {

@@ -7,9 +7,17 @@ import Avatar from "./Avatar.vue";
 import type { OwnInfo, TimelineItem } from "../types";
 
 const props = defineProps<{ item: TimelineItem; own: OwnInfo | null }>();
-const emit = defineEmits<{ open: [id: string]; reacted: []; attachmentRequested: [postId: string] }>();
+const emit = defineEmits<{ open: [id: string]; reacted: []; attachmentRequested: [postId: string]; author: [pubkey: string] }>();
 
-const EMOJIS = ["👍", "❤️", "😂", "🔥", "🎉"];
+const EMOJIS = ["👍", "👎"];
+
+/** Like/dislike counts from the reaction list. */
+const likeCount = computed(() =>
+  props.item.reactions.filter((r) => r.emoji === "👍").reduce((n, r) => n + r.count, 0),
+);
+const dislikeCount = computed(() =>
+  props.item.reactions.filter((r) => r.emoji === "👎").reduce((n, r) => n + r.count, 0),
+);
 
 const bodyHtml = computed(() => renderMarkdown(props.item.text || ""));
 const downloading = ref(false);
@@ -49,8 +57,10 @@ async function react(emoji: string) {
 <template>
   <article class="card" @click="emit('open', item.id)">
     <div class="head">
-      <Avatar :src="item.authorAvatar" :name="item.authorName" :size="28" />
-      <span class="author">{{ item.authorName }}</span>
+      <span class="clickable" @click.stop="emit('author', item.author)">
+        <Avatar :src="item.authorAvatar" :name="item.authorName" :size="28" />
+      </span>
+      <span class="author clickable" @click.stop="emit('author', item.author)">{{ item.authorName }}</span>
       <span v-if="item.isOwn" class="tag">{{ t("me") }}</span>
       <span class="time">{{ formatTime(item.ts) }}</span>
       <span v-if="!item.tsVerified" class="tag warn" :title="t('timeUnverifiedTitle')">{{ t("timeUnverified") }}</span>
@@ -65,19 +75,12 @@ async function react(emoji: string) {
     </div>
     <div class="foot">
       <span class="stat">💬 {{ item.commentCount }}</span>
-      <span class="stat">⚡
-        <template v-if="item.reactions.length">{{ item.reactions.map((r) => r.count > 1 ? `${r.emoji} ${r.count}` : r.emoji).join(" ") }}</template>
-        <template v-else>{{ item.reactionCount }}</template>
-      </span>
       <span class="actions" @click.stop>
-        <button
-          v-for="e in EMOJIS"
-          :key="e"
-          class="mini"
-          :title="t('reactWith', { emoji: e })"
-          @click="react(e)"
-        >
-          {{ e }}
+        <button class="mini vote" :class="{ active: item.reactions.some((r) => r.emoji === '👍' && r.mine) }" :title="t('like')" @click="react('👍')">
+          👍 {{ likeCount || "" }}
+        </button>
+        <button class="mini vote" :class="{ active: item.reactions.some((r) => r.emoji === '👎' && r.mine) }" :title="t('dislike')" @click="react('👎')">
+          👎 {{ dislikeCount || "" }}
         </button>
       </span>
     </div>
@@ -101,6 +104,16 @@ async function react(emoji: string) {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+.clickable {
+  cursor: pointer;
+}
+.clickable:hover {
+  text-decoration: underline;
+}
+.actions button.vote.active {
+  background: var(--accent);
+  color: #fff;
 }
 .author {
   font-weight: 600;

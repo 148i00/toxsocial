@@ -1031,33 +1031,42 @@ pub(crate) fn item_from_row_with_meta(
     author_avatar: &str,
 ) -> TimelineItem {
     let me = state.session.lock().unwrap().self_public_key();
-    let (comment_count, reaction_count, reactions) = if row.kind == PostKind::Post {
-        let thread = engine.store().thread_for(&row.id).unwrap_or_default();
-        let mut counts: Vec<(String, usize)> = Vec::new();
+    // Aggregate reactions attached to this row (for posts this is the whole
+    // thread; for comments/replies it is the reactions on that comment).
+    let (comment_count, reaction_count, reactions) = {
+        let thread = if row.kind == PostKind::Post {
+            engine.store().thread_for(&row.id).unwrap_or_default()
+        } else if row.kind == PostKind::Comment {
+            engine.store().thread_for(&row.id).unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        let mut counts: Vec<(String, usize, bool)> = Vec::new();
         for c in thread.iter().filter(|c| c.kind == PostKind::Reaction) {
             let emoji = c.emoji.clone().unwrap_or_default();
-            if let Some(entry) = counts.iter_mut().find(|(e, _)| *e == emoji) {
+            let mine = c.author == me;
+            if let Some(entry) = counts.iter_mut().find(|(e, _, _)| *e == emoji) {
                 entry.1 += 1;
+                entry.2 |= mine;
             } else {
-                counts.push((emoji, 1));
+                counts.push((emoji, 1, mine));
             }
         }
+        let reaction_count = thread
+            .iter()
+            .filter(|c| c.kind == PostKind::Reaction)
+            .count();
         (
             thread
                 .iter()
                 .filter(|c| c.kind == PostKind::Comment)
                 .count(),
-            thread
-                .iter()
-                .filter(|c| c.kind == PostKind::Reaction)
-                .count(),
+            reaction_count,
             counts
                 .into_iter()
-                .map(|(emoji, count)| ReactionSummary { emoji, count })
+                .map(|(emoji, count, mine)| ReactionSummary { emoji, count, mine })
                 .collect(),
         )
-    } else {
-        (0, 0, Vec::new())
     };
     TimelineItem {
         id: row.id.clone(),

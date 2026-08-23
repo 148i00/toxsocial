@@ -11,7 +11,7 @@ function md(text?: string | null): string {
 }
 
 const props = defineProps<{ postId: string }>();
-const emit = defineEmits<{ refresh: []; attachmentRequested: [postId: string] }>();
+const emit = defineEmits<{ refresh: []; attachmentRequested: [postId: string]; author: [pubkey: string] }>();
 
 const post = ref<TimelineItem | null>(null);
 const comments = ref<TimelineItem[]>([]);
@@ -20,17 +20,40 @@ const commentText = ref("");
 const replyTarget = ref<string | null>(null);
 const commentInput = ref<HTMLTextAreaElement | null>(null);
 const busy = ref(false);
+const sortMode = ref<"time" | "score">("time");
+const reverse = ref(false);
 
-const reactionSummary = computed(() => {
-  const counts = new Map<string, number>();
-  for (const r of reactions.value) {
-    const e = r.emoji || "?";
-    counts.set(e, (counts.get(e) ?? 0) + 1);
+// --- like / dislike helpers --------------------------------------------------
+
+function countsOf(item: TimelineItem): { like: number; dislike: number; liked: boolean; disliked: boolean } {
+  const like = item.reactions.filter((r) => r.emoji === "👍").reduce((n, r) => n + r.count, 0);
+  const dislike = item.reactions.filter((r) => r.emoji === "👎").reduce((n, r) => n + r.count, 0);
+  return {
+    like,
+    dislike,
+    liked: item.reactions.some((r) => r.emoji === "👍" && r.mine),
+    disliked: item.reactions.some((r) => r.emoji === "👎" && r.mine),
+  };
+}
+
+function scoreOf(item: TimelineItem): number {
+  const c = countsOf(item);
+  return c.like - c.dislike;
+}
+
+const postVotes = computed(() => (post.value ? countsOf(post.value) : null));
+
+async function react(itemId: string, emoji: string) {
+  try {
+    await api.publishReaction(itemId, emoji);
+    await load();
+    emit("refresh");
+  } catch {
+    /* ignore */
   }
-  return Array.from(counts.entries())
-    .map(([emoji, count]) => (count > 1 ? `${emoji} ${count}` : emoji))
-    .join("  ");
-});
+}
+
+// --- comment depth & sorting -------------------------------------------------
 
 const commentDepth = computed(() => {
   const depth = new Map<string, number>();
@@ -48,11 +71,25 @@ const commentDepth = computed(() => {
   return depth;
 });
 
+/** Comments sorted by time or like/dislike score; both support reverse. */
+const sortedComments = computed(() => {
+  const list = [...comments.value];
+  if (sortMode.value === "time") {
+    list.sort((a, b) => a.ts - b.ts);
+  } else {
+    list.sort((a, b) => scoreOf(b) - scoreOf(a));
+  }
+  if (reverse.value) list.reverse();
+  return list;
+});
+
 function parentCommentName(c: TimelineItem): string {
   if (!c.parentId || c.parentId === props.postId) return "";
   const p = comments.value.find((x) => x.id === c.parentId);
   return p?.authorName || "";
 }
+
+// --- load / actions ----------------------------------------------------------
 
 async function load() {
   const items = await api.fetchThread(props.postId);
@@ -120,8 +157,10 @@ onMounted(load);
   <div v-if="post" class="thread">
     <article class="card post">
       <div class="head">
-        <Avatar :src="post.authorAvatar" :name="post.authorName" :size="28" />
-        <span class="author">{{ post.authorName }}</span>
+        <span class="clickable" @click="emit('author', post.author)">
+          <Avatar :src="post.authorAvatar" :name="post.authorName" :size="28" />
+        </span>
+        <span class="author clickable" @click="emit('author', post.author)">{{ post.authorName }}</span>
         <span v-if="post.isOwn" class="tag">{{ t("me") }}</span>
         <span class="time">{{ formatTime(post.ts) }}</span>
         <span v-if="!post.tsVerified" class="tag warn" :title="t('timeUnverifiedTitle')">{{ t("timeUnverified") }}</span>
@@ -133,8 +172,13 @@ onMounted(load);
         <button class="mini" @click="requestAttachment">{{ t("download") }}</button>
       </div>
       <div class="stats">
+        <button class="mini vote" :class="{ active: postVotes?.liked }" :title="t('like')" @click="react(post.id, '👍')">
+          👍 {{ postVotes?.like || "" }}
+        </button>
+        <button class="mini vote" :class="{ active: postVotes?.disliked }" :title="t('dislike')" @click="react(post.id, '👎')">
+          👎 {{ postVotes?.dislike || "" }}
+        </button>
         <span>💬 {{ t("commentCount", { count: comments.length }) }}</span>
-        <span>⚡ {{ t("reactionSummary", { count: reactions.length, summary: reactionSummary || t("none") }) }}</span>
       </div>
     </article>
 
@@ -158,22 +202,33 @@ onMounted(load);
       </button>
     </div>
 
+    <div class="sort-bar">
+      <span class="sort-label">{{ t("sortBy") }}</span>
+      <button class="mini" :class="{ active: sortMode === 'time' }" @click="sortMode = 'time'; reverse = false">{{ t("sortTime") }}</button>
+      <button class="mini" :class="{ active: sortMode === 'score' }" @click="sortMode = 'score'; reverse = false">{{ t("sortScore") }}</button>
+      <button class="mini" :class="{ active: reverse }" @click="reverse = !reverse">{{ reverse ? t("sortAsc") : t("sortDesc") }}</button>
+    </div>
+
     <div v-if="comments.length === 0" class="empty">{{ t("noCommentsYet") }}</div>
     <article
-      v-for="c in comments"
+      v-for="c in sortedComments"
       :key="c.id"
-      class="card comment"
-      :style="{ marginLeft: ((commentDepth.get(c.id) || 0) * 28) + 'px' }"
+      class="comment"
+      :style="{ marginLeft: ((commentDepth.get(c.id) || 0) * 22) + 'px' }"
     >
       <div class="head">
-        <Avatar :src="c.authorAvatar" :name="c.authorName" :size="24" />
-        <span class="author">{{ c.authorName }}</span>
+        <span class="clickable" @click="emit('author', c.author)">
+          <Avatar :src="c.authorAvatar" :name="c.authorName" :size="22" />
+        </span>
+        <span class="author clickable" @click="emit('author', c.author)">{{ c.authorName }}</span>
         <span v-if="parentCommentName(c)" class="reply-to">{{ t("replyToName", { name: parentCommentName(c) }) }}</span>
         <span class="time">{{ formatTime(c.ts) }}</span>
         <span v-if="!c.tsVerified" class="tag warn" :title="t('timeUnverifiedTitle')">{{ t("timeUnverified") }}</span>
       </div>
       <div class="body markdown" v-html="md(c.text)"></div>
       <div class="comment-actions">
+        <button class="mini vote" :class="{ active: countsOf(c).liked }" :title="t('like')" @click="react(c.id, '👍')">👍 {{ countsOf(c).like || "" }}</button>
+        <button class="mini vote" :class="{ active: countsOf(c).disliked }" :title="t('dislike')" @click="react(c.id, '👎')">👎 {{ countsOf(c).dislike || "" }}</button>
         <button class="mini" @click="replyTo(c)">{{ t("reply") }}</button>
       </div>
     </article>
@@ -194,6 +249,12 @@ onMounted(load);
   border-radius: 8px;
   font-size: 11px;
   padding: 0 6px;
+}
+.clickable {
+  cursor: pointer;
+}
+.clickable:hover {
+  text-decoration: underline;
 }
 .attach {
   display: flex;
@@ -239,13 +300,36 @@ onMounted(load);
   word-break: break-word;
 }
 .stats {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   color: var(--text-dim);
   font-size: 12px;
-  display: flex;
-  gap: 16px;
+  flex-wrap: wrap;
 }
+button.mini {
+  padding: 2px 8px;
+  font-size: 11px;
+}
+button.vote.active {
+  background: var(--accent);
+  color: #fff;
+}
+/* Reddit-style threaded comments: indent + a thin left rule, no card box. */
 .comment {
-  border-left: 3px solid var(--accent-2);
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 8px 0 6px 12px;
+  margin-bottom: 2px;
+  border-left: 1px solid var(--border);
+}
+.comment .body {
+  margin: 4px 0;
+  font-size: 13px;
+}
+.comment .head .author {
+  font-size: 12px;
 }
 .reply-to {
   color: var(--text-dim);
@@ -263,11 +347,19 @@ onMounted(load);
   margin-bottom: 8px;
 }
 .comment-actions {
-  margin-top: 6px;
+  margin-top: 4px;
+  display: flex;
+  gap: 6px;
 }
-button.mini {
-  padding: 2px 8px;
-  font-size: 11px;
+.sort-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0;
+  font-size: 12px;
+}
+.sort-label {
+  color: var(--text-dim);
 }
 .composer {
   display: flex;

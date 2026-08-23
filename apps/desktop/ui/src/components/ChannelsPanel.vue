@@ -3,11 +3,17 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import { api, onEvent } from "../api";
 import { channelMessages, clearChannelMessages, mergeChannelHistory, pushChannelMessage } from "../channelStore";
 import { t } from "../i18n";
+import { renderMarkdown } from "../markdown";
 import type { ConferencePeerInfo, FriendInfo, PublicChannelInfo } from "../types";
 
 const props = defineProps<{ friends: FriendInfo[] }>();
 
 const ME_PEER = "我";
+
+/** Safe Markdown rendering (HTML is escaped first; see markdown.ts). */
+function md(text: string): string {
+  return renderMarkdown(text);
+}
 const conferenceNumber = ref<number | null>(null);
 const channelId = ref("");
 const isCurrentChannelOwned = ref(false);
@@ -738,7 +744,7 @@ onBeforeUnmount(() => {
           <div v-for="(m, i) in currentMessages" :key="'m' + i" class="chat-msg" :class="{ mine: m.peer === ME_PEER }">
             <div class="bubble">
               <div class="bubble-peer">{{ m.peer === ME_PEER ? t('me') : m.peer }}</div>
-              <div class="bubble-text">{{ m.text }}</div>
+              <div class="bubble-text markdown" v-html="md(m.text)"></div>
             </div>
           </div>
         </div>

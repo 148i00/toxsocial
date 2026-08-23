@@ -43,6 +43,8 @@ pub struct OwnInfo {
 pub struct ReactionSummary {
     pub emoji: String,
     pub count: usize,
+    /// Whether the current user has reacted with this emoji.
+    pub mine: bool,
 }
 
 #[derive(Serialize, Clone)]
