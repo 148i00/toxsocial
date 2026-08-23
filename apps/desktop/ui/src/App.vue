@@ -665,6 +665,8 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 8px;
+  font-family: "CAGeheimagent-Bold", "Segoe UI", sans-serif;
+  color: #9c0d10;
 }
 .logo-img {
   width: 26px;

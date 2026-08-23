@@ -1,3 +1,10 @@
+@font-face {
+  font-family: "CAGeheimagent-Bold";
+  src: url("./assets/fonts/CAGeheimagent-Bold.otf") format("opentype");
+  font-weight: 700;
+  font-display: swap;
+}
+
 :root {
   --bg: #0d1017;
   --bg-2: #141925;
