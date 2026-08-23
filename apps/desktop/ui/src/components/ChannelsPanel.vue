@@ -570,18 +570,27 @@ async function send() {
 
 let publicTimer: ReturnType<typeof setInterval> | undefined;
 
-onMounted(async () => {
+/** Refresh the set of channel ids we are in (falls back when a join event
+ * arrives before this panel finished mounting). */
+async function refreshJoinedChannelIds() {
   try {
-    const info = await api.getOwnInfo();
-    ownToxid.value = info.toxid;
+    const nums = await api.listConferences();
+    const ids: string[] = [];
+    for (const n of nums) {
+      const id = await api.getConferenceId(n).catch(() => "");
+      if (id) ids.push(id);
+    }
+    joinedChannelIds.value = ids;
   } catch {
     /* ignore */
   }
-  await loadMyChannels();
-  await loadPublicChannels();
-  publicTimer = setInterval(() => {
-    loadPublicChannels();
-  }, 15_000);
+}
+
+onMounted(async () => {
+  // Register event listeners FIRST: join/connect events can arrive while
+  // the panel is still loading (they used to be registered after `await
+  // loadMyChannels()`, so a join during that window was lost and the UI
+  // stayed stale until the page was remounted).
   onEvent("channel:connected", async (e: { conferenceNumber: number }) => {
     ensureMyChannel(e.conferenceNumber);
     await switchChannel(e.conferenceNumber);
@@ -594,6 +603,7 @@ onMounted(async () => {
       }
     }
     requestedChannels.value = requestedChannels.value.filter((id) => id !== channelId.value);
+    await loadPublicChannels();
     pushLog(t("channelConnectedNumber", { number: e.conferenceNumber }));
   });
   onEvent("channel:joined", async (e: { conferenceNumber: number; friendNumber: number }) => {
@@ -606,12 +616,27 @@ onMounted(async () => {
       }
     }
     requestedChannels.value = requestedChannels.value.filter((id) => id !== channelId.value);
+    await loadPublicChannels();
     pushLog(t("joinedViaInvite", { friendNumber: e.friendNumber, number: e.conferenceNumber }));
   });
   onEvent("channel:peer_list_changed", async () => {
     await refreshPeerCount();
     await loadPeers();
   });
+
+  try {
+    const info = await api.getOwnInfo();
+    ownToxid.value = info.toxid;
+  } catch {
+    /* ignore */
+  }
+  await loadMyChannels();
+  await loadPublicChannels();
+  publicTimer = setInterval(() => {
+    loadPublicChannels();
+    // Also refresh membership state in case a join event was missed.
+    refreshJoinedChannelIds();
+  }, 15_000);
 });
 
 onBeforeUnmount(() => {
