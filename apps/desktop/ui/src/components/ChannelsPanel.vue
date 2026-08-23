@@ -346,7 +346,7 @@ async function pasteInvite() {
   try {
     const text = await navigator.clipboard.readText();
     const toxid = text.match(/ToxID:\s*(\S+)/i)?.[1] || "";
-    const ch = text.match(/(?:频道ID|频道 ID|Channel ID|ChannelID)\s*:\s*(\S+)/i)?.[1] || "";
+    const ch = text.match(/(?:群组ID|群组 ID|频道ID|频道 ID|Channel ID|ChannelID|Group ID)\s*:\s*(\S+)/i)?.[1] || "";
     if (!toxid || !ch) {
       pushLog(t("invalidInvite"));
       return;

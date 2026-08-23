@@ -1836,7 +1836,7 @@ pub async fn register_public_channel(
         }
     }
     if !is_owned_channel(&state, &channel_id) && !is_host {
-        return Err("只有频道创建者或 host 才能发布为公共频道".to_string());
+        return Err("只有群组创建者或 host 才能发布为公共群组".to_string());
     }
     for relay in &relays {
         crate::relay::register_channel(

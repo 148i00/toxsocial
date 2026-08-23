@@ -683,14 +683,19 @@ fn handle_dir_req(state: &State<AppState>, friend_number: u32, _sender_pk: &str,
         let session = state.session.lock().unwrap();
         let _ = session.send_message(friend_number, &wire);
     }
-    if req.depth > 0 {
+    // Anti-amplification: clamp forward depth. A malicious friend could
+    // otherwise send depth=100 and turn every hop into a flood that fans out
+    // to their whole friend list, N^depth messages. 3 hops max (a normal
+    // request uses 2).
+    let fwd_depth = req.depth.min(3);
+    if fwd_depth > 0 {
         let me = state.session.lock().unwrap().self_public_key();
         let fwd = Envelope::DirReq(DirReq {
             v: tox_social::envelope::PROTOCOL_VERSION,
             author: me,
             ts: now_ms(),
             query: req.query.clone(),
-            depth: req.depth - 1,
+            depth: fwd_depth - 1,
         });
         let wire = fwd.encode();
         let session = state.session.lock().unwrap();
@@ -743,14 +748,16 @@ fn handle_outbox_req(state: &State<AppState>, friend_number: u32, req: &OutboxRe
         let session = state.session.lock().unwrap();
         let _ = session.send_message(friend_number, &wire);
     }
-    if req.depth > 0 {
+    // Anti-amplification: clamp forward depth (see comment in handle_dir_req).
+    let fwd_depth = req.depth.min(3);
+    if fwd_depth > 0 {
         let me = state.session.lock().unwrap().self_public_key();
         let fwd = Envelope::OutboxReq(OutboxReq {
             v: tox_social::envelope::PROTOCOL_VERSION,
             author: me,
             ts: now_ms(),
             since: req.since,
-            depth: req.depth - 1,
+            depth: fwd_depth - 1,
         });
         let wire = fwd.encode();
         let session = state.session.lock().unwrap();
