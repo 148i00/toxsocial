@@ -312,7 +312,9 @@ ${t("inviteJoinMessageLabel")}: join_channel ${ch.channelId}`;
 }
 
 async function publishChannel() {
-  if (conferenceNumber.value === null || !channelName.value.trim()) {
+  // The public channel's name comes from the current channel's display name.
+  const name = (myChannels.value.find((c) => c.conferenceNumber === conferenceNumber.value)?.name || "").trim();
+  if (conferenceNumber.value === null || !name) {
     error.value = t("channelNameRequired");
     return;
   }
@@ -321,11 +323,10 @@ async function publishChannel() {
   try {
     await api.registerPublicChannel(
       conferenceNumber.value,
-      channelName.value.trim(),
+      name,
       channelDesc.value.trim(),
     );
-    pushLog(t("channelPublished", { name: channelName.value.trim() }));
-    channelName.value = "";
+    pushLog(t("channelPublished", { name }));
     channelDesc.value = "";
     await loadPublicChannels();
   } catch (e) {
@@ -631,7 +632,10 @@ onMounted(async () => {
     /* ignore */
   }
   await loadMyChannels();
-  await loadPublicChannels();
+  // Load public channels in the background: ever since the relay became
+  // slow/unreachable, awaiting it here made the channel page hang on open
+  // (the UI itself is already mounted; only the list arrives late).
+  loadPublicChannels();
   publicTimer = setInterval(() => {
     loadPublicChannels();
     // Also refresh membership state in case a join event was missed.
@@ -650,7 +654,11 @@ onBeforeUnmount(() => {
     <div class="channels-sidebar">
       <div class="sidebar-header">
         <span class="sidebar-title">{{ t("channelsTitle") }}</span>
-        <button class="primary small" :disabled="busy" @click="create">{{ t("createJoin") }}</button>
+        <div class="header-actions">
+          <button class="mini" :disabled="busy || conferenceNumber === null" :title="t('copyInvite')" @click="copyInvite">{{ t("copyInviteShort") }}</button>
+          <button class="mini" :title="t('pasteJoin')" @click="pasteInvite">{{ t("pasteJoinShort") }}</button>
+          <button class="primary small" :disabled="busy" @click="create">{{ t("create") }}</button>
+        </div>
       </div>
       <div class="sidebar-create-row">
         <input v-model="newChannelName" :placeholder="t('newChannelNamePlaceholder')" @keydown.enter="create" />
@@ -721,8 +729,6 @@ onBeforeUnmount(() => {
             <span class="chat-meta">{{ t("peerCountLabel", { number: conferenceNumber, count: peerCount }) }}</span>
           </div>
           <div class="chat-actions">
-            <button class="mini" @click="copyInvite">{{ t("copyInvite") }}</button>
-            <button class="mini" @click="pasteInvite">{{ t("pasteJoin") }}</button>
             <button class="mini" @click="showManage = !showManage">{{ showManage ? t("hideManage") : t("manage") }}</button>
           </div>
         </div>
@@ -772,9 +778,9 @@ onBeforeUnmount(() => {
             </div>
             <div v-if="canPublishChannel" class="card">
               <div class="log-title">{{ currentChannelPublic ? t("updatePublicChannel") : t("publishPublicChannel") }}</div>
-              <input v-model="channelName" :placeholder="t('channelNameLabel')" />
+              <div class="publish-channel-name">📢 {{ currentChannelName }}</div>
               <input v-model="channelDesc" :placeholder="t('channelDescPlaceholder')" />
-              <button class="primary" :disabled="busy || !channelName.trim()" @click="publishChannel">
+              <button class="primary" :disabled="busy" @click="publishChannel">
                 {{ currentChannelPublic ? t("update") : t("publish") }}
               </button>
             </div>

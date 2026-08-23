@@ -218,7 +218,9 @@ async function refreshPublicTimeline() {
 }
 
 async function requestPublic() {
-  await Promise.all([
+  // Never block the public page on a slow/unreachable Relay: show the local
+  // cache and let the periodic refresh catch up later.
+  await Promise.allSettled([
     api.requestPublicPosts(0, 2),
     api.fetchRelayPublicPosts(0),
   ]);

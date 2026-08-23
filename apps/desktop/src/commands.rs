@@ -622,14 +622,43 @@ pub async fn publish_post(
             )
             .await
             {
-                eprintln!("[toxsocial] relay publish failed: {e}");
-                // The Relay may have rejected the post (bad signature,
-                // out-of-sync timestamp, etc.); tell the user instead of
-                // silently succeeding.
-                let _ = app.emit(
-                    "relay:publish_failed",
-                    serde_json::json!({ "relay": relay, "error": e }),
-                );
+                // Retry a couple of times: transient network failures are
+                // common, and a silently-missing post is why friends can
+                // never see it in the public page.
+                let mut last = e.clone();
+                for attempt in 1..=2 {
+                    std::thread::sleep(std::time::Duration::from_secs(attempt));
+                    match crate::relay::publish_post(
+                        relay,
+                        &pubkey,
+                        &id,
+                        ts,
+                        &text,
+                        &post.sig,
+                        &ed_pk,
+                    )
+                    .await
+                    {
+                        Ok(()) => {
+                            last = String::new();
+                            break;
+                        }
+                        Err(_) if attempt == 2 => {
+                            last = format!("{e} (after retries)");
+                        }
+                        Err(_) => {}
+                    }
+                }
+                if !last.is_empty() {
+                    eprintln!("[toxsocial] relay publish failed: {last}");
+                    // The Relay may have rejected the post (bad signature,
+                    // out-of-sync timestamp, etc.); tell the user instead of
+                    // silently succeeding.
+                    let _ = app.emit(
+                        "relay:publish_failed",
+                        serde_json::json!({ "relay": relay, "error": last }),
+                    );
+                }
             }
         }
     }
@@ -1486,7 +1515,9 @@ pub async fn fetch_relay_public_posts(state: State<'_, AppState>, since: Option<
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0);
+    let me = state.session.lock().unwrap().self_public_key();
     let mut count = 0;
+    let mut relay_ids: Vec<String> = Vec::new();
     for relay in &relays {
         let items = crate::relay::fetch_outbox(relay, since).await?;
         let engine = state.engine.lock().unwrap();
@@ -1499,6 +1530,7 @@ pub async fn fetch_relay_public_posts(state: State<'_, AppState>, since: Option<
             if id.is_empty() || pubkey.is_empty() {
                 continue;
             }
+            relay_ids.push(id.clone());
             let post = tox_social::envelope::Post {
                 v: tox_social::envelope::PROTOCOL_VERSION,
                 id: id.clone(),
@@ -1516,6 +1548,25 @@ pub async fn fetch_relay_public_posts(state: State<'_, AppState>, since: Option<
                 // trusted for display; mark it so the UI stops warning.
                 let _ = engine.store().post_mark_relay_verified(&id);
             }
+        }
+    }
+    // Keep the public page consistent with the Relay: drop cached public
+    // posts by others that no longer exist there (deleted by their author).
+    if !relay_ids.is_empty() {
+        let engine = state.engine.lock().unwrap();
+        let stale: Vec<String> = engine
+            .store()
+            .public_posts_since(0, 10_000)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|p| p.author != me)
+            .filter(|p| !relay_ids.iter().any(|id| id == &p.id))
+            .map(|p| p.id)
+            .collect();
+        if !stale.is_empty() {
+            let n = stale.len();
+            let _ = engine.store().delete_public_posts_not_in(&relay_ids);
+            println!("[toxsocial] removed {n} stale public post(s) not on the relay");
         }
     }
     Ok(count)

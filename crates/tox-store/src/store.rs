@@ -594,6 +594,27 @@ impl Store {
         rows.collect()
     }
 
+    /// Drop cached public posts that are no longer on the Relay (e.g. the
+    /// author deleted them). Only posts by other authors are removed.
+    pub fn delete_public_posts_not_in(&self, keep_ids: &[String]) -> Result<usize> {
+        let all: Vec<PostRow> = self
+            .conn
+            .prepare(
+                "SELECT id, author, kind, parent_id, text, emoji, ts, received_at, source, channel_id, is_public, sig, attachment
+                 FROM posts WHERE kind = 0 AND is_public = 1",
+            )?
+            .query_map([], row_to_post)?
+            .collect::<Result<_>>()?;
+        let mut removed = 0;
+        for p in all {
+            if !keep_ids.iter().any(|k| k == &p.id) {
+                self.conn.execute("DELETE FROM posts WHERE id = ?1", params![p.id])?;
+                removed += 1;
+            }
+        }
+        Ok(removed)
+    }
+
     /// Posts authored by one user, newest first.
     pub fn posts_by_author(&self, author: &str, limit: u32) -> Result<Vec<PostRow>> {
         let mut stmt = self.conn.prepare(

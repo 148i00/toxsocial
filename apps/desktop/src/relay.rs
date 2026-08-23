@@ -3,6 +3,13 @@
 
 use serde::Serialize;
 
+fn http_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new())
+}
+
 pub const DEFAULT_RELAY: &str = "https://toxsocial-relay.vcst.top";
 
 #[derive(Debug, Clone, Serialize)]
@@ -20,7 +27,8 @@ pub async fn search_directory(relay: &str, query: &str) -> Result<Vec<RelayDirec
         &[("q", query)],
     )
     .map_err(|e| e.to_string())?;
-    let resp = reqwest::get(url)
+    let resp = http_client().get(url)
+        .send()
         .await
         .map_err(|e| format!("relay request failed: {e}"))?;
     let status = resp.status();
@@ -86,7 +94,8 @@ pub async fn fetch_outbox(relay: &str, since: i64) -> Result<Vec<serde_json::Val
         &[("since", since.to_string())],
     )
     .map_err(|e| e.to_string())?;
-    let resp = reqwest::get(url)
+    let resp = http_client().get(url)
+        .send()
         .await
         .map_err(|e| format!("relay request failed: {e}"))?;
     let status = resp.status();
@@ -112,7 +121,8 @@ pub async fn fetch_post_by_id(
         &[("id", post_id)],
     )
     .map_err(|e| e.to_string())?;
-    let resp = reqwest::get(url)
+    let resp = http_client().get(url)
+        .send()
         .await
         .map_err(|e| format!("relay request failed: {e}"))?;
     let status = resp.status();
@@ -141,7 +151,8 @@ pub struct RelayChannel {
 
 pub async fn list_channels(relay: &str) -> Result<Vec<RelayChannel>, String> {
     let url = format!("{}/api/channels", relay.trim_end_matches('/'));
-    let resp = reqwest::get(url)
+    let resp = http_client().get(url)
+        .send()
         .await
         .map_err(|e| format!("relay request failed: {e}"))?;
     let status = resp.status();
