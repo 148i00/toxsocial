@@ -659,18 +659,18 @@ onBeforeUnmount(() => {
 }
 
 .logo {
-  font-size: 17px;
+  font-size: 26px;
   font-weight: 700;
   padding: 4px 8px;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   font-family: "CAGeheimagent-Bold", "Segoe UI", sans-serif;
   color: #9c0d10;
 }
 .logo-img {
-  width: 26px;
-  height: 26px;
+  width: 32px;
+  height: 32px;
   border-radius: 6px;
 }
 

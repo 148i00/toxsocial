@@ -23,6 +23,14 @@ const myChannels = ref<{ name: string; conferenceNumber: number }[]>([]);
 const subName = ref("");
 const friendNumber = ref("0");
 const inviteToxid = ref("");
+const inviteSelect = ref("");
+
+/** Pick a friend from the following list for the invite. */
+function onInviteSelect() {
+  if (inviteSelect.value) {
+    inviteToxid.value = inviteSelect.value;
+  }
+}
 const message = ref("");
 const log = ref<string[]>([]);
 const MAX_LOG = 200;
@@ -773,11 +781,20 @@ onBeforeUnmount(() => {
             </div>
             <div class="card">
               <div class="log-title">{{ t("inviteFriends") }}</div>
-              <div class="row">
+              <div class="row invite-row">
+                <select v-model="inviteSelect" class="invite-select" :disabled="busy" @change="onInviteSelect">
+                  <option value="">{{ t("selectFromFollows") }}</option>
+                  <option v-for="f in props.friends" :key="f.toxid" :value="f.toxid">
+                    {{ f.name || f.toxid.slice(0, 8) }} ({{ f.pubkey.slice(0, 8) }}…)
+                  </option>
+                </select>
+                <button :disabled="busy || !inviteSelect" @click="inviteByToxid">{{ t("invite") }}</button>
+              </div>
+              <div class="row invite-row">
                 <input v-model="inviteToxid" class="mono" :placeholder="t('friendToxidPlaceholder')" />
                 <button :disabled="busy || !inviteToxid.trim()" @click="inviteByToxid">{{ t("invite") }}</button>
               </div>
-              <div class="row">
+              <div class="row invite-row">
                 <input v-model="friendNumber" type="number" min="0" />
                 <button :disabled="busy" @click="invite">{{ t("inviteFriendNumber") }}</button>
               </div>
@@ -1034,6 +1051,16 @@ onBeforeUnmount(() => {
   padding: 10px 14px;
   max-height: 40%;
   overflow-y: auto;
+}
+.invite-select {
+  flex: 1;
+  min-width: 150px;
+  padding: 6px 8px;
+  background: var(--bg-3);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 12px;
 }
 .manage-grid {
   display: grid;
