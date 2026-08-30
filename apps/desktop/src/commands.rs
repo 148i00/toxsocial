@@ -1640,7 +1640,7 @@ pub fn request_attachment(state: State<AppState>, post_id: String) -> Result<(),
                     .map(|pk| pk == author)
                     .unwrap_or(false)
             })
-            .ok_or_else(|| "author is not in your following list".to_string())?
+            .ok_or_else(|| "下载附件需要先关注作者（Tox 文件传输仅限好友），请先在作者主页点击关注".to_string())?
     };
     {
         let session = state.session.lock().unwrap();
