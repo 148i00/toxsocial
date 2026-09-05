@@ -1719,6 +1719,36 @@ pub fn export_account(state: State<AppState>) -> Result<String, String> {
     Ok(BASE64.encode(save))
 }
 
+/// After an invite lands, remember which conference number belongs to a
+/// joined community (join_community records `u32::MAX` until then).
+#[tauri::command]
+pub fn update_community_conferences(
+    state: State<AppState>,
+    entries: Vec<CommunityConfEntry>,
+) -> Result<(), String> {
+    let mut list = my_communities_load(&state);
+    let mut changed = false;
+    for e in &entries {
+        if let Some(c) = list.iter_mut().find(|c| c.channel_id == e.channel_id) {
+            if c.conference_number != e.conferenceNumber {
+                c.conference_number = e.conferenceNumber;
+                changed = true;
+            }
+        }
+    }
+    if changed {
+        my_communities_save(&state, &list);
+    }
+    Ok(())
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommunityConfEntry {
+    pub channel_id: String,
+    pub conference_number: u32,
+}
+
 /// Send a "join_channel <id>" request to a ToxID (adds as friend if needed).
 fn send_join_channel_inner(
     state: &State<AppState>,

@@ -111,6 +111,9 @@ export const api = {
   myCommunities: () => inv<CommunityInfo[]>("my_communities"),
   joinCommunity: (channelId: string, name: string, desc: string) =>
     inv<void>("join_community", { channelId, name, desc }),
+  updateCommunityConferences: (
+    entries: { channelId: string; conferenceNumber: number }[],
+  ) => inv<void>("update_community_conferences", { entries }),
   cleanupDatabase: () =>
     inv<{ removedPosts: number; removedChannelMsgs: number; removedPrivateMsgs: number; dbSizeBytes: number }>("cleanup_database"),
   dbStats: () =>

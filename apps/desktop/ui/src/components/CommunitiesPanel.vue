@@ -169,10 +169,48 @@ function onPosted() {
 }
 
 let unlistenPm: Awaited<ReturnType<typeof onEvent>> | undefined;
+let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
+
+/** Resolve conference numbers for joined community conferences (the invite
+ * may arrive after join_community recorded the channel id). */
+async function refreshCommunityConferences() {
+  let changed = false;
+  try {
+    const nums = await api.listConferences();
+    for (const c of myCommunities.value) {
+      if (c.conferenceNumber !== u32max()) continue;
+      for (const n of nums) {
+        const id = await api.getConferenceId(n).catch(() => "");
+        if (id === c.channelId) {
+          c.conferenceNumber = n;
+          changed = true;
+          break;
+        }
+      }
+    }
+    if (changed) {
+      await api.updateCommunityConferences(
+        myCommunities.value.map((c) => ({ channelId: c.channelId, conferenceNumber: c.conferenceNumber })),
+      );
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+function u32max(): number {
+  return 4294967295;
+}
 
 onMounted(async () => {
   await loadMy();
   await loadDiscover();
+  // Heartbeat: report membership for joined community conferences so the
+  // Relay's online-member count includes us while this page is open.
+  heartbeatTimer = setInterval(() => {
+    api.reportChannelMemberships().catch(() => {});
+    refreshCommunityConferences();
+  }, 15_000);
   // Community posts arrive as TSP envelopes inside community conferences and
   // are persisted with channel_id; a feed:post for the selected community
   // means a new post landed — refresh the feed.
@@ -194,6 +232,7 @@ function viewIsActive(): boolean {
 
 onBeforeUnmount(() => {
   if (feedTimer) clearInterval(feedTimer);
+  if (heartbeatTimer) clearInterval(heartbeatTimer);
   feedObserver?.disconnect();
   unlistenPm?.();
 });
@@ -232,7 +271,12 @@ onBeforeUnmount(() => {
         <summary>{{ t("discoverCommunities") }}</summary>
         <div v-if="publicDiscover.length === 0" class="empty">{{ t("noCommunitiesFound") }}</div>
         <div v-for="ch in publicDiscover" :key="ch.channelId" class="discover-item">
-          <div class="community-item-name">{{ ch.name }}</div>
+          <div>
+            <div class="community-item-name">
+              {{ ch.name }}
+              <span class="member-count">👥 {{ ch.members?.length ?? 0 }}</span>
+            </div>
+          </div>
           <button class="mini" :disabled="joiningId === ch.channelId" @click="joinCommunity(ch)">
             {{ joiningId === ch.channelId ? t("requested") : t("join") }}
           </button>
@@ -333,6 +377,12 @@ onBeforeUnmount(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.member-count {
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-left: 6px;
 }
 .discover-section summary {
   cursor: pointer;

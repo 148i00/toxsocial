@@ -112,6 +112,7 @@ pub fn run() {
             commands::create_community,
             commands::my_communities,
             commands::join_community,
+            commands::update_community_conferences,
             commands::cleanup_database,
             commands::db_stats,
             commands::export_account,
