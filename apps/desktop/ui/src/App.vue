@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import { api, onEvent } from "./api";
 import { pushChannelMessage } from "./channelStore";
 import { t } from "./i18n";
@@ -10,10 +10,12 @@ import ThreadView from "./components/ThreadView.vue";
 import FriendsPanel from "./components/FriendsPanel.vue";
 import SettingsPanel from "./components/SettingsPanel.vue";
 import ChannelsPanel from "./components/ChannelsPanel.vue";
+import PrivateChat from "./components/PrivateChat.vue";
 import Avatar from "./components/Avatar.vue";
 import logoUrl from "./assets/logo.png";
 
-const view = ref<"timeline" | "friends" | "settings" | "channels" | "public" | "profile">("timeline");
+const view = ref<"timeline" | "friends" | "settings" | "channels" | "public" | "profile" | "pm">("timeline");
+const activePm = ref<{ peer: string; name: string } | null>(null);
 const own = ref<OwnInfo | null>(null);
 const networkStatus = ref<NetworkStatus | null>(null);
 const timeline = ref<TimelineItem[]>([]);
@@ -60,7 +62,11 @@ function onAttachmentRequested() {
 
 async function refreshTransfers() {
   try {
-    transfers.value = await api.fileTransfers();
+    const next = await api.fileTransfers();
+    // Skip no-op reassignments: every new array reference would re-render the
+    // whole app (45+ post cards) every 3s and keep the main thread busy.
+    if (JSON.stringify(next) === JSON.stringify(transfers.value)) return;
+    transfers.value = next;
   } catch {
     transfers.value = [];
   }
@@ -197,24 +203,69 @@ async function refreshOwn() {
   own.value = await api.getOwnInfo();
 }
 
-async function refreshNetworkStatus() {
-  try {
-    networkStatus.value = await api.getNetworkStatus();
-  } catch {
-    networkStatus.value = null;
-  }
-}
-
 async function refreshTimeline() {
   timeline.value = await api.fetchTimeline(50);
 }
 
 async function refreshFriends() {
-  friends.value = await api.getFriends();
+  const next = await api.getFriends();
+  if (JSON.stringify(next) === JSON.stringify(friends.value)) return;
+  friends.value = next;
+}
+
+async function refreshNetworkStatus() {
+  try {
+    const next = await api.getNetworkStatus();
+    if (JSON.stringify(next) === JSON.stringify(networkStatus.value)) return;
+    networkStatus.value = next;
+  } catch {
+    networkStatus.value = null;
+  }
 }
 
 async function refreshPublicTimeline() {
   publicTimeline.value = await api.fetchPublicTimeline(50);
+  publicHasMore.value = publicTimeline.value.length >= 50;
+}
+
+// --- infinite scroll on the public page -------------------------------------
+
+const publicHasMore = ref(false);
+const publicLoadingMore = ref(false);
+const publicSentinel = ref<HTMLElement | null>(null);
+let publicObserver: IntersectionObserver | null = null;
+
+async function loadMorePublic() {
+  if (publicLoadingMore.value || !publicHasMore.value || publicTimeline.value.length === 0) return;
+  publicLoadingMore.value = true;
+  try {
+    const oldest = publicTimeline.value[publicTimeline.value.length - 1].ts;
+    const older = await api.fetchPublicTimeline(50, oldest);
+    const known = new Set(publicTimeline.value.map((p) => p.id));
+    publicTimeline.value.push(...older.filter((p) => !known.has(p.id)));
+    publicHasMore.value = older.length >= 50;
+  } catch {
+    /* keep the loaded page */
+  } finally {
+    publicLoadingMore.value = false;
+  }
+}
+
+async function watchPublicSentinel() {
+  publicObserver?.disconnect();
+  // The sentinel renders only after `view` flips to "public" — wait for the
+  // DOM update, otherwise publicSentinel is still null here and nothing gets
+  // observed (infinite scroll would never fire).
+  await nextTick();
+  publicObserver = new IntersectionObserver(
+    (entries) => {
+      if (entries.some((e) => e.isIntersecting)) {
+        loadMorePublic();
+      }
+    },
+    { rootMargin: "200px" },
+  );
+  if (publicSentinel.value) publicObserver.observe(publicSentinel.value);
 }
 
 const publicLoading = ref(false);
@@ -248,6 +299,7 @@ async function openPublic() {
         /* relay may be unreachable; keep the cache */
       });
   }, 30_000);
+  watchPublicSentinel();
 }
 
 async function viewFriend(pubkey: string) {
@@ -261,6 +313,13 @@ async function viewFriend(pubkey: string) {
   friendFilter.value = pubkey;
   friendPosts.value = await api.fetchPostsByAuthor(pubkey, 50);
   view.value = "profile";
+}
+
+/** Open the 1:1 private chat with a friend. */
+function openPm(peer: string) {
+  const f = friends.value.find((x) => x.pubkey === peer);
+  activePm.value = { peer, name: f?.name || t("unnamed") };
+  view.value = "pm";
 }
 
 function backFromFriend() {
@@ -364,6 +423,10 @@ onMounted(async () => {
     notify(t("channelMessageReceived"));
   });
   onEvent("channel:connected", () => notify(t("channelConnected")));
+  onEvent("pm:message", (e: { peer: string; authorName: string }) => {
+    const f = friends.value.find((x) => x.pubkey === e.peer);
+    notify(t("pmReceived", { name: e.authorName || f?.name || e.peer.slice(0, 8) }));
+  });
   onEvent("channel:pending_flushed", (e: { count: number }) =>
     notify(t("channelPendingFlushed", { count: e.count })),
   );
@@ -419,6 +482,7 @@ onBeforeUnmount(() => {
   if (statusTimer) clearInterval(statusTimer);
   if (transferTimer) clearInterval(transferTimer);
   if (publicTimer) clearInterval(publicTimer);
+  publicObserver?.disconnect();
 });
 </script>
 
@@ -557,7 +621,13 @@ onBeforeUnmount(() => {
           @reacted="refreshTimeline" @attachmentRequested="onAttachmentRequested" @author="viewFriend"
         />
       </div>
-      <FriendsPanel v-else-if="view === 'friends'" :friends="friends" @changed="refreshAll" @open="viewFriend" />
+      <FriendsPanel v-else-if="view === 'friends'" :friends="friends" @changed="refreshAll" @open="viewFriend" @pm="openPm" />
+      <PrivateChat
+        v-else-if="view === 'pm' && activePm"
+        :peer="activePm.peer"
+        :name="activePm.name"
+        @close="view = 'friends'"
+      />
       <ChannelsPanel v-else-if="view === 'channels'" :friends="friends" />
       <div v-else-if="view === 'public'" class="public-page">
         <div v-if="publicLoading" class="empty">{{ t("loadingPublic") }}</div>
@@ -570,6 +640,9 @@ onBeforeUnmount(() => {
           @open="openThreadWithData"
           @reacted="refreshPublicTimeline" @attachmentRequested="onAttachmentRequested" @author="viewFriend"
         />
+        <div v-if="publicHasMore" ref="publicSentinel" class="empty pm-sentinel">
+          {{ publicLoadingMore ? t("loadingPublic") : t("loadMore") }}
+        </div>
       </div>
       <SettingsPanel v-else :own="own" @saved="refreshAll" />
     </main>

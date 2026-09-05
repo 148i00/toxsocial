@@ -97,6 +97,13 @@ export interface ConferenceSendResult {
   queued: boolean;
 }
 
+export interface PrivateMessageInfo {
+  id: number;
+  text: string;
+  ts: number;
+  direction: number; // 0 = received, 1 = sent by us
+}
+
 export interface UpdateInfo {
   current: string;
   latest: string;

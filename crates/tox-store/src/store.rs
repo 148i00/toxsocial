@@ -145,6 +145,14 @@ CREATE TABLE IF NOT EXISTS directory (
   updated_at  INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_directory_name ON directory(name);
+CREATE TABLE IF NOT EXISTS private_messages (
+  id        INTEGER PRIMARY KEY AUTOINCREMENT,
+  peer_key  TEXT NOT NULL,
+  text      TEXT NOT NULL,
+  ts        INTEGER NOT NULL,
+  direction INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_pm_peer ON private_messages(peer_key, ts);
 CREATE TABLE IF NOT EXISTS channel_messages (
   id                INTEGER PRIMARY KEY AUTOINCREMENT,
   conference_number INTEGER NOT NULL,
@@ -445,6 +453,43 @@ impl Store {
         Ok(())
     }
 
+    // --- private messages (1:1 friend chat) -----------------------------------
+
+    /// Insert one private (1:1) chat message. Returns its row id.
+    pub fn private_message_insert(
+        &self,
+        peer_key: &str,
+        text: &str,
+        ts: i64,
+        direction: i64,
+    ) -> Result<i64> {
+        self.conn.execute(
+            "INSERT INTO private_messages (peer_key, text, ts, direction)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![peer_key, text, ts, direction],
+        )?;
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    /// Latest `limit` messages exchanged with a peer, chronological order.
+    pub fn private_messages_for_peer(
+        &self,
+        peer_key: &str,
+        limit: u32,
+    ) -> Result<Vec<(i64, String, i64, i64)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, text, ts, direction FROM private_messages
+             WHERE peer_key = ?1 ORDER BY ts DESC, id DESC LIMIT ?2",
+        )?;
+        let mut rows = stmt
+            .query_map(params![peer_key, limit], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+            })?
+            .collect::<Result<Vec<_>>>()?;
+        rows.reverse();
+        Ok(rows)
+    }
+
     // --- posts -----------------------------------------------------------------
 
     /// Insert a timeline entry. Returns `false` if the (id, author) pair
@@ -591,6 +636,28 @@ impl Store {
              ORDER BY ts ASC LIMIT ?2",
         )?;
         let rows = stmt.query_map(params![since, limit], row_to_post)?;
+        rows.collect()
+    }
+
+    /// Newest public posts first (for the public page), capped at `limit`.
+    pub fn public_posts_latest(&self, limit: u32) -> Result<Vec<PostRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, author, kind, parent_id, text, emoji, ts, received_at, source, channel_id, is_public, sig, attachment
+             FROM posts WHERE kind = 0 AND is_public = 1
+             ORDER BY ts DESC, rowid DESC LIMIT ?1",
+        )?;
+        let rows = stmt.query_map(params![limit], row_to_post)?;
+        rows.collect()
+    }
+
+    /// Public posts older than `before_ts` (infinite scroll pagination).
+    pub fn public_posts_before(&self, before_ts: i64, limit: u32) -> Result<Vec<PostRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, author, kind, parent_id, text, emoji, ts, received_at, source, channel_id, is_public, sig, attachment
+             FROM posts WHERE kind = 0 AND is_public = 1 AND ts < ?1
+             ORDER BY ts DESC, rowid DESC LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(params![before_ts, limit], row_to_post)?;
         rows.collect()
     }
 

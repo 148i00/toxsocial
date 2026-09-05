@@ -6,7 +6,7 @@ import Avatar from "./Avatar.vue";
 import type { FriendInfo } from "../types";
 
 const props = defineProps<{ friends: FriendInfo[] }>();
-const emit = defineEmits<{ changed: []; open: [pubkey: string] }>();
+const emit = defineEmits<{ changed: []; open: [pubkey: string]; pm: [pubkey: string] }>();
 
 const removing = ref<string | null>(null);
 
@@ -26,6 +26,10 @@ async function remove(f: FriendInfo) {
 function open(f: FriendInfo) {
   emit("open", f.pubkey);
 }
+
+function pm(f: FriendInfo) {
+  emit("pm", f.pubkey);
+}
 </script>
 
 <template>
@@ -43,6 +47,9 @@ function open(f: FriendInfo) {
         <div class="mono">{{ f.pubkey }}</div>
       </div>
       <span class="state">{{ f.online ? t("online") : t("offline") }}</span>
+      <button :disabled="!f.online" :title="t('pmTitle')" @click.stop="pm(f)">
+        {{ t("privateChat") }}
+      </button>
       <button class="danger" :disabled="removing === f.pubkey" @click.stop="remove(f)">
         {{ t("unfollow") }}
       </button>

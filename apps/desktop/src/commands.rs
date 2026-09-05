@@ -144,6 +144,78 @@ pub struct UpdateInfo {
     pub has_update: bool,
 }
 
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct PrivateMessageInfo {
+    pub id: i64,
+    pub text: String,
+    pub ts: i64,
+    pub direction: i64,
+}
+
+/// Send a private (1:1) chat message to a friend. Plain Tox message, no TSP
+/// envelope — this is the friend chat channel, not the social protocol.
+#[tauri::command]
+pub fn send_private_message(
+    state: State<AppState>,
+    peer: String,
+    text: String,
+) -> Result<i64, String> {
+    let text = text.trim().to_string();
+    if text.is_empty() {
+        return Err("empty message".to_string());
+    }
+    let friend_number = {
+        let session = state.session.lock().unwrap();
+        session
+            .friend_list()
+            .into_iter()
+            .find(|n| {
+                session
+                    .friend_public_key(*n)
+                    .map(|pk| pk == peer || peer.starts_with(&pk))
+                    .unwrap_or(false)
+            })
+            .ok_or_else(|| "对方不在你的关注列表里".to_string())?
+    };
+    {
+        let session = state.session.lock().unwrap();
+        session
+            .send_message(friend_number, &text)
+            .map_err(|e| format!("send failed: {e}"))?;
+    }
+    let ts = now_ms();
+    let engine = state.engine.lock().unwrap();
+    engine
+        .store()
+        .private_message_insert(&peer, &text, ts, 1)
+        .map_err(|e| format!("persist failed: {e}"))
+}
+
+/// Persisted private chat history with a peer, chronological order.
+#[tauri::command]
+pub fn private_messages(
+    state: State<AppState>,
+    peer: String,
+    limit: Option<u32>,
+) -> Result<Vec<PrivateMessageInfo>, String> {
+    let limit = limit.unwrap_or(200).min(1000);
+    let engine = state.engine.lock().unwrap();
+    let rows = engine
+        .store()
+        .private_messages_for_peer(&peer, limit)
+        .map_err(|e| e.to_string())?;
+    Ok(rows
+        .into_iter()
+        .map(|(id, text, ts, direction)| PrivateMessageInfo {
+            id,
+            text,
+            ts,
+            direction,
+        })
+        .collect())
+}
+
 /// Check GitHub Releases for a newer version. Best-effort: any network
 /// failure is surfaced as an error the caller may ignore.
 #[tauri::command]
@@ -1438,14 +1510,24 @@ pub fn request_directory_search(state: State<AppState>, query: String, depth: Op
 }
 
 #[tauri::command]
-pub async fn fetch_public_timeline(state: State<'_, AppState>, limit: Option<u32>) -> Result<Vec<TimelineItem>, String> {
+pub async fn fetch_public_timeline(
+    state: State<'_, AppState>,
+    limit: Option<u32>,
+    before: Option<i64>,
+) -> Result<Vec<TimelineItem>, String> {
     let limit = limit.unwrap_or(50);
     let engine = state.engine.lock().unwrap();
     let meta = author_meta(&state, &engine);
-    let rows = engine
-        .store()
-        .public_posts_since(0, limit)
-        .map_err(|e| e.to_string())?;
+    let rows = match before {
+        Some(b) => engine
+            .store()
+            .public_posts_before(b, limit)
+            .map_err(|e| e.to_string())?,
+        None => engine
+            .store()
+            .public_posts_latest(limit)
+            .map_err(|e| e.to_string())?,
+    };
     Ok(rows
         .iter()
         .map(|r| {

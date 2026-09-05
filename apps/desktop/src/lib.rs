@@ -107,6 +107,8 @@ pub fn run() {
             commands::send_file_to_friend_by_toxid,
             commands::request_attachment,
             commands::file_transfers,
+            commands::send_private_message,
+            commands::private_messages,
             commands::accept_file,
             commands::reject_file,
             commands::send_join_channel,

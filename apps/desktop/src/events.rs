@@ -214,7 +214,21 @@ fn handle_event(app: &AppHandle, state: &State<AppState>, ev: Event) {
                         handle_get_file(state, app, friend_number, post_id);
                         return;
                     }
-                    // Plain chat message — not part of the social protocol yet.
+                    // Plain chat message — that's a private (1:1) message.
+                    // Persist it so the chat survives restarts.
+                    let (pm_id, pm_ts) = {
+                        let engine = state.engine.lock().unwrap();
+                        let ts = now_ms();
+                        let id = engine
+                            .store()
+                            .private_message_insert(&pk, &text, ts, 0)
+                            .unwrap_or(0);
+                        (id, ts)
+                    };
+                    let _ = app.emit(
+                        "pm:message",
+                        json!({ "peer": pk, "authorName": name, "text": text, "id": pm_id, "ts": pm_ts }),
+                    );
                     let _ = app.emit(
                         "chat:message",
                         json!({ "author": pk, "authorName": name, "text": text }),
