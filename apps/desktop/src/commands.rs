@@ -1347,12 +1347,14 @@ pub fn conference_send(
 
 /// Persisted chat history for a conference (newest-first capped, returned in
 /// chronological order). Falls back to the stable channel id so history
-/// survives restarts even if the conference number changed.
+/// survives restarts even if the conference number changed. `before_id`
+/// pages older history for the "load earlier" button.
 #[tauri::command]
 pub fn channel_messages(
     state: State<AppState>,
     conference_number: u32,
     limit: Option<u32>,
+    before_id: Option<i64>,
 ) -> Result<Vec<ChannelMessageInfo>, String> {
     let limit = limit.unwrap_or(300).min(1000);
     let channel_id = {
@@ -1364,7 +1366,7 @@ pub fn channel_messages(
     let engine = state.engine.lock().unwrap();
     let rows = engine
         .store()
-        .channel_messages_for_conference(conference_number, &channel_id, limit)
+        .channel_messages_for_conference(conference_number, &channel_id, limit, before_id)
         .map_err(|e| format!("load channel messages failed: {e}"))?;
     Ok(rows
         .into_iter()

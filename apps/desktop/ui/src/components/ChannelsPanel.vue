@@ -67,9 +67,21 @@ const currentMessages = computed(() =>
 );
 const chatMessagesRef = ref<HTMLElement | null>(null);
 const showManage = ref(false);
+/** While older history is being prepended, keep the viewport anchored
+ * instead of jumping to the bottom. */
+let keepScroll = false;
+let lastScrollHeight = 0;
 watch(currentMessages, async () => {
   await nextTick();
-  chatMessagesRef.value?.scrollTo({ top: chatMessagesRef.value.scrollHeight });
+  const el = chatMessagesRef.value;
+  if (!el) return;
+  if (keepScroll) {
+    // Preserve reading position: the content grew at the top.
+    el.scrollTop = el.scrollHeight - lastScrollHeight;
+    keepScroll = false;
+    return;
+  }
+  el.scrollTo({ top: el.scrollHeight });
 });
 
 const publicChannels = ref<PublicChannelInfo[]>([]);
@@ -474,6 +486,7 @@ async function refreshChannelIdWithRetry(n: number, attempts = 5) {
 
 /** Load persisted chat history for this channel (survives restarts). */
 async function loadHistory(n: number) {
+  hasOlder.value = true;
   try {
     const msgs = await api.channelMessages(n, 300);
     if (msgs.length === 0) return;
@@ -498,6 +511,64 @@ async function loadHistory(n: number) {
   } catch {
     // history load failure is non-fatal
   }
+}
+
+/** "Load earlier" pagination: fetch older messages than the oldest buffered
+ * one and prepend them without losing scroll position. */
+const loadingOlder = ref(false);
+const hasOlder = ref(true);
+
+async function loadOlderMessages() {
+  const n = conferenceNumber.value;
+  if (n === null || loadingOlder.value || !hasOlder.value) return;
+  const current = channelMessages.filter((m) => m.conferenceNumber === n);
+  const oldestId = current.length ? Math.min(...current.map((m) => m.id ?? Number.MAX_SAFE_INTEGER)) : null;
+  if (oldestId === null || oldestId === Number.MAX_SAFE_INTEGER) {
+    hasOlder.value = false;
+    return;
+  }
+  loadingOlder.value = true;
+  const el = chatMessagesRef.value;
+  lastScrollHeight = el ? el.scrollHeight : 0;
+  keepScroll = true;
+  try {
+    const msgs = await api.channelMessages(n, 100, oldestId);
+    if (msgs.length === 0) {
+      hasOlder.value = false;
+      keepScroll = false;
+      return;
+    }
+    const name =
+      myChannels.value.find((c) => c.conferenceNumber === n)?.name ||
+      t("channelNameWithNumber", { number: n });
+    const added = mergeChannelHistory(
+      msgs.map((m) => ({
+        id: m.id,
+        conferenceNumber: n,
+        channelId: channelId.value || undefined,
+        channelName: name,
+        peer: m.direction === 1 ? ME_PEER : m.peerName || `#${n}`,
+        text: m.text,
+        ts: m.ts,
+      })),
+    );
+    if (added === 0) {
+      hasOlder.value = false;
+      keepScroll = false;
+    }
+  } catch {
+    keepScroll = false;
+    /* non-fatal */
+  } finally {
+    loadingOlder.value = false;
+  }
+}
+
+/** Chat box scroll handler: near the top, load older history. */
+function onChatScroll() {
+  const el = chatMessagesRef.value;
+  if (!el) return;
+  if (el.scrollTop < 80) loadOlderMessages();
 }
 
 async function create() {
@@ -747,7 +818,8 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <div ref="chatMessagesRef" class="chat-messages">
+        <div ref="chatMessagesRef" class="chat-messages" @scroll="onChatScroll">
+          <div v-if="loadingOlder" class="empty chat-loading-older">{{ t("loadingOlder") }}</div>
           <div v-if="currentMessages.length === 0" class="empty chat-empty">{{ t("noMessages") }}</div>
           <div v-for="(m, i) in currentMessages" :key="'m' + i" class="chat-msg" :class="{ mine: m.peer === ME_PEER }">
             <div class="bubble">
@@ -1033,6 +1105,12 @@ onBeforeUnmount(() => {
   word-break: break-word;
   font-size: 14px;
   line-height: 1.5;
+}
+.chat-loading-older {
+  font-size: 12px;
+  color: var(--text-dim);
+  text-align: center;
+  padding: 4px 0;
 }
 .chat-composer {
   display: flex;

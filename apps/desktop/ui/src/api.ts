@@ -66,8 +66,8 @@ export const api = {
     inv<void>("conference_invite_by_toxid", { conferenceNumber, toxid }),
   conferenceSend: (conferenceNumber: number, text: string) =>
     inv<ConferenceSendResult>("conference_send", { conferenceNumber, text }),
-  channelMessages: (conferenceNumber: number, limit?: number) =>
-    inv<ChannelMessageInfo[]>("channel_messages", { conferenceNumber, limit }),
+  channelMessages: (conferenceNumber: number, limit?: number, beforeId?: number) =>
+    inv<ChannelMessageInfo[]>("channel_messages", { conferenceNumber, limit, beforeId }),
   conferencePeers: (conferenceNumber: number) =>
     inv<ConferencePeerInfo[]>("conference_peers", { conferenceNumber }),
   getConferenceId: (conferenceNumber: number) =>

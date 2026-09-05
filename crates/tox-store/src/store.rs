@@ -397,32 +397,43 @@ impl Store {
     /// authoritative: toxcore may reuse a conference *number* after a channel
     /// is deleted (or across restarts), so matching by number alone can mix
     /// messages from different channels. The number is only used as a
-    /// fallback when no channel id is known.
+    /// fallback when no channel id is known. `before_id` pages older history
+    /// (only rows with id < before_id are returned).
     pub fn channel_messages_for_conference(
         &self,
         conference_number: u32,
         channel_id: &str,
         limit: u32,
+        before_id: Option<i64>,
     ) -> Result<Vec<ChannelMessageRow>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, conference_number, channel_id, peer_name, peer_key, text, ts, direction, pending
              FROM channel_messages
-             WHERE (?2 != '' AND channel_id = ?2) OR (?2 = '' AND conference_number = ?1)
+             WHERE ((?2 != '' AND channel_id = ?2) OR (?2 = '' AND conference_number = ?1))
+               AND (?4 IS NULL OR id < ?4)
              ORDER BY ts DESC, id DESC LIMIT ?3",
         )?;
-        let rows = stmt.query_map(params![conference_number, channel_id, limit], |r| {
-            Ok(ChannelMessageRow {
-                id: r.get(0)?,
-                conference_number: r.get(1)?,
-                channel_id: r.get(2)?,
-                peer_name: r.get(3)?,
-                peer_key: r.get(4)?,
-                text: r.get(5)?,
-                ts: r.get(6)?,
-                direction: r.get(7)?,
-                pending: r.get::<_, i64>(8)? != 0,
-            })
-        })?;
+        let rows = stmt.query_map(
+            params![
+                conference_number,
+                channel_id,
+                limit,
+                before_id.map(|v| v as i64).unwrap_or(i64::MAX),
+            ],
+            |r| {
+                Ok(ChannelMessageRow {
+                    id: r.get(0)?,
+                    conference_number: r.get(1)?,
+                    channel_id: r.get(2)?,
+                    peer_name: r.get(3)?,
+                    peer_key: r.get(4)?,
+                    text: r.get(5)?,
+                    ts: r.get(6)?,
+                    direction: r.get(7)?,
+                    pending: r.get::<_, i64>(8)? != 0,
+                })
+            },
+        )?;
         let mut out: Vec<ChannelMessageRow> = rows.collect::<Result<_>>()?;
         out.reverse();
         Ok(out)
@@ -859,22 +870,22 @@ mod tests {
         store.channel_message_insert(&mk(2, "bbb", "other", 300, 0)).unwrap();
         assert!(id2 > id1);
         // Query by conference number; chronological order, newest capped.
-        let msgs = store.channel_messages_for_conference(1, "", 10).unwrap();
+        let msgs = store.channel_messages_for_conference(1, "", 10, None).unwrap();
         assert_eq!(msgs.len(), 2);
         assert_eq!(msgs[0].text, "hi");
         assert_eq!(msgs[1].text, "yo");
         assert_eq!(msgs[0].direction, 0);
         // Limit works and orders by ts desc before truncation.
-        let capped = store.channel_messages_for_conference(1, "", 1).unwrap();
+        let capped = store.channel_messages_for_conference(1, "", 1, None).unwrap();
         assert_eq!(capped.len(), 1);
         assert_eq!(capped[0].text, "yo");
         // Fallback by stable channel id.
-        let by_ch = store.channel_messages_for_conference(99, "aaa", 10).unwrap();
+        let by_ch = store.channel_messages_for_conference(99, "aaa", 10, None).unwrap();
         assert_eq!(by_ch.len(), 2);
         // Delete removes only this conference.
         store.channel_messages_delete(1).unwrap();
-        assert_eq!(store.channel_messages_for_conference(1, "", 10).unwrap().len(), 0);
-        assert_eq!(store.channel_messages_for_conference(2, "", 10).unwrap().len(), 1);
+        assert_eq!(store.channel_messages_for_conference(1, "", 10, None).unwrap().len(), 0);
+        assert_eq!(store.channel_messages_for_conference(2, "", 10, None).unwrap().len(), 1);
     }
 
     #[test]
@@ -905,7 +916,7 @@ mod tests {
         let pending = store.channel_messages_pending(1, "ccc").unwrap();
         assert_eq!(pending.iter().map(|m| m.text.as_str()).collect::<Vec<_>>(), ["离线2"]);
         // History still contains everything (including the still-queued one).
-        let history = store.channel_messages_for_conference(1, "ccc", 10).unwrap();
+        let history = store.channel_messages_for_conference(1, "ccc", 10, None).unwrap();
         assert_eq!(history.len(), 3);
         assert!(history.iter().any(|m| m.id == id3 && m.pending));
         assert!(!history.iter().find(|m| m.id == id1).unwrap().pending);
@@ -930,12 +941,12 @@ mod tests {
         store.channel_message_insert(&mk(1, "bbb", "新频道消息", 200)).unwrap();
         // Deleting the new channel by its id must not touch the old one.
         store.channel_messages_delete_by_channel("bbb").unwrap();
-        let old = store.channel_messages_for_conference(1, "aaa", 10).unwrap();
+        let old = store.channel_messages_for_conference(1, "aaa", 10, None).unwrap();
         assert_eq!(old.len(), 1);
         assert_eq!(old[0].text, "旧频道消息");
         // Querying the new channel id after the number was reused returns
         // nothing for the old id.
-        assert!(store.channel_messages_for_conference(1, "bbb", 10).unwrap().is_empty());
+        assert!(store.channel_messages_for_conference(1, "bbb", 10, None).unwrap().is_empty());
     }
 
     #[test]

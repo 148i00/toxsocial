@@ -1,0 +1,76 @@
+name: Release
+
+# Tag push -> build the Windows installer and attach it to a GitHub Release.
+# The release entry itself must already exist (created manually with notes),
+# or the action creates a bare one for the tag.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Locate vcpkg
+        shell: pwsh
+        run: |
+          "VCPKG_ROOT=$env:VCPKG_INSTALLATION_ROOT" | Out-File -Append $env:GITHUB_ENV
+
+      - name: Install libsodium (vcpkg)
+        shell: pwsh
+        run: |
+          & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install "libsodium:x64-windows"
+
+      - name: Build c-toxcore static library
+        shell: pwsh
+        run: |
+          cmake -S third_party/c-toxcore -B build/c-toxcore `
+            -DBUILD_TOXAV=OFF `
+            -DMSVC_STATIC_SODIUM=ON `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake"
+          cmake --build build/c-toxcore --config Release
+
+      - name: Build frontend
+        shell: pwsh
+        run: |
+          cd apps/desktop/ui
+          npm ci
+          npm run build
+
+      - name: Build app and bundle installers
+        shell: pwsh
+        env:
+          SODIUM_LIB: ${{ github.workspace }}\build\c-toxcore\vcpkg_installed\x64-windows\lib
+        run: |
+          # Keep the vcpkg-installed libsodium DLLs reachable at link time.
+          $env:PATH += ";$env:VCPKG_ROOT\installed\x64-windows\bin"
+          # The c-toxcore CMake build vendors its own vcpkg deps when the
+          # toolchain is passed; prefer that lib dir if present.
+          if (Test-Path "build\c-toxcore\vcpkg_installed\x64-windows\lib") {
+            $env:SODIUM_LIB = "$PWD\build\c-toxcore\vcpkg_installed\x64-windows\lib"
+          }
+          Set-Location apps/desktop
+          & .\ui\node_modules\.bin\tauri.cmd build
+
+      - name: Upload installers to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            target/release/bundle/msi/*.msi
+            target/release/bundle/nsis/*.exe

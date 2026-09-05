@@ -43,7 +43,9 @@ export function clearChannelMessages(channelId: string, conferenceNumber: number
 /**
  * Merge persisted history into the in-memory buffer without duplicating
  * messages that are already there (matched by row id, or by
- * (peer, text, ts) as a fallback for messages without an id).
+ * (peer, text, ts) as a fallback for messages without an id). After the
+ * merge the buffer is sorted by timestamp so "load earlier" pages slot in
+ * before newer messages instead of being appended at the end.
  */
 export function mergeChannelHistory(history: ChannelMessage[]) {
   let added = 0;
@@ -56,6 +58,9 @@ export function mergeChannelHistory(history: ChannelMessage[]) {
     if (dup) continue;
     channelMessages.push(m);
     added++;
+  }
+  if (added > 0) {
+    channelMessages.sort((a, b) => (a.ts ?? 0) - (b.ts ?? 0));
   }
   if (channelMessages.length > MAX_CHANNEL_MESSAGES) {
     channelMessages.splice(0, channelMessages.length - MAX_CHANNEL_MESSAGES);

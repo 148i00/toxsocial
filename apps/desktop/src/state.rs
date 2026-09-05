@@ -8,6 +8,69 @@ use tox_core::{Connection, ToxSession};
 use tox_social::feed::FeedEngine;
 use tox_store::{FriendRow, Store};
 
+/// DPAPI-protected storage for the Tox save file (Windows). The profile key
+/// is the user's most valuable secret; DPAPI binds it to this Windows account
+/// so a copied `profile.tox` is useless on another machine. Legacy plaintext
+/// files are read transparently and re-encrypted on the next save.
+#[cfg(windows)]
+mod profile_crypto {
+    use windows_sys::Win32::Foundation::LocalFree;
+    use windows_sys::Win32::Security::Cryptography::{
+        CryptProtectData, CryptUnprotectData, CRYPT_INTEGER_BLOB,
+    };
+
+    fn blob(data: &[u8]) -> CRYPT_INTEGER_BLOB {
+        CRYPT_INTEGER_BLOB {
+            cbData: data.len() as u32,
+            pbData: data.as_ptr() as *mut u8,
+        }
+    }
+
+    pub fn protect(data: &[u8]) -> Option<Vec<u8>> {
+        unsafe {
+            let input = blob(data);
+            let mut out = CRYPT_INTEGER_BLOB { cbData: 0, pbData: std::ptr::null_mut() };
+            if CryptProtectData(
+                &input as *const _ as *mut _,
+                std::ptr::null(),
+                std::ptr::null(),
+                std::ptr::null(),
+                std::ptr::null(),
+                0,
+                &mut out,
+            ) == 0
+            {
+                return None;
+            }
+            let bytes = std::slice::from_raw_parts(out.pbData, out.cbData as usize).to_vec();
+            LocalFree(out.pbData as _);
+            Some(bytes)
+        }
+    }
+
+    pub fn unprotect(data: &[u8]) -> Option<Vec<u8>> {
+        unsafe {
+            let input = blob(data);
+            let mut out = CRYPT_INTEGER_BLOB { cbData: 0, pbData: std::ptr::null_mut() };
+            if CryptUnprotectData(
+                &input as *const _ as *mut _,
+                std::ptr::null_mut(),
+                std::ptr::null(),
+                std::ptr::null(),
+                std::ptr::null(),
+                0,
+                &mut out,
+            ) == 0
+            {
+                return None;
+            }
+            let bytes = std::slice::from_raw_parts(out.pbData, out.cbData as usize).to_vec();
+            LocalFree(out.pbData as _);
+            Some(bytes)
+        }
+    }
+}
+
 pub struct AppState {
     pub session: Mutex<ToxSession>,
     pub engine: Mutex<FeedEngine>,
@@ -23,7 +86,18 @@ impl AppState {
         println!("[toxsocial] data dir: {}", data_dir.display());
 
         let session = if save_path.exists() {
-            let data = std::fs::read(&save_path)?;
+            let raw = std::fs::read(&save_path)?;
+            // Try DPAPI first; fall back to plaintext for legacy profiles.
+            let data = match profile_crypto::unprotect(&raw) {
+                Some(plain) => {
+                    println!("[toxsocial] profile loaded (DPAPI-encrypted)");
+                    plain
+                }
+                None => {
+                    println!("[toxsocial] profile loaded (legacy plaintext; will be encrypted on next save)");
+                    raw
+                }
+            };
             println!("[toxsocial] loading existing profile");
             ToxSession::from_savedata(Some(&data)).map_err(|e| e.to_string())?
         } else {
@@ -31,7 +105,7 @@ impl AppState {
             ToxSession::new().map_err(|e| e.to_string())?
         };
         // Persist the (possibly new) save immediately.
-        std::fs::write(&save_path, session.save())?;
+        write_profile(&save_path, &session.save());
         println!("[toxsocial] identity: {}", session.self_address());
 
         let store = Store::open(&db_path).map_err(|e| e.to_string())?;
@@ -49,9 +123,7 @@ impl AppState {
     pub fn persist(&self) {
         let session = self.session.lock().unwrap();
         let path = self.data_dir.join("profile.tox");
-        if let Err(e) = std::fs::write(&path, session.save()) {
-            eprintln!("[toxsocial] failed to persist profile: {e}");
-        }
+        write_profile(&path, &session.save());
     }
 
     /// Resolve a display name for a public key: friend name, or short key.
@@ -65,6 +137,15 @@ impl AppState {
             }
         }
         short_pk(pk)
+    }
+}
+
+/// Write the Tox save data, DPAPI-encrypted on Windows (plain fallback if the
+/// crypto call ever fails — availability over perfection).
+fn write_profile(path: &std::path::Path, save: &[u8]) {
+    let bytes = profile_crypto::protect(save).unwrap_or_else(|| save.to_vec());
+    if let Err(e) = std::fs::write(path, bytes) {
+        eprintln!("[toxsocial] failed to persist profile: {e}");
     }
 }
 

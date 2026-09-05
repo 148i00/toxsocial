@@ -43,6 +43,9 @@ const userSearchResults = ref<DirectoryEntryInfo[]>([]);
 const searchingUsers = ref(false);
 const followBusy = ref(false);
 const transfers = ref<FileTransferInfo[]>([]);
+// Per-section unread badges for the left navigation.
+const channelsUnread = ref(0);
+const friendsUnread = ref(0);
 let notificationId = 0;
 let statusTimer: ReturnType<typeof setInterval> | undefined;
 let transferTimer: ReturnType<typeof setInterval> | undefined;
@@ -420,12 +423,16 @@ onMounted(async () => {
       text: e.text,
       ts: e.ts,
     });
+    if (view.value !== "channels") channelsUnread.value++;
     notify(t("channelMessageReceived"));
   });
   onEvent("channel:connected", () => notify(t("channelConnected")));
   onEvent("pm:message", (e: { peer: string; authorName: string }) => {
     const f = friends.value.find((x) => x.pubkey === e.peer);
     notify(t("pmReceived", { name: e.authorName || f?.name || e.peer.slice(0, 8) }));
+    // Unread badge unless the user is chatting with this peer right now.
+    const inThisChat = view.value === "pm" && activePm.value?.peer === e.peer;
+    if (!inThisChat) friendsUnread.value++;
   });
   onEvent("channel:pending_flushed", (e: { count: number }) =>
     notify(t("channelPendingFlushed", { count: e.count })),
@@ -496,10 +503,14 @@ onBeforeUnmount(() => {
           {{ t("home") }}
         </button>
         <button @click="showAddFriend = true">{{ t("searchUsers") }}</button>
-        <button :class="{ active: view === 'friends' }" @click="view = 'friends'">
+        <button :class="{ active: view === 'friends' }" @click="view = 'friends'; friendsUnread = 0">
           {{ t("friends") }} <span v-if="own" class="count">{{ own.friendCount }}</span>
+          <span v-if="friendsUnread" class="count unread">{{ friendsUnread }}</span>
         </button>
-        <button :class="{ active: view === 'channels' }" @click="view = 'channels'">{{ t("channels") }}</button>
+        <button :class="{ active: view === 'channels' }" @click="view = 'channels'; channelsUnread = 0">
+          {{ t("channels") }}
+          <span v-if="channelsUnread" class="count unread">{{ channelsUnread }}</span>
+        </button>
         <button :class="{ active: view === 'public' }" @click="openPublic">{{ t("public") }}</button>
         <button :class="{ active: view === 'settings' }" @click="view = 'settings'">{{ t("settings") }}</button>
       </nav>
@@ -770,6 +781,10 @@ nav button.active {
   padding: 1px 8px;
   font-size: 12px;
   margin-left: 6px;
+}
+.count.unread {
+  background: var(--danger);
+  color: #fff;
 }
 
 .relay-warning {

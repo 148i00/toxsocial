@@ -22,6 +22,9 @@ tox-core = { path = "../../crates/tox-core" }
 tox-social = { path = "../../crates/tox-social" }
 tox-store = { path = "../../crates/tox-store" }
 
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Security_Cryptography"] }
+
 [lib]
 name = "toxsocial_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
