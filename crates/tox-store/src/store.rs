@@ -195,6 +195,81 @@ impl Store {
 
     // --- kv ---------------------------------------------------------------
 
+    /// Prune old data so the database doesn't grow forever. Keeps the newest
+    /// `keep_posts` posts/comments/reactions, the newest `keep_channel_msgs`
+    /// messages per conference and the newest `keep_private_msgs` private
+    /// messages per peer. Returns a small summary for the UI.
+    pub fn cleanup(
+        &self,
+        keep_posts: usize,
+        keep_channel_msgs: usize,
+        keep_private_msgs: usize,
+    ) -> Result<(usize, usize, usize)> {
+        let removed_posts = self.conn.execute(
+            "DELETE FROM posts WHERE rowid NOT IN (
+               SELECT rowid FROM posts ORDER BY ts DESC, rowid DESC LIMIT ?1
+             )",
+            params![keep_posts as i64],
+        )?;
+
+        // Per-conference cap: enumerate groups first, then trim each one.
+        let groups: Vec<String> = {
+            let mut stmt = self.conn.prepare(
+                "SELECT DISTINCT COALESCE(NULLIF(channel_id, ''), 'conf:' || conference_number)
+                 FROM channel_messages",
+            )?;
+            let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+            rows.collect::<Result<Vec<_>>>()?
+        };
+        let mut removed_channel = 0usize;
+        {
+            let mut trim = self.conn.prepare(
+                "DELETE FROM channel_messages WHERE rowid IN (
+                   SELECT rowid FROM channel_messages
+                   WHERE COALESCE(NULLIF(channel_id, ''), 'conf:' || conference_number) = ?1
+                   ORDER BY ts DESC, id DESC LIMIT -1 OFFSET ?2
+                 )",
+            )?;
+            for g in &groups {
+                removed_channel += trim.execute(params![g, keep_channel_msgs as i64])?;
+            }
+        }
+
+        let removed_private = self.conn.execute(
+            "DELETE FROM private_messages WHERE rowid NOT IN (
+               SELECT rowid FROM private_messages ORDER BY ts DESC, id DESC LIMIT ?1
+             )",
+            params![keep_private_msgs as i64],
+        )?;
+        // Stale long-post fragments (never reassembled within a week).
+        let _ = self.conn.execute(
+            "DELETE FROM post_chunks WHERE received_at < ?1",
+            params![now_ms() - 7 * 24 * 3600 * 1000],
+        )?;
+        let _ = self
+            .conn
+            .execute("PRAGMA wal_checkpoint(TRUNCATE)", [])?;
+        Ok((removed_posts, removed_channel, removed_private))
+    }
+
+    /// Approximate database size on disk in bytes.
+    pub fn db_size_bytes(&self) -> i64 {
+        self.conn
+            .query_row(
+                "SELECT page_count * page_size FROM pragma_page_count(), pragma_page_size()",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap_or(0)
+    }
+
+    /// Run a scalar COUNT query (helper for stats commands).
+    pub fn query_count(&self, sql: &str) -> i64 {
+        self.conn
+            .query_row(sql, [], |r| r.get(0))
+            .unwrap_or(0)
+    }
+
     pub fn kv_set(&self, key: &str, value: &str) -> Result<()> {
         self.conn.execute(
             "INSERT INTO kv(key, value) VALUES(?1, ?2)

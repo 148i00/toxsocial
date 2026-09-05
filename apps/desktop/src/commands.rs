@@ -1659,6 +1659,66 @@ pub async fn join_community(
     Ok(())
 }
 
+/// Storage housekeeping: prune old rows and report the freed space / db size.
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CleanupReport {
+    pub removed_posts: usize,
+    pub removed_channel_msgs: usize,
+    pub removed_private_msgs: usize,
+    pub db_size_bytes: i64,
+}
+
+#[tauri::command]
+pub fn cleanup_database(state: State<AppState>) -> Result<CleanupReport, String> {
+    let engine = state.engine.lock().unwrap();
+    let (posts, channel, private) = engine
+        .store()
+        .cleanup(5_000, 500, 1_000)
+        .map_err(|e| format!("cleanup failed: {e}"))?;
+    let db_size_bytes = engine.store().db_size_bytes();
+    Ok(CleanupReport {
+        removed_posts: posts,
+        removed_channel_msgs: channel,
+        removed_private_msgs: private,
+        db_size_bytes,
+    })
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct DbStats {
+    pub db_size_bytes: i64,
+    pub post_count: i64,
+    pub channel_msg_count: i64,
+    pub private_msg_count: i64,
+}
+
+#[tauri::command]
+pub fn db_stats(state: State<AppState>) -> Result<DbStats, String> {
+    let engine = state.engine.lock().unwrap();
+    let store = engine.store();
+    let count = |sql: &str| -> i64 { store.query_count(sql) };
+    Ok(DbStats {
+        db_size_bytes: store.db_size_bytes(),
+        post_count: count("SELECT COUNT(*) FROM posts"),
+        channel_msg_count: count("SELECT COUNT(*) FROM channel_messages"),
+        private_msg_count: count("SELECT COUNT(*) FROM private_messages"),
+    })
+}
+
+/// Export the account (profile save data, base64) so the user can back it up
+/// or move to another machine. The export is the raw save data; if the on-disk
+/// profile is DPAPI-encrypted we re-export from the live session instead.
+#[tauri::command]
+pub fn export_account(state: State<AppState>) -> Result<String, String> {
+    use base64::engine::general_purpose::STANDARD as BASE64;
+    use base64::Engine as _;
+    let session = state.session.lock().unwrap();
+    let save = session.save();
+    Ok(BASE64.encode(save))
+}
+
 /// Send a "join_channel <id>" request to a ToxID (adds as friend if needed).
 fn send_join_channel_inner(
     state: &State<AppState>,

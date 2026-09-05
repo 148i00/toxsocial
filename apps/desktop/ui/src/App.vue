@@ -50,8 +50,19 @@ const friendsUnread = ref(0);
 let notificationId = 0;
 let statusTimer: ReturnType<typeof setInterval> | undefined;
 let transferTimer: ReturnType<typeof setInterval> | undefined;
+// Forward prefill: when set, the timeline composer starts with this text.
+const forwardDraft = ref("");
 
-function notify(text: string) {
+function notifyPrefEnabled(category: string): boolean {
+  try {
+    return localStorage.getItem(`notify_${category}`) !== "0";
+  } catch {
+    return true;
+  }
+}
+
+function notify(text: string, category?: string) {
+  if (category && !notifyPrefEnabled(category)) return;
   notifications.value.unshift({ id: ++notificationId, text, time: Date.now() });
   unread.value++;
   // No left-side notification button anymore; show the panel automatically
@@ -59,9 +70,30 @@ function notify(text: string) {
   showNotifications.value = true;
 }
 
+/** Forward a post: prefill the timeline composer with a quoted copy. */
+function onForward(item: TimelineItem) {
+  const quote = (item.text || "")
+    .split("\n")
+    .map((l) => `> ${l}`)
+    .join("\n");
+  forwardDraft.value = `${t("forwardOf", { name: item.authorName })}\n${quote}\n`;
+  view.value = "timeline";
+  threadPostId.value = null;
+  setTimeout(() => {
+    const el = document.querySelector<HTMLTextAreaElement>(".composer textarea");
+    el?.focus();
+  }, 100);
+}
+
 /** Attachment download request sent to the author. */
 function onAttachmentRequested() {
   notify(t("attachmentRequested"));
+}
+
+/** Composer posted from the timeline (incl. forwards): refresh + clear draft. */
+function onComposerPosted() {
+  refreshTimeline();
+  forwardDraft.value = "";
 }
 
 async function refreshTransfers() {
@@ -383,17 +415,17 @@ onMounted(async () => {
   // Live updates from the backend.
   onEvent("feed:post", () => {
     refreshTimeline();
-    notify(t("newPost"));
+    notify(t("newPost"), "posts");
   });
   onEvent("feed:comment", () => {
     refreshTimeline();
     if (threadPostId.value) refreshThread();
-    notify(t("newComment"));
+    notify(t("newComment"), "posts");
   });
   onEvent("feed:reaction", () => {
     refreshTimeline();
     if (threadPostId.value) refreshThread();
-    notify(t("newReaction"));
+    notify(t("newReaction"), "posts");
   });
   onEvent("friend:connection", () => {
     refreshFriends();
@@ -425,12 +457,12 @@ onMounted(async () => {
       ts: e.ts,
     });
     if (view.value !== "channels") channelsUnread.value++;
-    notify(t("channelMessageReceived"));
+    notify(t("channelMessageReceived"), "groups");
   });
   onEvent("channel:connected", () => notify(t("channelConnected")));
   onEvent("pm:message", (e: { peer: string; authorName: string }) => {
     const f = friends.value.find((x) => x.pubkey === e.peer);
-    notify(t("pmReceived", { name: e.authorName || f?.name || e.peer.slice(0, 8) }));
+    notify(t("pmReceived", { name: e.authorName || f?.name || e.peer.slice(0, 8) }), "pm");
     // Unread badge unless the user is chatting with this peer right now.
     const inThisChat = view.value === "pm" && activePm.value?.peer === e.peer;
     if (!inThisChat) friendsUnread.value++;
@@ -449,7 +481,7 @@ onMounted(async () => {
   });
   onEvent("file:request", (p: { friendNumber: number; fileNumber: number; friendName: string; filename: string; fileSize: number }) => {
     fileRequests.value.push({ id: ++fileRequestId, ...p });
-    notify(t("fileRequestReceived", { filename: p.filename }));
+    notify(t("fileRequestReceived", { filename: p.filename }), "files");
   });
   onEvent("file:received", (p: { filename: string; path: string }) =>
     notify(t("fileReceived", { filename: p.filename, path: p.path })),
@@ -548,7 +580,7 @@ onBeforeUnmount(() => {
         <div v-if="threadPostId" class="thread-header">
           <button @click="backToTimeline()">{{ t("backToTimeline") }}</button>
         </div>
-        <ThreadView v-if="threadPostId" :post-id="threadPostId" @refresh="refreshThreadAndTimeline" @attachmentRequested="onAttachmentRequested" @author="viewFriend" />
+        <ThreadView v-if="threadPostId" :post-id="threadPostId" @refresh="refreshThreadAndTimeline" @attachmentRequested="onAttachmentRequested" @author="viewFriend" @forward="onForward" />
         <template v-else>
           <div v-if="friendFilter" class="thread-header">
             <button @click="backFromFriend()">{{ t("backToTimeline") }}</button>
@@ -561,7 +593,7 @@ onBeforeUnmount(() => {
               :item="p"
               :own="own"
               @open="openThreadWithData"
-              @reacted="refreshTimeline" @attachmentRequested="onAttachmentRequested" @author="viewFriend"
+              @reacted="refreshTimeline" @attachmentRequested="onAttachmentRequested" @author="viewFriend" @forward="onForward"
             />
           </template>
           <template v-else>
@@ -581,11 +613,11 @@ onBeforeUnmount(() => {
                 :item="p"
                 :own="own"
                 @open="openThreadWithData"
-                @reacted="refreshTimeline" @attachmentRequested="onAttachmentRequested" @author="viewFriend"
+                @reacted="refreshTimeline" @attachmentRequested="onAttachmentRequested" @author="viewFriend" @forward="onForward"
               />
             </template>
             <template v-else>
-              <PostComposer :own="own" @posted="refreshTimeline" />
+              <PostComposer :own="own" :prefill="forwardDraft" @posted="onComposerPosted" />
               <div v-if="loading" class="empty">{{ t("loading") }}</div>
               <div v-else-if="timeline.length === 0" class="empty">
                 {{ t("emptyTimeline") }}
@@ -596,7 +628,7 @@ onBeforeUnmount(() => {
                 :item="p"
                 :own="own"
                 @open="openThreadWithData"
-                @reacted="refreshTimeline" @attachmentRequested="onAttachmentRequested" @author="viewFriend"
+                @reacted="refreshTimeline" @attachmentRequested="onAttachmentRequested" @author="viewFriend" @forward="onForward"
               />
             </template>
           </template>
@@ -608,7 +640,7 @@ onBeforeUnmount(() => {
         :friends="friends"
         :own="own"
         @open="openThreadWithData"
-        @author="viewFriend"
+        @author="viewFriend" @forward="onForward"
       />
 
       <div v-else-if="view === 'profile'" class="profile-page">
@@ -639,7 +671,7 @@ onBeforeUnmount(() => {
           :item="p"
           :own="own"
           @open="openThreadWithData"
-          @reacted="refreshTimeline" @attachmentRequested="onAttachmentRequested" @author="viewFriend"
+          @reacted="refreshTimeline" @attachmentRequested="onAttachmentRequested" @author="viewFriend" @forward="onForward"
         />
       </div>
       <FriendsPanel v-else-if="view === 'friends'" :friends="friends" @changed="refreshAll" @open="viewFriend" @pm="openPm" />
@@ -659,7 +691,7 @@ onBeforeUnmount(() => {
           :item="p"
           :own="own"
           @open="openThreadWithData"
-          @reacted="refreshPublicTimeline" @attachmentRequested="onAttachmentRequested" @author="viewFriend"
+          @reacted="refreshPublicTimeline" @attachmentRequested="onAttachmentRequested" @author="viewFriend" @forward="onForward"
         />
         <div v-if="publicHasMore" ref="publicSentinel" class="empty pm-sentinel">
           {{ publicLoadingMore ? t("loadingPublic") : t("loadMore") }}

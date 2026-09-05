@@ -111,6 +111,11 @@ export const api = {
   myCommunities: () => inv<CommunityInfo[]>("my_communities"),
   joinCommunity: (channelId: string, name: string, desc: string) =>
     inv<void>("join_community", { channelId, name, desc }),
+  cleanupDatabase: () =>
+    inv<{ removedPosts: number; removedChannelMsgs: number; removedPrivateMsgs: number; dbSizeBytes: number }>("cleanup_database"),
+  dbStats: () =>
+    inv<{ dbSizeBytes: number; postCount: number; channelMsgCount: number; privateMsgCount: number }>("db_stats"),
+  exportAccount: () => inv<string>("export_account"),
 };
 
 export function onEvent<T>(event: string, cb: (payload: T) => void): Promise<UnlistenFn> {

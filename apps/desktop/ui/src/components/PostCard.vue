@@ -7,7 +7,13 @@ import Avatar from "./Avatar.vue";
 import type { OwnInfo, TimelineItem } from "../types";
 
 const props = defineProps<{ item: TimelineItem; own: OwnInfo | null }>();
-const emit = defineEmits<{ open: [id: string]; reacted: []; attachmentRequested: [postId: string]; author: [pubkey: string] }>();
+const emit = defineEmits<{
+  open: [id: string];
+  reacted: [];
+  attachmentRequested: [postId: string];
+  author: [pubkey: string];
+  forward: [item: TimelineItem];
+}>();
 
 const EMOJIS = ["👍", "👎"];
 
@@ -75,6 +81,7 @@ async function react(emoji: string) {
     </div>
     <div class="foot">
       <span class="stat">💬 {{ item.commentCount }}</span>
+      <button class="mini forward-btn" :title="t('forward')" @click.stop="emit('forward', item)">↩ {{ t("forward") }}</button>
       <span class="actions" @click.stop>
         <button class="mini vote" :class="{ active: item.reactions.some((r) => r.emoji === '👍' && r.mine) }" :title="t('like')" @click="react('👍')">
           👍 {{ likeCount || "" }}
@@ -114,6 +121,9 @@ async function react(emoji: string) {
 .actions button.vote.active {
   background: var(--accent);
   color: #fff;
+}
+.forward-btn {
+  color: var(--text-dim);
 }
 .author {
   font-weight: 600;

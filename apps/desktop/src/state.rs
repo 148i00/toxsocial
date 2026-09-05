@@ -109,6 +109,15 @@ impl AppState {
         println!("[toxsocial] identity: {}", session.self_address());
 
         let store = Store::open(&db_path).map_err(|e| e.to_string())?;
+        // Startup housekeeping: cap growth (posts / per-group chat / private
+        // chat). Failures are non-fatal.
+        match store.cleanup(5_000, 500, 1_000) {
+            Ok((p, c, m)) if p + c + m > 0 => {
+                println!("[toxsocial] startup cleanup removed {p} posts, {c} group msgs, {m} private msgs");
+            }
+            Ok(_) => {}
+            Err(e) => eprintln!("[toxsocial] startup cleanup failed: {e}"),
+        }
         sync_friends(&session, &store);
         let engine = FeedEngine::new(store);
 

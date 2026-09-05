@@ -270,11 +270,26 @@ impl Envelope {
 
 impl Post {
     /// Canonical string that is signed for public posts.
+    ///
+    /// V1: `id|author|ts|text|public` (posts without an attachment).
+    /// V2: `id|author|ts|text|public|att` (posts carrying attachment
+    /// metadata). The rule is deterministic on both sides: a non-empty
+    /// `attachment` always means V2, so old clients (which never see V1
+    /// posts with attachments — the field didn't exist for them) and new
+    /// clients agree without any negotiation.
     pub fn signing_string(&self) -> String {
-        format!(
-            "{}|{}|{}|{}|{}",
-            self.id, self.author, self.ts, self.text, self.public
-        )
+        if self.attachment.as_deref().unwrap_or("").is_empty() {
+            format!(
+                "{}|{}|{}|{}|{}",
+                self.id, self.author, self.ts, self.text, self.public
+            )
+        } else {
+            format!(
+                "{}|{}|{}|{}|{}|{}",
+                self.id, self.author, self.ts, self.text, self.public,
+                self.attachment.as_deref().unwrap_or("")
+            )
+        }
     }
 
     pub fn new(author: &str, text: &str) -> Self {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { ref, watch } from "vue";
 import { api } from "../api";
 import { t } from "../i18n";
 import type { OwnInfo } from "../types";
@@ -9,6 +9,8 @@ const props = defineProps<{
   /** When set, posts are scoped to this community. */
   community?: string;
   communityName?: string;
+  /** Prefill text (e.g. a forwarded post quote). */
+  prefill?: string;
 }>();
 const emit = defineEmits<{ posted: [] }>();
 
@@ -83,6 +85,15 @@ function readFileAsDataUrl(file: File): Promise<string> {
     reader.readAsDataURL(file);
   });
 }
+
+// Forward prefill: when the parent hands us a quoted post, drop it in.
+watch(
+  () => props.prefill,
+  (v) => {
+    if (v) text.value = v;
+  },
+  { immediate: true },
+);
 
 async function submit() {
   const t = text.value.trim();
