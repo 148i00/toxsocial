@@ -52,6 +52,24 @@ let statusTimer: ReturnType<typeof setInterval> | undefined;
 let transferTimer: ReturnType<typeof setInterval> | undefined;
 // Forward prefill: when set, the timeline composer starts with this text.
 const forwardDraft = ref("");
+const updating = ref(false);
+
+/** Download + install the pending update via the Tauri updater, then relaunch. */
+async function updateApp() {
+  if (updating.value) return;
+  updating.value = true;
+  notify(t("updateDownloading"));
+  try {
+    await api.performUpdate();
+    // perform_update relaunches the app on success; this line only runs if
+    // relaunch was deferred.
+    notify(t("updateInstalled"));
+  } catch (e) {
+    notify(t("updateFailed", { error: String(e) }));
+  } finally {
+    updating.value = false;
+  }
+}
 
 function notifyPrefEnabled(category: string): boolean {
   try {
@@ -399,14 +417,11 @@ onMounted(async () => {
     refreshFriends();
   }, 1500);
 
-  // Check for a new version at startup (best-effort; GitHub may be
-  // unreachable behind a firewall). Prompt with a dialog when an update
-  // exists so it cannot be missed.
+  // Auto-update: check at startup; when a new version exists, ask once and
+  // install in place (signed latest.json via Tauri updater), then relaunch.
   api.checkUpdate().then((u) => {
-    if (u.hasUpdate) {
-      if (confirm(t("updateAvailablePrompt", { current: u.current, latest: u.latest }))) {
-        window.open(`https://github.com/148i00/toxsocial/releases/tag/v${u.latest}`, "_blank");
-      }
+    if (u.hasUpdate && confirm(t("updateInstallPrompt", { current: u.current, latest: u.latest }))) {
+      updateApp();
     }
   }).catch(() => {
     /* ignore network failures */
@@ -749,6 +764,13 @@ onBeforeUnmount(() => {
         <div class="me-stats">
           <span>{{ t("friendCount", { count: own.friendCount }) }}</span>
         </div>
+        <!-- Connection status (moved from Settings) -->
+        <div class="me-conn">
+          <span class="dot" :class="{ online: networkStatus?.connected }"></span>
+          <span>{{ networkStatus ? (networkStatus.connected ? (networkStatus.connection === "udp" ? t("udpConnected") : t("tcpConnected")) : t("disconnected")) : t("checking") }}</span>
+        </div>
+        <div class="me-conn-detail">{{ t("bootstrapNodes", { nodes: networkStatus?.dhtNodes ?? "…" }) }}</div>
+        <div class="me-conn-detail">{{ t("friendStats", { friends: networkStatus?.friends ?? "…", online: networkStatus?.onlineFriends ?? "…" }) }}</div>
       </div>
     </aside>
 
@@ -791,7 +813,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-family: "CAGeheimagent-Bold", "Segoe UI", sans-serif;
+  font-family: "CAGeheimagent", "Segoe UI", sans-serif;
   color: #9c0d10;
 }
 .logo-img {
@@ -1076,5 +1098,20 @@ button.mini {
   color: var(--text-dim);
   font-size: 12px;
   margin-top: 4px;
+}
+.me-conn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  width: 100%;
+  justify-content: center;
+}
+.me-conn-detail {
+  color: var(--text-dim);
+  font-size: 11px;
 }
 </style>

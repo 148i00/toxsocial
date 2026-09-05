@@ -205,7 +205,9 @@ async function mockInvoke(cmd: string, args: Args = {}): Promise<unknown> {
     case "get_app_version":
       return "0.2.28";
     case "check_update":
-      return { current: "0.2.28", latest: "0.2.28", hasUpdate: false };
+      return { current: "0.2.31", latest: "0.2.31", hasUpdate: false };
+    case "perform_update":
+      return null;
     case "get_network_status":
       return {
         connected: true,

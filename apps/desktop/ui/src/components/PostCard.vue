@@ -81,7 +81,7 @@ async function react(emoji: string) {
     </div>
     <div class="foot">
       <span class="stat">💬 {{ item.commentCount }}</span>
-      <button class="mini forward-btn" :title="t('forward')" @click.stop="emit('forward', item)">↩ {{ t("forward") }}</button>
+      <button v-if="!item.isOwn" class="mini forward-btn" :title="t('forward')" @click.stop="emit('forward', item)">↩ {{ t("forward") }}</button>
       <span class="actions" @click.stop>
         <button class="mini vote" :class="{ active: item.reactions.some((r) => r.emoji === '👍' && r.mine) }" :title="t('like')" @click="react('👍')">
           👍 {{ likeCount || "" }}

@@ -25,6 +25,8 @@ pub fn run() {
                 let _ = window.set_focus();
             }
         }))
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             use tauri::menu::{Menu, MenuItem};
             use tauri::tray::TrayIconBuilder;
@@ -89,6 +91,7 @@ pub fn run() {
             commands::get_own_info,
             commands::get_app_version,
             commands::check_update,
+            commands::perform_update,
             commands::get_network_status,
             commands::set_profile,
             commands::set_avatar,

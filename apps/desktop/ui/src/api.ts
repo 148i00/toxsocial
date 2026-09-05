@@ -14,6 +14,7 @@ export const api = {
   getOwnInfo: () => inv<OwnInfo>("get_own_info"),
   getAppVersion: () => inv<string>("get_app_version"),
   checkUpdate: () => inv<UpdateInfo>("check_update"),
+  performUpdate: () => inv<void>("perform_update"),
   getNetworkStatus: () => inv<NetworkStatus>("get_network_status"),
   setProfile: (name: string, bio: string) => inv<void>("set_profile", { name, bio }),
   addFriend: (toxid: string, message: string) => inv<number>("add_friend", { toxid, message }),

@@ -175,7 +175,18 @@ async function checkForUpdate() {
     const info = await api.checkUpdate();
     if (info.hasUpdate) {
       updateLatest.value = info.latest;
-      updateStatus.value = "update";
+      if (confirm(t("updateInstallPrompt", { current: info.current, latest: info.latest }))) {
+        updateStatus.value = "checking";
+        try {
+          await api.performUpdate();
+          // Relaunch happens automatically on success.
+        } catch (e) {
+          updateStatus.value = "error";
+          alert(String(e));
+        }
+      } else {
+        updateStatus.value = "idle";
+      }
     } else {
       updateStatus.value = "ok";
     }

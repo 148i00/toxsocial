@@ -3,7 +3,8 @@
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
+use tauri_plugin_updater::UpdaterExt;
 
 use tox_core::{Connection, ToxError};
 use tox_social::envelope::{Comment, Envelope, Post, Profile, Reaction, SyncReq};
@@ -216,38 +217,60 @@ pub fn private_messages(
         .collect())
 }
 
-/// Check GitHub Releases for a newer version. Best-effort: any network
-/// failure is surfaced as an error the caller may ignore.
+/// Check for an update via the Tauri updater (signed latest.json on GitHub
+/// Releases). Returns the new version when one is available.
 #[tauri::command]
-pub async fn check_update() -> Result<UpdateInfo, String> {
+pub async fn check_update(app: AppHandle) -> Result<UpdateInfo, String> {
     let current = env!("CARGO_PKG_VERSION").to_string();
-    let client = reqwest::Client::new();
-    let resp = client
-        .get("https://api.github.com/repos/148i00/toxsocial/releases/latest")
-        .header("User-Agent", "ToxSocial")
-        .header("Accept", "application/vnd.github+json")
-        .timeout(std::time::Duration::from_secs(10))
-        .send()
-        .await
-        .map_err(|e| format!("update check failed: {e}"))?;
-    let json: serde_json::Value = resp
-        .json()
-        .await
-        .map_err(|e| format!("update check response invalid: {e}"))?;
-    let latest = json["tag_name"]
-        .as_str()
-        .unwrap_or("")
-        .trim_start_matches('v')
-        .to_string();
-    if latest.is_empty() {
-        return Err("no release found".to_string());
+    let updater = app
+        .updater_builder()
+        .build()
+        .map_err(|e| format!("updater unavailable: {e}"))?;
+    let update = updater.check().await.map_err(|e| format!("{e}"))?;
+    match update {
+        Some(u) => Ok(UpdateInfo {
+            current: current.clone(),
+            latest: u.version.clone(),
+            has_update: true,
+        }),
+        None => Ok(UpdateInfo {
+            current: current.clone(),
+            latest: current,
+            has_update: false,
+        }),
     }
-    let has_update = compare_versions(&latest, &current) > 0;
-    Ok(UpdateInfo {
-        current,
-        latest,
-        has_update,
-    })
+}
+
+/// Download and install the pending update, then relaunch the app.
+#[tauri::command]
+pub async fn perform_update(app: AppHandle) -> Result<(), String> {
+    let updater = app
+        .updater_builder()
+        .build()
+        .map_err(|e| format!("updater unavailable: {e}"))?;
+    let Some(update) = updater.check().await.map_err(|e| format!("{e}"))? else {
+        return Err("已是最新版本".to_string());
+    };
+    let mut downloaded = 0u64;
+    update
+        .download_and_install(
+            |chunk, total| {
+                downloaded += chunk as u64;
+                let _ = app.emit(
+                    "update:progress",
+                    serde_json::json!({ "downloaded": downloaded, "total": total }),
+                );
+            },
+            || {
+                println!("[toxsocial] update downloaded, installing…");
+            },
+        )
+        .await
+        .map_err(|e| format!("update failed: {e}"))?;
+    // tauri-plugin-process: graceful restart into the new version.
+    app.restart();
+    #[allow(unreachable_code)]
+    Ok(())
 }
 
 /// Numeric segment-by-segment comparison ("0.2.25" > "0.2.24").
@@ -1616,7 +1639,7 @@ pub async fn create_community(
     let host_toxid = state.session.lock().unwrap().self_address();
     for relay in &relays {
         if let Err(e) =
-            crate::relay::register_channel(relay, &name, desc.trim(), &host_toxid, &channel_id).await
+            crate::relay::register_channel(relay, &name, desc.trim(), &host_toxid, &channel_id, "community").await
         {
             eprintln!("[toxsocial] community register failed: {e}");
         }
@@ -1656,7 +1679,7 @@ pub async fn join_community(
     // Ask known members for an invite (same flow as public groups).
     let relays = relay_urls(&state);
     for relay in &relays {
-        let channels = crate::relay::list_channels(relay).await.unwrap_or_default();
+        let channels = crate::relay::list_channels(relay, "community").await.unwrap_or_default();
         let Some(ch) = channels.iter().find(|c| c.channel_id == channel_id) else {
             continue;
         };
@@ -2171,7 +2194,7 @@ pub async fn list_public_channels(state: State<'_, AppState>) -> Result<Vec<Publ
     let mut seen = std::collections::HashSet::new();
     let mut out = Vec::new();
     for relay in &relays {
-        let channels = crate::relay::list_channels(relay).await.unwrap_or_default();
+        let channels = crate::relay::list_channels(relay, "group").await.unwrap_or_default();
         for c in channels {
             if !seen.insert(c.channel_id.clone()) {
                 continue;
@@ -2202,7 +2225,7 @@ pub async fn report_channel_memberships(state: State<'_, AppState>) -> Result<us
     let relays = relay_urls(&state);
     let mut public_ids = std::collections::HashSet::new();
     for relay in &relays {
-        let channels = crate::relay::list_channels(relay).await.unwrap_or_default();
+        let channels = crate::relay::list_channels(relay, "group").await.unwrap_or_default();
         for c in channels {
             public_ids.insert(c.channel_id);
         }
@@ -2261,7 +2284,7 @@ pub async fn register_public_channel(
     let relays = relay_urls(&state);
     let mut is_host = false;
     for relay in &relays {
-        let existing = crate::relay::list_channels(relay).await.unwrap_or_default();
+        let existing = crate::relay::list_channels(relay, "group").await.unwrap_or_default();
         if let Some(c) = existing.iter().find(|c| c.channel_id == channel_id) {
             if c.hosts.iter().any(|h| {
                 h == &host_toxid
@@ -2284,6 +2307,7 @@ pub async fn register_public_channel(
             desc.trim(),
             &host_toxid,
             &channel_id,
+            "group",
         )
         .await?;
     }

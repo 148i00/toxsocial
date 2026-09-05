@@ -159,8 +159,12 @@ pub struct RelayChannel {
     pub members: Vec<String>,
 }
 
-pub async fn list_channels(relay: &str) -> Result<Vec<RelayChannel>, String> {
-    let url = format!("{}/api/channels", relay.trim_end_matches('/'));
+pub async fn list_channels(relay: &str, kind: &str) -> Result<Vec<RelayChannel>, String> {
+    let url = url::Url::parse_with_params(
+        &format!("{}/api/channels", relay.trim_end_matches('/')),
+        &[("kind", kind.to_string())],
+    )
+    .map_err(|e| e.to_string())?;
     let resp = http_client().get(url)
         .send()
         .await
@@ -209,6 +213,7 @@ pub async fn register_channel(
     desc: &str,
     host_toxid: &str,
     channel_id: &str,
+    kind: &str,
 ) -> Result<(), String> {
     let url = format!("{}/api/channels", relay.trim_end_matches('/'));
     let body = serde_json::json!({
@@ -216,6 +221,7 @@ pub async fn register_channel(
         "desc": desc,
         "hostToxid": host_toxid,
         "channelId": channel_id,
+        "kind": kind,
     });
     let client = reqwest::Client::new();
     let resp = client
