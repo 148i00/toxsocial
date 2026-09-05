@@ -119,6 +119,7 @@ export const api = {
   dbStats: () =>
     inv<{ dbSizeBytes: number; postCount: number; channelMsgCount: number; privateMsgCount: number }>("db_stats"),
   exportAccount: () => inv<string>("export_account"),
+  importAccount: (dataB64: string) => inv<void>("import_account", { dataB64 }),
 };
 
 export function onEvent<T>(event: string, cb: (payload: T) => void): Promise<UnlistenFn> {

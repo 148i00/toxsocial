@@ -1232,14 +1232,33 @@ pub async fn conference_delete(
     }
     state.persist();
     // Tell the Relay(s) we left this channel so its online-member count drops
-    // immediately (instead of waiting for the 5-minute TTL).
+    // immediately (instead of waiting for the 5-minute TTL). Signed, so only
+    // the member themselves can trigger the removal.
     if !channel_id.is_empty() {
         let relays = relay_urls(&state);
-        let own_toxid = state.session.lock().unwrap().self_address();
+        let (own_toxid, ed_pk) = {
+            let session = state.session.lock().unwrap();
+            (session.self_address(), session.self_ed25519_public_key())
+        };
+        let ts = now_ms();
+        let sig = {
+            let session = state.session.lock().unwrap();
+            let s = session
+                .sign_data(format!("members|{channel_id}|{own_toxid}|{ts}|leave").as_bytes())
+                .map_err(|e| e.to_string())?;
+            hex::encode(s)
+        };
         for relay in relays {
-            if let Err(e) =
-                crate::relay::report_channel_membership(&relay, &channel_id, &own_toxid, true)
-                    .await
+            if let Err(e) = crate::relay::report_channel_membership(
+                &relay,
+                &channel_id,
+                &own_toxid,
+                true,
+                ts,
+                &sig,
+                &ed_pk,
+            )
+            .await
             {
                 eprintln!("[toxsocial] relay leave report failed: {e}");
             }
@@ -1719,6 +1738,30 @@ pub fn export_account(state: State<AppState>) -> Result<String, String> {
     Ok(BASE64.encode(save))
 }
 
+/// Import an account from an `export_account` backup: replaces the on-disk
+/// profile with the imported save (previous profile kept as .bak) and flags
+/// the app to restart. The current session is unaffected until restart.
+#[tauri::command]
+pub fn import_account(state: State<AppState>, data_b64: String) -> Result<(), String> {
+    use base64::engine::general_purpose::STANDARD as BASE64;
+    use base64::Engine as _;
+    let data = BASE64
+        .decode(data_b64.trim())
+        .map_err(|e| format!("invalid backup file: {e}"))?;
+    // A tox save is at least a few hundred bytes; refuse obvious garbage.
+    if data.len() < 400 {
+        return Err("文件内容不像有效的账号备份".to_string());
+    }
+    let save_path = state.data_dir.join("profile.tox");
+    let backup_path = state.data_dir.join("profile.tox.bak");
+    if save_path.exists() {
+        std::fs::copy(&save_path, &backup_path)
+            .map_err(|e| format!("backup current profile failed: {e}"))?;
+    }
+    std::fs::write(&save_path, &data).map_err(|e| format!("write imported profile failed: {e}"))?;
+    Ok(())
+}
+
 /// After an invite lands, remember which conference number belongs to a
 /// joined community (join_community records `u32::MAX` until then).
 #[tauri::command]
@@ -2148,9 +2191,9 @@ pub async fn list_public_channels(state: State<'_, AppState>) -> Result<Vec<Publ
 
 #[tauri::command]
 pub async fn report_channel_memberships(state: State<'_, AppState>) -> Result<usize, String> {
-    let own_toxid = {
+    let (own_toxid, ed_pk) = {
         let session = state.session.lock().unwrap();
-        session.self_address()
+        (session.self_address(), session.self_ed25519_public_key())
     };
     let conferences = {
         let session = state.session.lock().unwrap();
@@ -2171,12 +2214,25 @@ pub async fn report_channel_memberships(state: State<'_, AppState>) -> Result<us
             session.conference_get_id(n).map_err(|e| e.to_string())?
         };
         if public_ids.contains(&channel_id) {
+            // Signed heartbeat: binds the membership report to our Tox
+            // identity so nobody can fake our presence or kick us.
+            let ts = now_ms();
+            let sig = {
+                let session = state.session.lock().unwrap();
+                session
+                    .sign_data(format!("members|{channel_id}|{own_toxid}|{ts}|report").as_bytes())
+                    .map_err(|e| e.to_string())?
+            };
+            let sig_hex = hex::encode(sig);
             for relay in &relays {
                 crate::relay::report_channel_membership(
                     relay,
                     &channel_id,
                     &own_toxid,
                     false,
+                    ts,
+                    &sig_hex,
+                    &ed_pk,
                 )
                 .await?;
             }

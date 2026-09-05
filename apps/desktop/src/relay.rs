@@ -237,12 +237,18 @@ pub async fn report_channel_membership(
     channel_id: &str,
     member_toxid: &str,
     leave: bool,
+    ts: i64,
+    sig: &str,
+    ed_pk: &str,
 ) -> Result<(), String> {
     let url = format!("{}/api/channels/members/report", relay.trim_end_matches('/'));
     let body = serde_json::json!({
         "channelId": channel_id,
         "memberToxid": member_toxid,
         "leave": leave,
+        "ts": ts,
+        "sig": sig,
+        "edPk": ed_pk,
     });
     let client = reqwest::Client::new();
     let resp = client

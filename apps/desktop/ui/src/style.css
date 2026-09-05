@@ -20,6 +20,20 @@
   font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
 }
 
+/* Light theme: toggled by setting `light` on <html> (Settings -> About). */
+:root.light {
+  --bg: #f2f4f8;
+  --bg-2: #ffffff;
+  --bg-3: #e8ebf1;
+  --border: #d5dae3;
+  --text: #1a2230;
+  --text-dim: #64708a;
+  --accent: #3a6df0;
+  --accent-2: #0ea5a5;
+  --danger: #dc4a4a;
+  --shadow: 0 4px 20px rgba(30, 40, 70, 0.12);
+}
+
 * {
   box-sizing: border-box;
   margin: 0;

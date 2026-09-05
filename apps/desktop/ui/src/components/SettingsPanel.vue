@@ -42,6 +42,54 @@ const avatarBusy = ref(false);
 const avatarUrl = ref("");
 const updateStatus = ref<"idle" | "checking" | "update" | "ok" | "error">("idle");
 const updateLatest = ref("");
+const importFile = ref<HTMLInputElement | null>(null);
+const importBusy = ref(false);
+const importResult = ref("");
+const importOk = ref(false);
+const theme = ref<"dark" | "light">("dark");
+
+function setTheme(v: "dark" | "light") {
+  theme.value = v;
+  document.documentElement.classList.toggle("light", v === "light");
+  try {
+    localStorage.setItem("theme", v);
+  } catch {
+    /* ignore */
+  }
+}
+
+function loadTheme() {
+  try {
+    theme.value = localStorage.getItem("theme") === "light" ? "light" : "dark";
+  } catch {
+    theme.value = "dark";
+  }
+  document.documentElement.classList.toggle("light", theme.value === "light");
+}
+
+function onImportSelected(e: Event) {
+  const input = e.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = "";
+  if (!file || importBusy.value) return;
+  if (!confirm(t("importConfirm"))) return;
+  importBusy.value = true;
+  const reader = new FileReader();
+  reader.onload = async () => {
+    try {
+      await api.importAccount(String(reader.result || "").trim());
+      importOk.value = true;
+      importResult.value = t("importDone");
+    } catch (err) {
+      importOk.value = false;
+      importResult.value = String(err);
+    } finally {
+      importBusy.value = false;
+    }
+  };
+  reader.onerror = () => (importBusy.value = false);
+  reader.readAsText(file);
+}
 
 // Notifications preferences (persisted in localStorage).
 const notifyPosts = ref(true);
@@ -147,6 +195,7 @@ async function refreshNetworkStatus() {
 }
 
 onMounted(async () => {
+  loadTheme();
   loadNotifyPrefs();
   if (props.own) {
     name.value = props.own.name;
@@ -498,7 +547,12 @@ async function save() {
         <p class="tip">{{ t("exportTip") }}</p>
         <div class="row">
           <button class="primary" @click="exportAccount">{{ t("exportRun") }}</button>
+          <input ref="importFile" type="file" accept=".txt,.bak" hidden @change="onImportSelected" />
+          <button :disabled="importBusy" @click="importFile?.click()">
+            {{ importBusy ? t("processing") : t("importRun") }}
+          </button>
         </div>
+        <p v-if="importResult" :class="importOk ? 'ok' : 'error'">{{ importResult }}</p>
       </div>
     </template>
 
@@ -522,6 +576,13 @@ async function save() {
         <div class="row">
           <button :class="{ active: locale === 'zh' }" @click="setLocale('zh')">{{ t("chinese") }}</button>
           <button :class="{ active: locale === 'en' }" @click="setLocale('en')">{{ t("english") }}</button>
+        </div>
+      </div>
+      <div class="card">
+        <label>{{ t("theme") }}</label>
+        <div class="row">
+          <button :class="{ active: theme === 'dark' }" @click="setTheme('dark')">{{ t("themeDark") }}</button>
+          <button :class="{ active: theme === 'light' }" @click="setTheme('light')">{{ t("themeLight") }}</button>
         </div>
       </div>
     </template>

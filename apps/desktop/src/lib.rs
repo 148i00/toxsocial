@@ -116,6 +116,7 @@ pub fn run() {
             commands::cleanup_database,
             commands::db_stats,
             commands::export_account,
+            commands::import_account,
             commands::accept_file,
             commands::reject_file,
             commands::send_join_channel,
