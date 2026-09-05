@@ -23,6 +23,15 @@ foreach ($dll in $dlls) {
 
 Push-Location "$root\apps\desktop"
 try {
+  # Updater signing key (required since createUpdaterArtifacts = true).
+  $keyFile = "$env:USERPROFILE\.toxsocial\updater.key"
+  if (Test-Path $keyFile) {
+    $env:TAURI_SIGNING_PRIVATE_KEY = Get-Content $keyFile -Raw
+    $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = ""
+    Write-Host "Updater signing key loaded from $keyFile"
+  } else {
+    Write-Warning "Updater key not found at $keyFile — updater artifacts will fail. Run: npx @tauri-apps/cli signer generate"
+  }
   & "$root\apps\desktop\ui\node_modules\.bin\tauri.cmd" build @args
   if ($LASTEXITCODE -ne 0) { throw "tauri build failed with exit code $LASTEXITCODE" }
 } finally {
