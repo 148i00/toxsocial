@@ -203,7 +203,7 @@ async function mockInvoke(cmd: string, args: Args = {}): Promise<unknown> {
     case "get_own_info":
       return { ...ME };
     case "get_app_version":
-      return "0.2.28";
+      return "0.2.31";
     case "check_update":
       return { current: "0.2.31", latest: "0.2.31", hasUpdate: false };
     case "perform_update":
@@ -338,6 +338,14 @@ async function mockInvoke(cmd: string, args: Args = {}): Promise<unknown> {
       return nextId();
     case "remove_friend":
     case "remove_friend_by_toxid":
+      return null;
+    case "db_stats":
+      return { dbSizeBytes: 186_000, postCount: posts.length, channelMsgCount: 12, privateMsgCount: 4 };
+    case "cleanup_database":
+      return { removedPosts: 0, removedChannelMsgs: 0, removedPrivateMsgs: 0, dbSizeBytes: 186_000 };
+    case "export_account":
+      return btoa("mock-export-data");
+    case "import_account":
       return null;
     case "list_conferences":
       return conferences.map((c) => c.number);
