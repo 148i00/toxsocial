@@ -1730,8 +1730,8 @@ pub fn update_community_conferences(
     let mut changed = false;
     for e in &entries {
         if let Some(c) = list.iter_mut().find(|c| c.channel_id == e.channel_id) {
-            if c.conference_number != e.conferenceNumber {
-                c.conference_number = e.conferenceNumber;
+            if c.conference_number != e.conference_number {
+                c.conference_number = e.conference_number;
                 changed = true;
             }
         }
