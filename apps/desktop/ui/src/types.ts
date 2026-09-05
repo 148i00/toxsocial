@@ -104,6 +104,14 @@ export interface PrivateMessageInfo {
   direction: number; // 0 = received, 1 = sent by us
 }
 
+export interface CommunityInfo {
+  channelId: string;
+  conferenceNumber: number;
+  name: string;
+  desc: string;
+  createdByMe: boolean;
+}
+
 export interface UpdateInfo {
   current: string;
   latest: string;

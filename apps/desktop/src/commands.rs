@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 
 use tox_core::{Connection, ToxError};
@@ -588,16 +588,23 @@ pub async fn publish_post(
     public: Option<bool>,
     attachment_data: Option<String>,
     attachment_name: Option<String>,
+    community: Option<String>,
 ) -> Result<Post, String> {
     let me = state.session.lock().unwrap().self_public_key();
     let text = text.trim().to_string();
     let is_public = public.unwrap_or(false);
+    // Community posts are inherently public.
+    let community = community
+        .map(|c| c.trim().to_lowercase())
+        .filter(|c| !c.is_empty());
+    let is_public = is_public || community.is_some();
+    let community_ref = community.as_deref();
     let (mut post, mut envelopes) = {
         let engine = state.engine.lock().unwrap();
         if text.chars().count() > tox_social::MAX_POST_CHARS {
             if is_public {
                 engine
-                    .publish_long_public_post(&me, &text)
+                    .publish_long_public_post(&me, &text, community_ref)
                     .map_err(|e| e.to_string())?
             } else {
                 engine
@@ -606,7 +613,7 @@ pub async fn publish_post(
             }
         } else if is_public {
             let post = engine
-                .publish_public_post(&me, &text)
+                .publish_public_post(&me, &text, community_ref)
                 .map_err(|e| e.to_string())?;
             (post.clone(), vec![Envelope::Post(post)])
         } else {
@@ -684,6 +691,7 @@ pub async fn publish_post(
         let id = post.id.clone();
         let ts = post.ts;
         let text = post.text.clone();
+        let community = post.community.clone();
         for relay in &relays {
             if let Err(e) = crate::relay::publish_post(
                 relay,
@@ -693,6 +701,7 @@ pub async fn publish_post(
                 &text,
                 &post.sig,
                 &ed_pk,
+                community.as_deref(),
             )
             .await
             {
@@ -710,6 +719,7 @@ pub async fn publish_post(
                         &text,
                         &post.sig,
                         &ed_pk,
+                        community.as_deref(),
                     )
                     .await
                     {
@@ -1511,13 +1521,191 @@ pub fn request_directory_search(state: State<AppState>, query: String, depth: Op
     Ok(sent)
 }
 
+// ---------------------------------------------------------------------------
+// Communities (Reddit-style topic feeds, distinct from chat groups)
+// ---------------------------------------------------------------------------
+
+/// One community in `my_communities`.
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CommunityInfo {
+    pub channel_id: String,
+    pub conference_number: u32,
+    pub name: String,
+    pub desc: String,
+    pub created_by_me: bool,
+}
+
+fn my_communities_load(state: &State<AppState>) -> Vec<CommunityInfo> {
+    let engine = state.engine.lock().unwrap();
+    let raw = engine
+        .store()
+        .kv_get("my_communities")
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+    serde_json::from_str(&raw).unwrap_or_default()
+}
+
+fn my_communities_save(state: &State<AppState>, list: &[CommunityInfo]) {
+    let engine = state.engine.lock().unwrap();
+    if let Ok(raw) = serde_json::to_string(list) {
+        let _ = engine.store().kv_set("my_communities", &raw);
+    }
+}
+
+/// Create a community: a dedicated conference (membership + realtime
+/// distribution) registered in the Relay public directory under its stable
+/// channel id.
+#[tauri::command]
+pub async fn create_community(
+    state: State<'_, AppState>,
+    name: String,
+    desc: String,
+) -> Result<CommunityInfo, String> {
+    let name = name.trim().to_string();
+    if name.is_empty() {
+        return Err("社区名称不能为空".to_string());
+    }
+    let conference_number = {
+        let mut session = state.session.lock().unwrap();
+        session
+            .conference_new()
+            .map_err(|e| format!("create community failed: {e}"))?
+    };
+    let channel_id = {
+        let session = state.session.lock().unwrap();
+        session
+            .conference_get_id(conference_number)
+            .map_err(|e| format!("get community id failed: {e}"))?
+    };
+    let info = CommunityInfo {
+        channel_id: channel_id.clone(),
+        conference_number,
+        name: name.clone(),
+        desc: desc.trim().to_string(),
+        created_by_me: true,
+    };
+    let mut list = my_communities_load(&state);
+    list.push(info.clone());
+    my_communities_save(&state, &list);
+    state.persist();
+
+    // Register in the public directory so others can discover and join.
+    // Best-effort: retried on the next publish/open if the Relay is down.
+    let relays = relay_urls(&state);
+    let host_toxid = state.session.lock().unwrap().self_address();
+    for relay in &relays {
+        if let Err(e) =
+            crate::relay::register_channel(relay, &name, desc.trim(), &host_toxid, &channel_id).await
+        {
+            eprintln!("[toxsocial] community register failed: {e}");
+        }
+    }
+    Ok(info)
+}
+
+/// Communities the user created or joined (local registry).
+#[tauri::command]
+pub fn my_communities(state: State<AppState>) -> Result<Vec<CommunityInfo>, String> {
+    Ok(my_communities_load(&state))
+}
+
+/// Join a discovered community: record it locally and ask a known member
+/// (host/co-host/members from the directory) to pull us into the conference.
+#[tauri::command]
+pub async fn join_community(
+    state: State<'_, AppState>,
+    channel_id: String,
+    name: String,
+    desc: String,
+) -> Result<(), String> {
+    let channel_id = channel_id.trim().to_lowercase();
+    let mut list = my_communities_load(&state);
+    if list.iter().any(|c| c.channel_id == channel_id) {
+        return Ok(());
+    }
+    list.push(CommunityInfo {
+        channel_id: channel_id.clone(),
+        conference_number: u32::MAX, // resolved after the invite arrives
+        name,
+        desc,
+        created_by_me: false,
+    });
+    my_communities_save(&state, &list);
+    drop(list);
+    // Ask known members for an invite (same flow as public groups).
+    let relays = relay_urls(&state);
+    for relay in &relays {
+        let channels = crate::relay::list_channels(relay).await.unwrap_or_default();
+        let Some(ch) = channels.iter().find(|c| c.channel_id == channel_id) else {
+            continue;
+        };
+        let mut contacts: Vec<String> = Vec::new();
+        if !ch.host_toxid.is_empty() {
+            contacts.push(ch.host_toxid.clone());
+        }
+        for h in &ch.hosts {
+            contacts.push(h.clone());
+        }
+        for m in &ch.members {
+            contacts.push(m.clone());
+        }
+        for contact in contacts {
+            let _ = send_join_channel_inner(&state, &contact, &channel_id);
+        }
+        break;
+    }
+    Ok(())
+}
+
+/// Send a "join_channel <id>" request to a ToxID (adds as friend if needed).
+fn send_join_channel_inner(
+    state: &State<AppState>,
+    contact: &str,
+    channel_id: &str,
+) -> Result<(), String> {
+    let contact = contact.trim();
+    let friend_number = {
+        let session = state.session.lock().unwrap();
+        session
+            .friend_list()
+            .into_iter()
+            .find(|n| {
+                session
+                    .friend_public_key(*n)
+                    .map(|pk| contact == pk || contact.starts_with(&pk))
+                    .unwrap_or(false)
+            })
+    };
+    match friend_number {
+        Some(n) => {
+            let session = state.session.lock().unwrap();
+            session
+                .send_message(n, &format!("join_channel {channel_id}"))
+                .map_err(|e| format!("send join request failed: {e}"))?;
+        }
+        None => {
+            // Add as friend with the join request as the message; the invite
+            // is sent automatically once they accept (see events.rs).
+            let mut session = state.session.lock().unwrap();
+            session
+                .add_friend(contact, &format!("join_channel {channel_id}"))
+                .map_err(|e| format!("add friend failed: {e}"))?;
+        }
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn fetch_public_timeline(
     state: State<'_, AppState>,
     limit: Option<u32>,
     before: Option<i64>,
+    community: Option<String>,
 ) -> Result<Vec<TimelineItem>, String> {
     let limit = limit.unwrap_or(50);
+    let want = community.map(|c| c.trim().to_lowercase()).filter(|c| !c.is_empty());
     let engine = state.engine.lock().unwrap();
     let meta = author_meta(&state, &engine);
     let rows = match before {
@@ -1532,6 +1720,14 @@ pub async fn fetch_public_timeline(
     };
     Ok(rows
         .iter()
+        .filter(|r| {
+            match &want {
+                // Community view: only posts scoped to this community.
+                Some(c) => r.channel_id.as_deref() == Some(c.as_str()),
+                // Plain public page: exclude community-scoped posts.
+                None => r.channel_id.is_none(),
+            }
+        })
         .map(|r| {
             let (name, avatar) = meta
                 .get(&r.author)
@@ -1594,8 +1790,13 @@ pub async fn search_relay_directory(state: State<'_, AppState>, query: String) -
 }
 
 #[tauri::command]
-pub async fn fetch_relay_public_posts(state: State<'_, AppState>, since: Option<i64>) -> Result<usize, String> {
+pub async fn fetch_relay_public_posts(
+    state: State<'_, AppState>,
+    since: Option<i64>,
+    community: Option<String>,
+) -> Result<usize, String> {
     let since = since.unwrap_or(0);
+    let community = community.map(|c| c.trim().to_lowercase()).filter(|c| !c.is_empty());
     let relays = relay_urls(&state);
     let received_at = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -1605,7 +1806,7 @@ pub async fn fetch_relay_public_posts(state: State<'_, AppState>, since: Option<
     let mut count = 0;
     let mut relay_ids: Vec<String> = Vec::new();
     for relay in &relays {
-        let items = crate::relay::fetch_outbox(relay, since).await?;
+        let items = crate::relay::fetch_outbox(relay, since, community.as_deref()).await?;
         let engine = state.engine.lock().unwrap();
         for item in &items {
             let id = item["id"].as_str().unwrap_or("").to_string();
@@ -1613,8 +1814,15 @@ pub async fn fetch_relay_public_posts(state: State<'_, AppState>, since: Option<
             let text = item["text"].as_str().unwrap_or("").to_string();
             let ts = item["ts"].as_i64().unwrap_or(0);
             let sig = item["sig"].as_str().unwrap_or("").to_string();
+            let community_field = item["community"].as_str().map(|c| c.to_lowercase());
             if id.is_empty() || pubkey.is_empty() {
                 continue;
+            }
+            // Community-scoped fetch must not mix in unrelated public posts.
+            if let Some(want) = &community {
+                if community_field.as_deref() != Some(want.as_str()) {
+                    continue;
+                }
             }
             relay_ids.push(id.clone());
             let post = tox_social::envelope::Post {
@@ -1626,6 +1834,7 @@ pub async fn fetch_relay_public_posts(state: State<'_, AppState>, since: Option<
                 public: true,
                 sig,
                 attachment: None,
+                community: community_field,
             };
             let env = Envelope::Post(post);
             if engine.persist(&env, &pubkey, received_at) {

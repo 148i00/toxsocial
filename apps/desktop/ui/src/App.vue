@@ -10,11 +10,12 @@ import ThreadView from "./components/ThreadView.vue";
 import FriendsPanel from "./components/FriendsPanel.vue";
 import SettingsPanel from "./components/SettingsPanel.vue";
 import ChannelsPanel from "./components/ChannelsPanel.vue";
+import CommunitiesPanel from "./components/CommunitiesPanel.vue";
 import PrivateChat from "./components/PrivateChat.vue";
 import Avatar from "./components/Avatar.vue";
 import logoUrl from "./assets/logo.png";
 
-const view = ref<"timeline" | "friends" | "settings" | "channels" | "public" | "profile" | "pm">("timeline");
+const view = ref<"timeline" | "friends" | "settings" | "channels" | "communities" | "public" | "profile" | "pm">("timeline");
 const activePm = ref<{ peer: string; name: string } | null>(null);
 const own = ref<OwnInfo | null>(null);
 const networkStatus = ref<NetworkStatus | null>(null);
@@ -511,6 +512,7 @@ onBeforeUnmount(() => {
           {{ t("channels") }}
           <span v-if="channelsUnread" class="count unread">{{ channelsUnread }}</span>
         </button>
+        <button :class="{ active: view === 'communities' }" @click="view = 'communities'">{{ t("communities") }}</button>
         <button :class="{ active: view === 'public' }" @click="openPublic">{{ t("public") }}</button>
         <button :class="{ active: view === 'settings' }" @click="view = 'settings'">{{ t("settings") }}</button>
       </nav>
@@ -600,6 +602,14 @@ onBeforeUnmount(() => {
           </template>
         </template>
       </template>
+
+      <CommunitiesPanel
+        v-else-if="view === 'communities'"
+        :friends="friends"
+        :own="own"
+        @open="openThreadWithData"
+        @author="viewFriend"
+      />
 
       <div v-else-if="view === 'profile'" class="profile-page">
         <div class="thread-header">

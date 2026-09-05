@@ -116,7 +116,7 @@ impl FeedEngine {
                 ts: p.ts,
                 received_at,
                 source: PostSource::FriendDirect,
-                channel_id: None,
+                channel_id: p.community.clone(),
                 is_public: p.public,
                 sig: p.sig.clone(),
                 attachment: p.attachment.clone(),
@@ -204,8 +204,14 @@ impl FeedEngine {
         Ok(post)
     }
 
-    /// Create a public post and persist it locally.
-    pub fn publish_public_post(&self, author_pk: &str, text: &str) -> Result<Post, String> {
+    /// Create a public post and persist it locally. `community` optionally
+    /// scopes the post to a community (channel id) for the community feed.
+    pub fn publish_public_post(
+        &self,
+        author_pk: &str,
+        text: &str,
+        community: Option<&str>,
+    ) -> Result<Post, String> {
         if text.is_empty() {
             return Err("post text is empty".to_string());
         }
@@ -214,6 +220,7 @@ impl FeedEngine {
         }
         let mut post = Post::new(author_pk, text);
         post.public = true;
+        post.community = community.map(|c| c.to_string());
         if Envelope::Post(post.clone()).wire_len() > MAX_ENVELOPE_BYTES {
             return Err("post exceeds 1300-byte envelope limit".to_string());
         }
@@ -227,7 +234,7 @@ impl FeedEngine {
             ts: post.ts,
             received_at: now_ms(),
             source: PostSource::SelfPublished,
-            channel_id: None,
+            channel_id: post.community.clone(),
             is_public: true,
             sig: post.sig.clone(),
             attachment: None,
@@ -275,6 +282,7 @@ impl FeedEngine {
         &self,
         author_pk: &str,
         text: &str,
+        community: Option<&str>,
     ) -> Result<(Post, Vec<Envelope>), String> {
         if text.is_empty() {
             return Err("post text is empty".to_string());
@@ -284,6 +292,7 @@ impl FeedEngine {
         }
         let mut post = Post::new(author_pk, text);
         post.public = true;
+        post.community = community.map(|c| c.to_string());
         let row = PostRow {
             id: post.id.clone(),
             author: author_pk.to_string(),
@@ -294,7 +303,7 @@ impl FeedEngine {
             ts: post.ts,
             received_at: now_ms(),
             source: PostSource::SelfPublished,
-            channel_id: None,
+            channel_id: post.community.clone(),
             is_public: true,
             sig: post.sig.clone(),
             attachment: None,
@@ -333,6 +342,7 @@ impl FeedEngine {
             public: false,
             sig: String::new(),
             attachment: None,
+            community: c.community.clone(),
         };
         let row = PostRow {
             id: post.id.clone(),
@@ -344,7 +354,7 @@ impl FeedEngine {
             ts: post.ts,
             received_at,
             source: PostSource::FriendDirect,
-            channel_id: None,
+            channel_id: post.community.clone(),
             is_public: post.public,
             sig: post.sig.clone(),
             attachment: None,
@@ -510,6 +520,7 @@ fn row_to_envelope(row: PostRow) -> Option<Envelope> {
             public: row.is_public,
             sig: row.sig,
             attachment: row.attachment,
+            community: row.channel_id,
         })),
         PostKind::Comment => Some(Envelope::Comment(Comment {
             v: 1,
@@ -583,6 +594,7 @@ fn split_post_chunks(post: &Post) -> Vec<Envelope> {
             n: parts.len() as u32,
             total: 0,
             part: candidate.clone(),
+            community: post.community.clone(),
         });
         if probe.wire_len() <= MAX_ENVELOPE_BYTES || current.is_empty() {
             current = candidate;
@@ -608,6 +620,7 @@ fn split_post_chunks(post: &Post) -> Vec<Envelope> {
                 n: i as u32,
                 total,
                 part,
+                community: post.community.clone(),
             })
         })
         .collect()

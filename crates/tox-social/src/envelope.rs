@@ -27,6 +27,11 @@ pub struct Post {
     /// travels over Tox's file-transfer channel on request (`get_file`).
     #[serde(rename = "att", default, skip_serializing_if = "Option::is_none")]
     pub attachment: Option<String>,
+    /// Community id (64-hex channel id) this post belongs to, or None for
+    /// the plain public timeline. Purely metadata: the signature does not
+    /// cover it.
+    #[serde(rename = "c", default, skip_serializing_if = "Option::is_none")]
+    pub community: Option<String>,
 }
 
 /// A comment attached to a post.
@@ -96,6 +101,11 @@ pub struct PostChunk {
     pub total: u32,
     #[serde(rename = "part")]
     pub part: String,
+    /// Community id carried on every fragment so the reassembled post keeps
+    /// its community scope (only the first fragment really needs it, but
+    /// carrying it everywhere keeps the reassembler simple).
+    #[serde(rename = "c", default, skip_serializing_if = "Option::is_none")]
+    pub community: Option<String>,
 }
 
 /// One entry in a shared public directory.
@@ -277,6 +287,7 @@ impl Post {
             public: false,
             sig: String::new(),
             attachment: None,
+            community: None,
         }
     }
 }

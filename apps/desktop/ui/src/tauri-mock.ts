@@ -419,6 +419,31 @@ async function mockInvoke(cmd: string, args: Args = {}): Promise<unknown> {
       }, 1000);
       return id;
     }
+    case "create_community": {
+      const id = pk(("comm" + (a.name || "")).slice(0, 20));
+      return {
+        channelId: id,
+        conferenceNumber: 2,
+        name: (a.name as string) || "community",
+        desc: (a.desc as string) || "",
+        createdByMe: true,
+      };
+    }
+    case "my_communities":
+      return [
+        {
+          channelId: pk("commmock"),
+          conferenceNumber: 2,
+          name: "测试社区",
+          desc: "mock 社区",
+          createdByMe: true,
+        },
+      ];
+    case "join_community":
+      return null;
+    case "send_join_channel":
+      return null;
+
     case "private_messages": {
       const peer = (a.peer as string) || "";
       return privateMsgs

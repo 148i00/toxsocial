@@ -62,6 +62,7 @@ pub async fn publish_post(
     text: &str,
     sig: &str,
     ed_pk: &str,
+    community: Option<&str>,
 ) -> Result<(), String> {
     let url = format!("{}/api/outbox", relay.trim_end_matches('/'));
     let body = serde_json::json!({
@@ -71,6 +72,7 @@ pub async fn publish_post(
         "text": text,
         "sig": sig,
         "edPk": ed_pk,
+        "community": community,
         "type": "post",
     });
     let client = reqwest::Client::new();
@@ -88,10 +90,18 @@ pub async fn publish_post(
     Ok(())
 }
 
-pub async fn fetch_outbox(relay: &str, since: i64) -> Result<Vec<serde_json::Value>, String> {
+pub async fn fetch_outbox(
+    relay: &str,
+    since: i64,
+    community: Option<&str>,
+) -> Result<Vec<serde_json::Value>, String> {
+    let mut params = vec![("since", since.to_string())];
+    if let Some(c) = community {
+        params.push(("community", c.to_string()));
+    }
     let url = url::Url::parse_with_params(
         &format!("{}/api/outbox", relay.trim_end_matches('/')),
-        &[("since", since.to_string())],
+        &params,
     )
     .map_err(|e| e.to_string())?;
     let resp = http_client().get(url)

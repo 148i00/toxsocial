@@ -4,7 +4,12 @@ import { api } from "../api";
 import { t } from "../i18n";
 import type { OwnInfo } from "../types";
 
-defineProps<{ own: OwnInfo | null }>();
+const props = defineProps<{
+  own: OwnInfo | null;
+  /** When set, posts are scoped to this community. */
+  community?: string;
+  communityName?: string;
+}>();
 const emit = defineEmits<{ posted: [] }>();
 
 const text = ref("");
@@ -85,7 +90,8 @@ async function submit() {
   busy.value = true;
   error.value = "";
   try {
-    await api.publishPost(t, isPublic.value, attachFile.value?.dataUrl, attachFile.value?.name);
+    // Community scope implies public visibility.
+    await api.publishPost(t, isPublic.value || !!props.community, attachFile.value?.dataUrl, attachFile.value?.name, props.community);
     text.value = "";
     attachFile.value = null;
     emit("posted");
@@ -107,10 +113,11 @@ async function submit() {
       @keydown.ctrl.enter="submit"
     ></textarea>
     <div class="row">
-      <label class="public-toggle">
+      <label v-if="!community" class="public-toggle">
         <input v-model="isPublic" type="checkbox" />
         {{ t("publicLabel") }}
       </label>
+      <span v-else class="public-toggle">📢 {{ t("postingToCommunity", { name: communityName }) }}</span>
       <span class="hint">{{ t("composerHint") }}</span>
       <span v-if="mediaError" class="error">{{ mediaError }}</span>
       <span v-if="error" class="error">{{ error }}</span>

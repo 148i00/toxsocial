@@ -143,6 +143,7 @@ CLI 双实例联调：
 - v0.2.27（开发中）：自己频道消息回显过滤（toxcore 会把会议消息回显给自己，此前自己的消息被显示成别人+重复）、启动时主动 sync 在线好友帖子（否则先在线好友的帖子永远拉不到）、公共页删掉冗余按钮、头像 localStorage 缓存、Relay 公开帖子删除接口（作者签名验证，测试帖已清理）、图标换成 toxsocial1
 - v0.2.28：图标换 toxsocial1（含左上角 logo 字体 CAGeheimagent）、启动更新弹窗、频道编号复用修复、赞踩/排序/Reddit 风嵌套、群组文案、发布失败重试、公共页对齐清理
 - v0.2.29：私信功能（好友1对1+SQLite 持久化）、公共页无限滚动、未读标记、群组历史分页、profile DPAPI 加密（兼容旧明文自动迁移）、GitHub Actions release CI、Tauri mock GUI 测试基建
+- v0.2.30（开发中）：社区功能（Reddit 式，与群组分离）——Post 信封 c 字段（community id）、create/my/join_community 命令、CommunitiesPanel 两栏页（创建/发现/帖子流）、Relay posts.community 列与 ?community= 过滤、社区 conference 收 TSP 信封实时分发；注意：Post 签名不含 community（纯元数据）
 
 ## 5. 关键技术事实与踩坑（务必先读 docs/PLAN.md §9）
 

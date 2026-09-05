@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { locale } from "./i18n";
 import { installTauriMock, isMockMode, mockInvokeShim, mockOnEventShim } from "./tauri-mock";
-import type { ChannelMessageInfo, ConferencePeerInfo, ConferenceSendResult, DirectoryEntryInfo, FileTransferInfo, FriendInfo, MediaConfig, NetworkStatus, OwnInfo, PrivateMessageInfo, PublicChannelInfo, TimelineItem, UpdateInfo } from "./types";
+import type { ChannelMessageInfo, CommunityInfo, ConferencePeerInfo, ConferenceSendResult, DirectoryEntryInfo, FileTransferInfo, FriendInfo, MediaConfig, NetworkStatus, OwnInfo, PrivateMessageInfo, PublicChannelInfo, TimelineItem, UpdateInfo } from "./types";
 
 // Browser GUI-test mode: route every call through the in-memory mock when the
 // Tauri runtime is absent (the packaged app always has the runtime).
@@ -19,8 +19,8 @@ export const api = {
   addFriend: (toxid: string, message: string) => inv<number>("add_friend", { toxid, message }),
   removeFriend: (friendNumber: number) => inv<void>("remove_friend", { friendNumber }),
   removeFriendByToxid: (toxid: string) => inv<void>("remove_friend_by_toxid", { toxid }),
-  publishPost: (text: string, isPublic?: boolean, attachmentData?: string, attachmentName?: string) =>
-    inv<TimelineItem>("publish_post", { text, public: isPublic, attachmentData, attachmentName }),
+  publishPost: (text: string, isPublic?: boolean, attachmentData?: string, attachmentName?: string, community?: string) =>
+    inv<TimelineItem>("publish_post", { text, public: isPublic, attachmentData, attachmentName, community }),
   requestAttachment: (postId: string) =>
     inv<void>("request_attachment", { postId }),
   fileTransfers: () => inv<FileTransferInfo[]>("file_transfers"),
@@ -84,12 +84,14 @@ export const api = {
     inv<number>("request_directory_search", { query, depth }),
   fetchPublicTimeline: (limit?: number, before?: number) =>
     inv<TimelineItem[]>("fetch_public_timeline", { limit, before }),
+  fetchCommunityTimeline: (community: string, limit?: number, before?: number) =>
+    inv<TimelineItem[]>("fetch_public_timeline", { community, limit, before }),
   requestPublicPosts: (since?: number, depth?: number) =>
     inv<number>("request_public_posts", { since, depth }),
   searchRelayDirectory: (query: string) =>
     inv<DirectoryEntryInfo[]>("search_relay_directory", { query }),
-  fetchRelayPublicPosts: (since?: number) =>
-    inv<number>("fetch_relay_public_posts", { since }),
+  fetchRelayPublicPosts: (since?: number, community?: string) =>
+    inv<number>("fetch_relay_public_posts", { since, community }),
   listPublicChannels: () => inv<PublicChannelInfo[]>("list_public_channels"),
   reportChannelMemberships: () => inv<number>("report_channel_memberships"),
   registerPublicChannel: (conferenceNumber: number, name: string, desc: string) =>
@@ -104,6 +106,11 @@ export const api = {
     inv<number>("send_private_message", { peer, text }),
   privateMessages: (peer: string, limit?: number) =>
     inv<PrivateMessageInfo[]>("private_messages", { peer, limit }),
+  createCommunity: (name: string, desc: string) =>
+    inv<CommunityInfo>("create_community", { name, desc }),
+  myCommunities: () => inv<CommunityInfo[]>("my_communities"),
+  joinCommunity: (channelId: string, name: string, desc: string) =>
+    inv<void>("join_community", { channelId, name, desc }),
 };
 
 export function onEvent<T>(event: string, cb: (payload: T) => void): Promise<UnlistenFn> {
