@@ -168,11 +168,20 @@ textarea {
   align-items: center;
   gap: 10px;
   margin-top: 8px;
+  /* Overflow must wrap to a new line — shrinking to min-content turns CJK
+     text into one-glyph-per-line vertical columns. */
+  flex-wrap: wrap;
+}
+.row button {
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 .hint {
   color: var(--text-dim);
   font-size: 12px;
-  flex: 1;
+  /* Grow to fill the line, but claim a readable minimum: below it the hint
+     wraps onto its own full-width line instead of crushing. */
+  flex: 1 1 240px;
 }
 .error {
   color: var(--danger);
@@ -185,6 +194,10 @@ textarea {
   color: var(--text-dim);
   font-size: 12px;
   white-space: nowrap;
+  flex-shrink: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .attach-chip {
   display: inline-flex;
