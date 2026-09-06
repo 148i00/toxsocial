@@ -98,11 +98,32 @@ impl AppState {
                     raw
                 }
             };
-            println!("[toxsocial] loading existing profile");
-            ToxSession::from_savedata(Some(&data)).map_err(|e| e.to_string())?
+            match ToxSession::from_savedata(Some(&data)) {
+                Ok(s) => {
+                    println!("[toxsocial] loading existing profile");
+                    s
+                }
+                Err(e) => {
+                    // Corrupt main save: fall back to the backup copy before
+                    // giving up — a fresh identity here looks exactly like
+                    // "all my data is gone" to the user.
+                    eprintln!("[toxsocial] profile.tox unreadable ({e}); trying backup");
+                    load_saved_backup(&data_dir).map_err(|e2| {
+                        format!("profile.tox: {e}; backup: {e2}")
+                    })?
+                }
+            }
         } else {
-            println!("[toxsocial] creating new identity");
-            ToxSession::new().map_err(|e| e.to_string())?
+            match load_saved_backup(&data_dir) {
+                Ok(s) => {
+                    println!("[toxsocial] profile.tox missing; recovered identity from backup");
+                    s
+                }
+                Err(_) => {
+                    println!("[toxsocial] creating new identity");
+                    ToxSession::new().map_err(|e| e.to_string())?
+                }
+            }
         };
         // Persist the (possibly new) save immediately.
         write_profile(&save_path, &session.save());
@@ -150,12 +171,27 @@ impl AppState {
 }
 
 /// Write the Tox save data, DPAPI-encrypted on Windows (plain fallback if the
-/// crypto call ever fails — availability over perfection).
+/// crypto call ever fails — availability over perfection). A second copy is
+/// kept at `profile.tox.saved` so a lost/corrupt main save can be recovered.
 fn write_profile(path: &std::path::Path, save: &[u8]) {
     let bytes = profile_crypto::protect(save).unwrap_or_else(|| save.to_vec());
-    if let Err(e) = std::fs::write(path, bytes) {
+    if let Err(e) = std::fs::write(path, &bytes) {
         eprintln!("[toxsocial] failed to persist profile: {e}");
     }
+    if let Some(parent) = path.parent() {
+        let backup = parent.join("profile.tox.saved");
+        let _ = std::fs::write(&backup, &bytes);
+    }
+}
+
+/// Load the identity from the `profile.tox.saved` backup copy.
+fn load_saved_backup(
+    data_dir: &std::path::Path,
+) -> Result<ToxSession, Box<dyn std::error::Error>> {
+    let backup = data_dir.join("profile.tox.saved");
+    let raw = std::fs::read(&backup).map_err(|e| format!("no backup: {e}"))?;
+    let data = profile_crypto::unprotect(&raw).unwrap_or(raw);
+    ToxSession::from_savedata(Some(&data)).map_err(|e| format!("backup unreadable: {e}").into())
 }
 
 /// Sync the toxcore friend list into the store (names, status, toxid).
