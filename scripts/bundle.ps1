@@ -2,6 +2,12 @@
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File scripts/bundle.ps1
 # Make sure your proxy env vars are set if you need to download WiX/NSIS.
+#
+# NOTE on updater signing: tauri build cannot sign non-interactively on
+# Windows — the empty passphrase cannot be expressed as an env var (Windows
+# drops empty env vars), so the CLI blocks on a password prompt. We therefore
+# build WITHOUT the key env and sign the finished installers explicitly with
+# `tauri signer sign --password ""` (the key's passphrase is empty).
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
@@ -23,17 +29,25 @@ foreach ($dll in $dlls) {
 
 Push-Location "$root\apps\desktop"
 try {
-  # Updater signing key (required since createUpdaterArtifacts = true).
-  $keyFile = "$env:USERPROFILE\.toxsocial\updater.key"
-  if (Test-Path $keyFile) {
-    $env:TAURI_SIGNING_PRIVATE_KEY = Get-Content $keyFile -Raw
-    $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = ""
-    Write-Host "Updater signing key loaded from $keyFile"
-  } else {
-    Write-Warning "Updater key not found at $keyFile — updater artifacts will fail. Run: npx @tauri-apps/cli signer generate"
-  }
   & "$root\apps\desktop\ui\node_modules\.bin\tauri.cmd" build @args
-  if ($LASTEXITCODE -ne 0) { throw "tauri build failed with exit code $LASTEXITCODE" }
+  # Signing errors are expected here (password prompt); installers may still
+  # have been produced. Real failure detection happens below via artifacts.
 } finally {
   Pop-Location
 }
+
+$ver = (Get-Content "$root\apps\desktop\tauri.conf.json" -Raw | ConvertFrom-Json).version
+$nsi = "$root\target\release\bundle\nsis\ToxSocial_${ver}_x64-setup.exe"
+$msi = "$root\target\release\bundle\msi\ToxSocial_${ver}_x64_en-US.msi"
+if (-not (Test-Path $nsi)) { throw "build failed: missing $nsi" }
+if (-not (Test-Path $msi)) { throw "build failed: missing $msi" }
+
+$keyFile = "$env:USERPROFILE\.toxsocial\updater.key"
+if (-not (Test-Path $keyFile)) { throw "updater key not found: $keyFile" }
+$key = (Get-Content $keyFile -Raw).Trim()
+foreach ($f in @($nsi, $msi)) {
+  & "$root\apps\desktop\ui\node_modules\.bin\tauri.cmd" signer sign --password "" -k $key $f
+  if ($LASTEXITCODE -ne 0) { throw "signing failed: $f" }
+  Write-Host "Signed $f"
+}
+Write-Host "Bundle complete: v$ver"
