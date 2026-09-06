@@ -20,7 +20,10 @@ $dlls = @(
 New-Item -ItemType Directory -Force -Path "$root\target\release" | Out-Null
 foreach ($dll in $dlls) {
   if (Test-Path $dll) {
+    # target/release: for cargo run / dev launches next to the exe.
     Copy-Item $dll "$root\target\release\" -Force
+    # apps/desktop: bundled into the installers via bundle.resources.
+    Copy-Item $dll "$root\apps\desktop\" -Force
     Write-Host "Copied $dll"
   } else {
     Write-Warning "Missing DLL: $dll"
@@ -44,10 +47,18 @@ if (-not (Test-Path $msi)) { throw "build failed: missing $msi" }
 
 $keyFile = "$env:USERPROFILE\.toxsocial\updater.key"
 if (-not (Test-Path $keyFile)) { throw "updater key not found: $keyFile" }
-$key = (Get-Content $keyFile -Raw).Trim()
+# Strip ALL whitespace: the key file wraps base64 across lines, and a .cmd
+# wrapper cannot receive multi-line arguments.
+$key = ((Get-Content $keyFile -Raw) -replace '\s', '')
 foreach ($f in @($nsi, $msi)) {
+  # PowerShell cannot hand an empty-string --password through the .cmd
+  # wrapper, so this may fail; signing then happens via bash
+  # (scripts/upload flow). Keep the build result usable either way.
   & "$root\apps\desktop\ui\node_modules\.bin\tauri.cmd" signer sign --password "" -k $key $f
-  if ($LASTEXITCODE -ne 0) { throw "signing failed: $f" }
-  Write-Host "Signed $f"
+  if ($LASTEXITCODE -ne 0) {
+    Write-Warning "signing failed for $f — sign via bash: tauri signer sign --password `"`" -k (key) file"
+  } else {
+    Write-Host "Signed $f"
+  }
 }
 Write-Host "Bundle complete: v$ver"
