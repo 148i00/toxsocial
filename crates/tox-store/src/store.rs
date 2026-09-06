@@ -246,9 +246,9 @@ impl Store {
             "DELETE FROM post_chunks WHERE received_at < ?1",
             params![now_ms() - 7 * 24 * 3600 * 1000],
         )?;
-        let _ = self
-            .conn
-            .execute("PRAGMA wal_checkpoint(TRUNCATE)", [])?;
+        // NOTE: do NOT run `PRAGMA wal_checkpoint(TRUNCATE)` here via execute()
+        // — it returns rows (execute rejects that) and, more importantly,
+        // TRUNCATE blocks waiting for readers, which hung the main thread.
         Ok((removed_posts, removed_channel, removed_private))
     }
 

@@ -1107,8 +1107,18 @@ fn spawn_iterate_loop(
                 };
                 std::thread::sleep(std::time::Duration::from_millis(interval as u64));
                 let _guard = TOX_FFI_LOCK.lock().unwrap();
+                let started = std::time::Instant::now();
                 unsafe {
                     tox_iterate(tox.0, ctx.0 as *mut c_void);
+                }
+                let elapsed = started.elapsed();
+                if elapsed > std::time::Duration::from_millis(1_000) {
+                    // A long iterate blocks every other FFI caller; make the
+                    // stall visible instead of a silent UI freeze.
+                    eprintln!(
+                        "[tox-core] tox_iterate blocked for {} ms",
+                        elapsed.as_millis()
+                    );
                 }
             }
         })

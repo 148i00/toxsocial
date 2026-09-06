@@ -27,3 +27,8 @@ test-*.cmd
 Thumbs.db
 .DS_Store
 server/.wrangler/
+
+# debug artifacts
+hang.dmp
+run-log*.txt
+hang2.dmp

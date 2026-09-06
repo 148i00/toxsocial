@@ -157,8 +157,8 @@ pub struct PrivateMessageInfo {
 /// Send a private (1:1) chat message to a friend. Plain Tox message, no TSP
 /// envelope — this is the friend chat channel, not the social protocol.
 #[tauri::command]
-pub fn send_private_message(
-    state: State<AppState>,
+pub async fn send_private_message(
+    state: State<'_, AppState>,
     peer: String,
     text: String,
 ) -> Result<i64, String> {
@@ -195,8 +195,8 @@ pub fn send_private_message(
 
 /// Persisted private chat history with a peer, chronological order.
 #[tauri::command]
-pub fn private_messages(
-    state: State<AppState>,
+pub async fn private_messages(
+    state: State<'_, AppState>,
     peer: String,
     limit: Option<u32>,
 ) -> Result<Vec<PrivateMessageInfo>, String> {
@@ -242,6 +242,11 @@ pub async fn check_update(app: AppHandle) -> Result<UpdateInfo, String> {
 }
 
 /// Download and install the pending update, then relaunch the app.
+///
+/// The restart is done via a detached "wait 2s then start" jump script
+/// instead of an immediate relaunch: the old process's WebView2 browser tree
+/// may take a moment to release the user-data folder, and an immediate
+/// relaunch into a locked EBWebView is exactly the "opens but hangs" bug.
 #[tauri::command]
 pub async fn perform_update(app: AppHandle) -> Result<(), String> {
     let updater = app
@@ -267,8 +272,29 @@ pub async fn perform_update(app: AppHandle) -> Result<(), String> {
         )
         .await
         .map_err(|e| format!("update failed: {e}"))?;
-    // tauri-plugin-process: graceful restart into the new version.
-    app.restart();
+    // Relaunch via a detached jump script: give the old process (and its
+    // WebView2 browser tree) two seconds to fully release the user-data
+    // folder before the new binary starts.
+    let exe = std::env::current_exe().map_err(|e| format!("{e}"))?;
+    let jump = std::env::temp_dir().join("toxsocial-relaunch.cmd");
+    std::fs::write(
+        &jump,
+        format!(
+            "@echo off\r\ntimeout /t 2 /nobreak >nul\r\nstart \"\" \"{}\"\r\n",
+            exe.display()
+        ),
+    )
+    .map_err(|e| format!("{e}"))?;
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        std::process::Command::new("cmd")
+            .args(["/C", &jump.display().to_string()])
+            .creation_flags(0x00000008) // DETACHED_PROCESS
+            .spawn()
+            .map_err(|e| format!("{e}"))?;
+    }
+    app.exit(0);
     #[allow(unreachable_code)]
     Ok(())
 }
@@ -288,7 +314,7 @@ fn compare_versions(a: &str, b: &str) -> i32 {
 }
 
 #[tauri::command]
-pub fn get_own_info(state: State<AppState>) -> OwnInfo {
+pub async fn get_own_info(state: State<'_, AppState>) -> Result<OwnInfo, String> {
     let session = state.session.lock().unwrap();
     let avatar = {
         let engine = state.engine.lock().unwrap();
@@ -298,7 +324,7 @@ pub fn get_own_info(state: State<AppState>) -> OwnInfo {
             .unwrap_or_default()
             .unwrap_or_default()
     };
-    OwnInfo {
+    Ok(OwnInfo {
         toxid: session.self_address(),
         pubkey: session.self_public_key(),
         name: session.self_name(),
@@ -307,7 +333,7 @@ pub fn get_own_info(state: State<AppState>) -> OwnInfo {
             .unwrap_or_default(),
         avatar,
         friend_count: session.friend_count(),
-    }
+    })
 }
 
 #[tauri::command]
@@ -529,7 +555,7 @@ pub async fn set_avatar_url(state: State<'_, AppState>, url: String) -> Result<(
 }
 
 #[tauri::command]
-pub fn add_friend(state: State<AppState>, toxid: String, message: String) -> Result<u32, String> {
+pub async fn add_friend(state: State<'_, AppState>, toxid: String, message: String) -> Result<u32, String> {
     let n = {
         let mut session = state.session.lock().unwrap();
         session
@@ -546,7 +572,7 @@ pub fn add_friend(state: State<AppState>, toxid: String, message: String) -> Res
 }
 
 #[tauri::command]
-pub fn remove_friend(state: State<AppState>, friend_number: u32) -> Result<(), String> {
+pub async fn remove_friend(state: State<'_, AppState>, friend_number: u32) -> Result<(), String> {
     {
         let mut session = state.session.lock().unwrap();
         session
@@ -558,7 +584,7 @@ pub fn remove_friend(state: State<AppState>, friend_number: u32) -> Result<(), S
 }
 
 #[tauri::command]
-pub fn remove_friend_by_toxid(state: State<AppState>, toxid: String) -> Result<(), String> {
+pub async fn remove_friend_by_toxid(state: State<'_, AppState>, toxid: String) -> Result<(), String> {
     let toxid = toxid.trim().to_string();
     let friend_number = {
         let session = state.session.lock().unwrap();
@@ -774,8 +800,8 @@ pub async fn publish_post(
 }
 
 #[tauri::command]
-pub fn publish_comment(
-    state: State<AppState>,
+pub async fn publish_comment(
+    state: State<'_, AppState>,
     post_id: String,
     text: String,
     reply_to: Option<String>,
@@ -797,8 +823,8 @@ pub fn publish_comment(
 }
 
 #[tauri::command]
-pub fn publish_reaction(
-    state: State<AppState>,
+pub async fn publish_reaction(
+    state: State<'_, AppState>,
     post_id: String,
     emoji: String,
 ) -> Result<Reaction, String> {
@@ -951,7 +977,7 @@ pub async fn fetch_thread(state: State<'_, AppState>, post_id: String) -> Result
 }
 
 #[tauri::command]
-pub fn send_join_channel(state: State<AppState>, toxid: String, channel_id: String) -> Result<(), String> {
+pub async fn send_join_channel(state: State<'_, AppState>, toxid: String, channel_id: String) -> Result<(), String> {
     let toxid = toxid.trim().to_string();
     let friend_number = {
         let session = state.session.lock().unwrap();
@@ -973,8 +999,8 @@ pub fn send_join_channel(state: State<AppState>, toxid: String, channel_id: Stri
 }
 
 #[tauri::command]
-pub fn send_file_to_friend(
-    state: State<AppState>,
+pub async fn send_file_to_friend(
+    state: State<'_, AppState>,
     friend_number: u32,
     filename: String,
     data_base64: String,
@@ -987,8 +1013,8 @@ pub fn send_file_to_friend(
 }
 
 #[tauri::command]
-pub fn send_file_to_friend_by_toxid(
-    state: State<AppState>,
+pub async fn send_file_to_friend_by_toxid(
+    state: State<'_, AppState>,
     toxid: String,
     filename: String,
     data_base64: String,
@@ -1015,7 +1041,7 @@ pub fn send_file_to_friend_by_toxid(
 }
 
 #[tauri::command]
-pub fn accept_file(state: State<AppState>, friend_number: u32, file_number: u32) -> Result<(), String> {
+pub async fn accept_file(state: State<'_, AppState>, friend_number: u32, file_number: u32) -> Result<(), String> {
     let session = state.session.lock().unwrap();
     session
         .accept_file(friend_number, file_number)
@@ -1023,7 +1049,7 @@ pub fn accept_file(state: State<AppState>, friend_number: u32, file_number: u32)
 }
 
 #[tauri::command]
-pub fn reject_file(state: State<AppState>, friend_number: u32, file_number: u32) -> Result<(), String> {
+pub async fn reject_file(state: State<'_, AppState>, friend_number: u32, file_number: u32) -> Result<(), String> {
     let session = state.session.lock().unwrap();
     session
         .reject_file(friend_number, file_number)
@@ -1031,7 +1057,7 @@ pub fn reject_file(state: State<AppState>, friend_number: u32, file_number: u32)
 }
 
 #[tauri::command]
-pub fn get_friends(state: State<AppState>) -> Result<Vec<FriendInfo>, String> {
+pub async fn get_friends(state: State<'_, AppState>) -> Result<Vec<FriendInfo>, String> {
     let engine = state.engine.lock().unwrap();
     let store = engine.store();
     let friends = store.friend_list().map_err(|e| e.to_string())?;
@@ -1094,7 +1120,7 @@ pub async fn upload_media(
 }
 
 #[tauri::command]
-pub fn set_imgur_client_id(state: State<AppState>, client_id: String) -> Result<(), String> {
+pub async fn set_imgur_client_id(state: State<'_, AppState>, client_id: String) -> Result<(), String> {
     let engine = state.engine.lock().unwrap();
     engine
         .store()
@@ -1103,7 +1129,7 @@ pub fn set_imgur_client_id(state: State<AppState>, client_id: String) -> Result<
 }
 
 #[tauri::command]
-pub fn get_media_config(state: State<AppState>) -> Result<MediaConfig, String> {
+pub async fn get_media_config(state: State<'_, AppState>) -> Result<MediaConfig, String> {
     let engine = state.engine.lock().unwrap();
     let client_id = engine
         .store()
@@ -1117,12 +1143,12 @@ pub fn get_media_config(state: State<AppState>) -> Result<MediaConfig, String> {
 }
 
 #[tauri::command]
-pub fn get_relay_url(state: State<AppState>) -> Result<String, String> {
+pub async fn get_relay_url(state: State<'_, AppState>) -> Result<String, String> {
     Ok(current_relay(&state))
 }
 
 #[tauri::command]
-pub fn set_relay_url(state: State<AppState>, url: String) -> Result<(), String> {
+pub async fn set_relay_url(state: State<'_, AppState>, url: String) -> Result<(), String> {
     let url = url.trim().to_string();
     if !url.starts_with("http://") && !url.starts_with("https://") {
         return Err("Relay URL 必须以 http:// 或 https:// 开头".to_string());
@@ -1135,12 +1161,12 @@ pub fn set_relay_url(state: State<AppState>, url: String) -> Result<(), String> 
 }
 
 #[tauri::command]
-pub fn get_relay_urls(state: State<AppState>) -> Result<Vec<String>, String> {
+pub async fn get_relay_urls(state: State<'_, AppState>) -> Result<Vec<String>, String> {
     Ok(relay_urls(&state))
 }
 
 #[tauri::command]
-pub fn set_relay_urls(state: State<AppState>, urls: Vec<String>) -> Result<(), String> {
+pub async fn set_relay_urls(state: State<'_, AppState>, urls: Vec<String>) -> Result<(), String> {
     let urls: Vec<String> = urls
         .into_iter()
         .map(|u| u.trim().trim_end_matches('/').to_string())
@@ -1196,7 +1222,7 @@ pub fn set_auto_start(enabled: bool) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn conference_new(state: State<AppState>) -> Result<u32, String> {
+pub async fn conference_new(state: State<'_, AppState>) -> Result<u32, String> {
     let n = {
         let mut session = state.session.lock().unwrap();
         session
@@ -1215,7 +1241,7 @@ pub fn conference_new(state: State<AppState>) -> Result<u32, String> {
 }
 
 #[tauri::command]
-pub fn is_channel_owned(state: State<AppState>, conference_number: u32) -> Result<bool, String> {
+pub async fn is_channel_owned(state: State<'_, AppState>, conference_number: u32) -> Result<bool, String> {
     let channel_id = {
         let session = state.session.lock().unwrap();
         session
@@ -1291,8 +1317,8 @@ pub async fn conference_delete(
 }
 
 #[tauri::command]
-pub fn conference_invite(
-    state: State<AppState>,
+pub async fn conference_invite(
+    state: State<'_, AppState>,
     friend_number: u32,
     conference_number: u32,
 ) -> Result<(), String> {
@@ -1303,8 +1329,8 @@ pub fn conference_invite(
 }
 
 #[tauri::command]
-pub fn conference_invite_by_toxid(
-    state: State<AppState>,
+pub async fn conference_invite_by_toxid(
+    state: State<'_, AppState>,
     conference_number: u32,
     toxid: String,
 ) -> Result<(), String> {
@@ -1338,8 +1364,8 @@ pub struct ConferenceSendResult {
 }
 
 #[tauri::command]
-pub fn conference_send(
-    state: State<AppState>,
+pub async fn conference_send(
+    state: State<'_, AppState>,
     conference_number: u32,
     text: String,
 ) -> Result<ConferenceSendResult, String> {
@@ -1402,8 +1428,8 @@ pub fn conference_send(
 /// survives restarts even if the conference number changed. `before_id`
 /// pages older history for the "load earlier" button.
 #[tauri::command]
-pub fn channel_messages(
-    state: State<AppState>,
+pub async fn channel_messages(
+    state: State<'_, AppState>,
     conference_number: u32,
     limit: Option<u32>,
     before_id: Option<i64>,
@@ -1433,7 +1459,7 @@ pub fn channel_messages(
 }
 
 #[tauri::command]
-pub fn get_conference_peer_count(state: State<AppState>, conference_number: u32) -> Result<u32, String> {
+pub async fn get_conference_peer_count(state: State<'_, AppState>, conference_number: u32) -> Result<u32, String> {
     let session = state.session.lock().unwrap();
     session
         .conference_peer_count(conference_number)
@@ -1441,7 +1467,7 @@ pub fn get_conference_peer_count(state: State<AppState>, conference_number: u32)
 }
 
 #[tauri::command]
-pub fn get_conference_id(state: State<AppState>, conference_number: u32) -> Result<String, String> {
+pub async fn get_conference_id(state: State<'_, AppState>, conference_number: u32) -> Result<String, String> {
     let session = state.session.lock().unwrap();
     session
         .conference_get_id(conference_number)
@@ -1449,14 +1475,14 @@ pub fn get_conference_id(state: State<AppState>, conference_number: u32) -> Resu
 }
 
 #[tauri::command]
-pub fn list_conferences(state: State<AppState>) -> Result<Vec<u32>, String> {
+pub async fn list_conferences(state: State<'_, AppState>) -> Result<Vec<u32>, String> {
     let session = state.session.lock().unwrap();
     Ok(session.conference_chatlist())
 }
 
 #[tauri::command]
-pub fn conference_peers(
-    state: State<AppState>,
+pub async fn conference_peers(
+    state: State<'_, AppState>,
     conference_number: u32,
 ) -> Result<Vec<ConferencePeerInfo>, String> {
     let session = state.session.lock().unwrap();
@@ -1479,7 +1505,7 @@ pub fn conference_peers(
 }
 
 #[tauri::command]
-pub fn request_sync_all(state: State<AppState>) -> Result<usize, String> {
+pub async fn request_sync_all(state: State<'_, AppState>) -> Result<usize, String> {
     let me = state.session.lock().unwrap().self_public_key();
     let targets: Vec<(u32, String)> = {
         let session = state.session.lock().unwrap();
@@ -1519,7 +1545,7 @@ pub fn request_sync_all(state: State<AppState>) -> Result<usize, String> {
 }
 
 #[tauri::command]
-pub fn search_directory(state: State<AppState>, query: String, limit: Option<u32>) -> Result<Vec<DirectoryEntryInfo>, String> {
+pub async fn search_directory(state: State<'_, AppState>, query: String, limit: Option<u32>) -> Result<Vec<DirectoryEntryInfo>, String> {
     let limit = limit.unwrap_or(50);
     let engine = state.engine.lock().unwrap();
     let rows = engine
@@ -1540,7 +1566,7 @@ pub fn search_directory(state: State<AppState>, query: String, limit: Option<u32
 }
 
 #[tauri::command]
-pub fn request_directory_search(state: State<AppState>, query: String, depth: Option<u32>) -> Result<usize, String> {
+pub async fn request_directory_search(state: State<'_, AppState>, query: String, depth: Option<u32>) -> Result<usize, String> {
     let depth = depth.unwrap_or(2);
     let me = state.session.lock().unwrap().self_public_key();
     let req = Envelope::DirReq(tox_social::envelope::DirReq {
@@ -1649,7 +1675,7 @@ pub async fn create_community(
 
 /// Communities the user created or joined (local registry).
 #[tauri::command]
-pub fn my_communities(state: State<AppState>) -> Result<Vec<CommunityInfo>, String> {
+pub async fn my_communities(state: State<'_, AppState>) -> Result<Vec<CommunityInfo>, String> {
     Ok(my_communities_load(&state))
 }
 
@@ -1712,7 +1738,7 @@ pub struct CleanupReport {
 }
 
 #[tauri::command]
-pub fn cleanup_database(state: State<AppState>) -> Result<CleanupReport, String> {
+pub async fn cleanup_database(state: State<'_, AppState>) -> Result<CleanupReport, String> {
     let engine = state.engine.lock().unwrap();
     let (posts, channel, private) = engine
         .store()
@@ -1737,7 +1763,7 @@ pub struct DbStats {
 }
 
 #[tauri::command]
-pub fn db_stats(state: State<AppState>) -> Result<DbStats, String> {
+pub async fn db_stats(state: State<'_, AppState>) -> Result<DbStats, String> {
     let engine = state.engine.lock().unwrap();
     let store = engine.store();
     let count = |sql: &str| -> i64 { store.query_count(sql) };
@@ -1753,7 +1779,7 @@ pub fn db_stats(state: State<AppState>) -> Result<DbStats, String> {
 /// or move to another machine. The export is the raw save data; if the on-disk
 /// profile is DPAPI-encrypted we re-export from the live session instead.
 #[tauri::command]
-pub fn export_account(state: State<AppState>) -> Result<String, String> {
+pub async fn export_account(state: State<'_, AppState>) -> Result<String, String> {
     use base64::engine::general_purpose::STANDARD as BASE64;
     use base64::Engine as _;
     let session = state.session.lock().unwrap();
@@ -1765,7 +1791,7 @@ pub fn export_account(state: State<AppState>) -> Result<String, String> {
 /// profile with the imported save (previous profile kept as .bak) and flags
 /// the app to restart. The current session is unaffected until restart.
 #[tauri::command]
-pub fn import_account(state: State<AppState>, data_b64: String) -> Result<(), String> {
+pub async fn import_account(state: State<'_, AppState>, data_b64: String) -> Result<(), String> {
     use base64::engine::general_purpose::STANDARD as BASE64;
     use base64::Engine as _;
     let data = BASE64
@@ -1788,8 +1814,8 @@ pub fn import_account(state: State<AppState>, data_b64: String) -> Result<(), St
 /// After an invite lands, remember which conference number belongs to a
 /// joined community (join_community records `u32::MAX` until then).
 #[tauri::command]
-pub fn update_community_conferences(
-    state: State<AppState>,
+pub async fn update_community_conferences(
+    state: State<'_, AppState>,
     entries: Vec<CommunityConfEntry>,
 ) -> Result<(), String> {
     let mut list = my_communities_load(&state);
@@ -1895,7 +1921,7 @@ pub async fn fetch_public_timeline(
 }
 
 #[tauri::command]
-pub fn request_public_posts(state: State<AppState>, since: Option<i64>, depth: Option<u32>) -> Result<usize, String> {
+pub async fn request_public_posts(state: State<'_, AppState>, since: Option<i64>, depth: Option<u32>) -> Result<usize, String> {
     let since = since.unwrap_or(0);
     let depth = depth.unwrap_or(2);
     let me = state.session.lock().unwrap().self_public_key();
@@ -2070,7 +2096,7 @@ fn decode_data_url(data: &str) -> Result<Vec<u8>, String> {
 /// receives a `get_file <post_id>` message and automatically sends the file
 /// over Tox's file-transfer channel.
 #[tauri::command]
-pub fn request_attachment(state: State<AppState>, post_id: String) -> Result<(), String> {
+pub async fn request_attachment(state: State<'_, AppState>, post_id: String) -> Result<(), String> {
     let author = {
         let engine = state.engine.lock().unwrap();
         match engine.store().post_get(&post_id) {
@@ -2113,7 +2139,7 @@ pub struct FileTransferInfo {
 
 /// In-flight file transfers (both directions) for the transfer-status UI.
 #[tauri::command]
-pub fn file_transfers(state: State<AppState>) -> Result<Vec<FileTransferInfo>, String> {
+pub async fn file_transfers(state: State<'_, AppState>) -> Result<Vec<FileTransferInfo>, String> {
     let session = state.session.lock().unwrap();
     Ok(session
         .file_transfers()

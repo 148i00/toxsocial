@@ -15,7 +15,7 @@ use state::AppState;
 static ALLOW_EXIT: AtomicBool = AtomicBool::new(false);
 
 pub fn run() {
-    tauri::Builder::default()
+    let app_holder = tauri::Builder::default()
         // Single instance: auto-start launches a hidden instance; launching
         // the app again should focus the existing window, not open a second
         // one on the same profile.
@@ -159,11 +159,12 @@ pub fn run() {
             commands::register_public_channel,
         ])
         .build(tauri::generate_context!())
-        .expect("error while building tauri application")
-        .run(|app, event| {
-            use tauri::{RunEvent, WindowEvent};
-            match event {
-                RunEvent::Exit => println!("[toxsocial] RunEvent::Exit"),
+        .expect("error while building tauri application");
+    println!("[toxsocial] entering event loop");
+    app_holder.run(|app, event| {
+        use tauri::{RunEvent, WindowEvent};
+        match event {
+            RunEvent::Exit => println!("[toxsocial] RunEvent::Exit"),
                 RunEvent::ExitRequested { api, code, .. } => {
                     if ALLOW_EXIT.load(Ordering::SeqCst) {
                         println!("[toxsocial] RunEvent::ExitRequested code={code:?}");
