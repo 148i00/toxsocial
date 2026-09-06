@@ -4825,7 +4825,7 @@ dependencies = [
 
 [[package]]
 name = "toxsocial-desktop"
-version = "0.2.31"
+version = "0.2.32"
 dependencies = [
  "base64 0.22.1",
  "hex",
