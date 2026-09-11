@@ -7,7 +7,8 @@ const messages: Record<Locale, Record<string, string>> = {
   zh: {
     // Navigation / generic
     home: "首页",
-    friends: "关注",
+    friends: "好友",
+    followingTab: "关注",
     channels: "群组",
     settings: "设置",
     notifications: "通知",
@@ -58,7 +59,10 @@ const messages: Record<Locale, Record<string, string>> = {
     uploading: "上传中…",
     composerHint: "Ctrl+Enter 发送 · 上限 50000 字符 · 支持 Markdown 与长文分片",
     composerPlaceholder: "分享你的想法…（端到端加密广播给所有好友，支持 Markdown 和长文自动分片）",
-    friendsTitle: "关注管理",
+    friendsTitle: "好友管理",
+    followsTitle: "关注管理",
+    noFollows: "还没有关注的人。加入别人的群组或社区，或在用户主页点「关注」。",
+    confirmUnfollowFriend: "移除好友 {name}？",
     addFriendPlaceholder: "粘贴好友的 ToxID（76 位十六进制）",
     addFriendMsgPlaceholder: "好友请求附言",
     add: "添加",
@@ -133,6 +137,7 @@ const messages: Record<Locale, Record<string, string>> = {
     followingStarted: "已发送关注请求给 {name}",
     userByToxid: "ToxID 用户",
     friendCount: "好友 {count}",
+    followingCount: "关注 {count}",
 
     // Composer
     imageUrlPrompt: "输入图片 URL（http/https）：",
@@ -356,7 +361,8 @@ const messages: Record<Locale, Record<string, string>> = {
   en: {
     // Navigation / generic
     home: "Home",
-    friends: "Following",
+    friends: "Friends",
+    followingTab: "Following",
     channels: "Groups",
     settings: "Settings",
     notifications: "Notifications",
@@ -407,7 +413,10 @@ const messages: Record<Locale, Record<string, string>> = {
     uploading: "Uploading…",
     composerHint: "Ctrl+Enter to send · up to 50000 chars · Markdown & long-post split supported",
     composerPlaceholder: "Share your thoughts… (E2E encrypted broadcast to all friends, Markdown and long-post split supported)",
-    friendsTitle: "Following",
+    friendsTitle: "Friends",
+    followsTitle: "Following",
+    noFollows: "Not following anyone yet. Join a group or community, or press Follow on a profile.",
+    confirmUnfollowFriend: "Remove {name} from friends?",
     addFriendPlaceholder: "Paste friend ToxID (76 hex chars)",
     addFriendMsgPlaceholder: "Friend request message",
     add: "Add",
@@ -482,6 +491,7 @@ const messages: Record<Locale, Record<string, string>> = {
     followingStarted: "Follow request sent to {name}",
     userByToxid: "User (ToxID)",
     friendCount: "Friends: {count}",
+    followingCount: "Following: {count}",
 
     // Composer
     imageUrlPrompt: "Enter image URL (http/https):",

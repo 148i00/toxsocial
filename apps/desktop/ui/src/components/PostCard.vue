@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed } from "vue";
 import { api, formatTime } from "../api";
 import { t } from "../i18n";
 import { renderMarkdown } from "../markdown";
@@ -10,7 +10,6 @@ const props = defineProps<{ item: TimelineItem; own: OwnInfo | null }>();
 const emit = defineEmits<{
   open: [id: string];
   reacted: [];
-  attachmentRequested: [postId: string];
   author: [pubkey: string];
   forward: [item: TimelineItem];
 }>();
@@ -26,29 +25,6 @@ const dislikeCount = computed(() =>
 );
 
 const bodyHtml = computed(() => renderMarkdown(props.item.text || ""));
-const downloading = ref(false);
-
-/** "name|size" -> display name */
-function attachName(meta: string): string {
-  return meta.split("|")[0] || meta;
-}
-
-/** "name|size" -> human-readable size */
-function attachSize(meta: string): string {
-  const size = Number(meta.split("|")[1] || 0);
-  if (size < 1024) return `${size} B`;
-  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
-  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-async function requestAttachment() {
-  try {
-    await api.requestAttachment(props.item.id);
-    emit("attachmentRequested", props.item.id);
-  } catch (e) {
-    alert(String(e));
-  }
-}
 
 async function react(emoji: string) {
   try {
@@ -72,13 +48,6 @@ async function react(emoji: string) {
       <span v-if="!item.tsVerified" class="tag warn" :title="t('timeUnverifiedTitle')">{{ t("timeUnverified") }}</span>
     </div>
     <div class="body markdown" v-html="bodyHtml"></div>
-    <div v-if="item.attachment" class="attach" @click.stop>
-      <span class="attach-name" :title="attachName(item.attachment)">📎 {{ attachName(item.attachment) }}</span>
-      <span class="attach-size">{{ attachSize(item.attachment) }}</span>
-      <button class="mini" :disabled="downloading" @click="requestAttachment">
-        {{ downloading ? t("processing") : t("download") }}
-      </button>
-    </div>
     <div class="foot">
       <span class="stat">💬 {{ item.commentCount }}</span>
       <button v-if="!item.isOwn" class="mini forward-btn" :title="t('forward')" @click.stop="emit('forward', item)">↩ {{ t("forward") }}</button>
@@ -147,28 +116,6 @@ async function react(emoji: string) {
   line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-word;
-}
-.attach {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background: var(--bg-3);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 6px 10px;
-  margin: 6px 0;
-  font-size: 13px;
-}
-.attach-name {
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 60%;
-}
-.attach-size {
-  color: var(--text-dim);
-  font-size: 12px;
 }
 .foot {
   display: flex;

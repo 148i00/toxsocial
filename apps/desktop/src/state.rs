@@ -216,6 +216,9 @@ fn sync_friends(session: &ToxSession, store: &Store) {
             status: online,
             added_at: now,
             last_seen: Some(now),
+            // Upsert never overwrites an existing kind, so a contact already
+            // marked "follow" stays a follow across syncs.
+            kind: "friend".to_string(),
         };
         let _ = store.friend_upsert(&row);
     }

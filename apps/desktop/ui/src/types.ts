@@ -52,6 +52,8 @@ export interface FriendInfo {
   bio: string;
   online: boolean;
   lastSeen: number | null;
+  /** "friend" = mutual contact; "follow" = subscription. */
+  kind: string;
 }
 
 export interface MediaConfig {

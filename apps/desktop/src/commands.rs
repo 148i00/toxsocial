@@ -65,7 +65,6 @@ pub struct TimelineItem {
     pub reactions: Vec<ReactionSummary>,
     pub is_own: bool,
     pub ts_verified: bool,
-    pub attachment: Option<String>,
     pub source: String,
 }
 
@@ -79,6 +78,8 @@ pub struct FriendInfo {
     pub bio: String,
     pub online: bool,
     pub last_seen: Option<i64>,
+    /// "friend" = mutual contact; "follow" = subscription (conference).
+    pub kind: String,
 }
 
 #[derive(Serialize, Clone)]
@@ -555,11 +556,21 @@ pub async fn set_avatar_url(state: State<'_, AppState>, url: String) -> Result<(
 }
 
 #[tauri::command]
-pub async fn add_friend(state: State<'_, AppState>, toxid: String, message: String) -> Result<u32, String> {
+pub async fn add_friend(
+    state: State<'_, AppState>,
+    toxid: String,
+    message: String,
+    kind: Option<String>,
+) -> Result<u32, String> {
+    let kind = match kind.as_deref() {
+        Some("follow") => "follow",
+        _ => "friend",
+    };
+    let toxid = toxid.trim().to_string();
     let n = {
         let mut session = state.session.lock().unwrap();
         session
-            .add_friend(toxid.trim(), message.trim())
+            .add_friend(&toxid, message.trim())
             .map_err(|e| match e {
                 ToxError::FriendAdd(5) => {
                     "好友请求已发送，等待对方接受（不能重复发送）".to_string()
@@ -567,8 +578,34 @@ pub async fn add_friend(state: State<'_, AppState>, toxid: String, message: Stri
                 other => format!("add friend failed: {other}"),
             })?
     };
+    // Record how this contact entered the list. The toxcore friend already
+    // exists at this point, so a duplicate-row error is not fatal.
+    {
+        let engine = state.engine.lock().unwrap();
+        let store = engine.store();
+        let pk: String = toxid.chars().take(64).collect();
+        if let Err(e) = store.friend_set_kind(&pk, kind) {
+            eprintln!("[toxsocial] set friend kind failed: {e}");
+        }
+    }
     state.persist();
     Ok(n)
+}
+
+/// Re-classify an existing contact between the friends and following lists.
+#[tauri::command]
+pub async fn set_contact_kind(
+    state: State<'_, AppState>,
+    toxid: String,
+    kind: String,
+) -> Result<(), String> {
+    let kind = if kind == "follow" { "follow" } else { "friend" };
+    let pk: String = toxid.trim().chars().take(64).collect();
+    let engine = state.engine.lock().unwrap();
+    engine
+        .store()
+        .friend_set_kind(&pk, kind)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -635,8 +672,6 @@ pub async fn publish_post(
     state: State<'_, AppState>,
     text: String,
     public: Option<bool>,
-    attachment_data: Option<String>,
-    attachment_name: Option<String>,
     community: Option<String>,
 ) -> Result<Post, String> {
     let me = state.session.lock().unwrap().self_public_key();
@@ -671,45 +706,6 @@ pub async fn publish_post(
                 .map_err(|e| e.to_string())?;
             (post.clone(), vec![Envelope::Post(post)])
         }
-    };
-    // Optional attachment: decode the data URL, store the file locally, and
-    // attach `"filename|size"` metadata to the post. Friends can then request
-    // the file, which is delivered over Tox's file-transfer channel.
-    let _attachment_meta = if let Some(data_url) = attachment_data {
-        if attachment_name.as_deref().unwrap_or("").is_empty() {
-            return Err("attachment name is empty".to_string());
-        }
-        let bytes = decode_data_url(&data_url)?;
-        if bytes.is_empty() {
-            return Err("attachment is empty".to_string());
-        }
-        if bytes.len() > 20 * 1024 * 1024 {
-            return Err("attachment too large (max 20MB)".to_string());
-        }
-        let dir = state.data_dir.join("media").join("attachments");
-        std::fs::create_dir_all(&dir)
-            .map_err(|e| format!("create attachments dir failed: {e}"))?;
-        let path = dir.join(&post.id);
-        std::fs::write(&path, &bytes)
-            .map_err(|e| format!("save attachment failed: {e}"))?;
-        let name = attachment_name.unwrap_or_default();
-        let meta = format!("{name}|{}", bytes.len());
-        // Persist metadata and put it on the envelope sent to friends.
-        {
-            let engine = state.engine.lock().unwrap();
-            engine
-                .store()
-                .post_update_attachment(&post.id, Some(&meta))
-                .map_err(|e| e.to_string())?;
-        }
-        post.attachment = Some(meta.clone());
-        // Rebuild envelopes so the attachment travels with the post.
-        if text.chars().count() <= tox_social::MAX_POST_CHARS {
-            envelopes = vec![Envelope::Post(post.clone())];
-        }
-        Some(meta)
-    } else {
-        None
     };
     // Sign public posts with our Ed25519 identity (short and long alike), so
     // the Relay and other clients can verify authenticity.
@@ -1094,6 +1090,7 @@ pub async fn get_friends(state: State<'_, AppState>) -> Result<Vec<FriendInfo>, 
                 bio: f.bio,
                 online,
                 last_seen: f.last_seen,
+                kind: f.kind,
             }
         })
         .collect())
@@ -1874,6 +1871,15 @@ fn send_join_channel_inner(
             session
                 .add_friend(contact, &format!("join_channel {channel_id}"))
                 .map_err(|e| format!("add friend failed: {e}"))?;
+            drop(session);
+            // The contact exists only to carry the conference invite: it is a
+            // follow, and must not pollute the friends list.
+            {
+                let engine = state.engine.lock().unwrap();
+                let pk: String = contact.chars().take(64).collect();
+                let _ = engine.store().friend_set_kind(&pk, "follow");
+            }
+            let session = state.session.lock().unwrap();
         }
     }
     Ok(())
@@ -2080,51 +2086,7 @@ pub async fn verify_post_on_relay(
     Ok(false)
 }
 
-/// Decode a `data:` URL (or raw base64) into bytes.
-fn decode_data_url(data: &str) -> Result<Vec<u8>, String> {
-    use base64::engine::general_purpose::STANDARD as BASE64;
-    use base64::Engine as _;
-    let b64 = data
-        .trim()
-        .strip_prefix("data:")
-        .and_then(|s| s.split_once(',').map(|(_, b)| b))
-        .unwrap_or(data.trim());
-    BASE64.decode(b64).map_err(|e| format!("invalid base64: {e}"))
-}
 
-/// Request the attachment of a post from its author. The author's client
-/// receives a `get_file <post_id>` message and automatically sends the file
-/// over Tox's file-transfer channel.
-#[tauri::command]
-pub async fn request_attachment(state: State<'_, AppState>, post_id: String) -> Result<(), String> {
-    let author = {
-        let engine = state.engine.lock().unwrap();
-        match engine.store().post_get(&post_id) {
-            Ok(Some(p)) => p.author,
-            _ => return Err("post not found".to_string()),
-        }
-    };
-    let friend_number = {
-        let session = state.session.lock().unwrap();
-        session
-            .friend_list()
-            .into_iter()
-            .find(|n| {
-                session
-                    .friend_public_key(*n)
-                    .map(|pk| pk == author)
-                    .unwrap_or(false)
-            })
-            .ok_or_else(|| "下载附件需要先关注作者（Tox 文件传输仅限好友），请先在作者主页点击关注".to_string())?
-    };
-    {
-        let session = state.session.lock().unwrap();
-        session
-            .send_message(friend_number, &format!("get_file {post_id}"))
-            .map_err(|e| format!("request failed: {e}"))?;
-    }
-    Ok(())
-}
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]

@@ -207,13 +207,6 @@ fn handle_event(app: &AppHandle, state: &State<AppState>, ev: Event) {
                         }
                         return;
                     }
-                    // Attachment request: "get_file <post_id>" — send the
-                    // stored file to the requester automatically.
-                    if let Some(post_id) = text.strip_prefix("get_file ") {
-                        let post_id = post_id.trim();
-                        handle_get_file(state, app, friend_number, post_id);
-                        return;
-                    }
                     // Plain chat message — that's a private (1:1) message.
                     // Persist it so the chat survives restarts.
                     let (pm_id, pm_ts) = {
@@ -804,68 +797,6 @@ fn verify_post_via_relay(app: &AppHandle, post_id: String) {
     });
 }
 
-/// A friend requested the attachment of one of our posts (`get_file
-/// <post_id>`). Look up the locally stored file and send it over Tox's
-/// file-transfer channel automatically.
-fn handle_get_file(
-    state: &State<AppState>,
-    app: &AppHandle,
-    friend_number: u32,
-    post_id: &str,
-) {
-    let me = state.session.lock().unwrap().self_public_key();
-    let (attachment, fname) = {
-        let engine = state.engine.lock().unwrap();
-        match engine.store().post_get(post_id) {
-            Ok(Some(p)) if p.author == me => match p.attachment {
-                Some(meta) => {
-                    let fname = meta
-                        .splitn(2, '|')
-                        .next()
-                        .unwrap_or("attachment")
-                        .to_string();
-                    (Some(meta), fname)
-                }
-                None => (None, String::new()),
-            },
-            _ => (None, String::new()),
-        }
-    };
-    let Some(meta) = attachment else {
-        eprintln!("[toxsocial] get_file for unknown post {post_id}");
-        return;
-    };
-    // Files are stored under media/attachments/<post_id> (safe, no user
-    // input in the path); only the display name comes from the metadata.
-    let path = state
-        .data_dir
-        .join("media")
-        .join("attachments")
-        .join(post_id);
-    let data = match std::fs::read(&path) {
-        Ok(d) => d,
-        Err(e) => {
-            eprintln!("[toxsocial] attachment file missing for {post_id}: {e}");
-            return;
-        }
-    };
-    let result = {
-        let mut session = state.session.lock().unwrap();
-        session.send_file_data(friend_number, &fname, &data)
-    };
-    match result {
-        Ok(n) => {
-            println!(
-                "[toxsocial] sent attachment {post_id} ({meta}) to friend #{friend_number} as file #{n}"
-            );
-            let _ = app.emit(
-                "file:auto_sent",
-                json!({ "friendNumber": friend_number, "filename": fname, "postId": post_id }),
-            );
-        }
-        Err(e) => eprintln!("[toxsocial] failed to send attachment {post_id}: {e}"),
-    }
-}
 
 /// Deliver messages that were queued while the channel had no other members
 /// (see `conference_send`). Called on connect/peer-list changes; only runs
@@ -990,6 +921,7 @@ fn update_friend_meta(
         status: 0,
         added_at: now,
         last_seen: None,
+        kind: "friend".to_string(),
     });
     if let Some(name) = name {
         row.name = name.to_string();
@@ -1109,7 +1041,6 @@ pub(crate) fn item_from_row_with_meta(
         reactions,
         is_own: row.author == me,
         ts_verified: row.source == PostSource::RelayVerified || row.author == me,
-        attachment: row.attachment.clone(),
         source: match row.source {
             PostSource::SelfPublished => "self",
             PostSource::FriendDirect => "friend",

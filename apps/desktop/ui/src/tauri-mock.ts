@@ -12,6 +12,8 @@ interface MockFriend {
   bio: string;
   online: boolean;
   lastSeen: number | null;
+  /** "friend" = mutual contact; "follow" = conference subscription. */
+  kind: "friend" | "follow";
 }
 
 const now = Date.now();
@@ -26,6 +28,7 @@ const friends: MockFriend[] = [
     bio: "这是 Alice 的签名档",
     online: true,
     lastSeen: now,
+    kind: "friend",
   },
   {
     toxid: pk("b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2") + "0002" + "bb",
@@ -35,6 +38,7 @@ const friends: MockFriend[] = [
     bio: "",
     online: false,
     lastSeen: now - 3600_000,
+    kind: "follow",
   },
 ];
 
@@ -272,7 +276,7 @@ async function mockInvoke(cmd: string, args: Args = {}): Promise<unknown> {
       const p = addPost({
         text: (a.text as string) || "",
         isOwn: true,
-        attachment: a.attachmentData ? `${a.attachmentName}|1024` : null,
+        attachment: null,
       });
       summarize(p);
       // Simulate a friend reply shortly after publishing.
@@ -339,6 +343,11 @@ async function mockInvoke(cmd: string, args: Args = {}): Promise<unknown> {
     case "remove_friend":
     case "remove_friend_by_toxid":
       return null;
+    case "set_contact_kind": {
+      const f = friends.find((x) => x.toxid.startsWith(String(a.toxid).slice(0, 8)));
+      if (f) f.kind = (a.kind as "friend" | "follow") || "friend";
+      return null;
+    }
     case "db_stats":
       return { dbSizeBytes: 186_000, postCount: posts.length, channelMsgCount: 12, privateMsgCount: 4 };
     case "cleanup_database":
@@ -467,8 +476,6 @@ async function mockInvoke(cmd: string, args: Args = {}): Promise<unknown> {
     case "send_file_to_friend":
     case "send_file_to_friend_by_toxid":
       return nextId();
-    case "request_attachment":
-      return null;
     default:
       console.warn("[tauri-mock] unhandled command:", cmd);
       return null;

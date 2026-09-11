@@ -21,8 +21,6 @@ const uploading = ref(false);
 const isPublic = ref(false);
 const mediaError = ref("");
 const fileInput = ref<HTMLInputElement | null>(null);
-const attachInput = ref<HTMLInputElement | null>(null);
-const attachFile = ref<{ name: string; size: number; dataUrl: string } | null>(null);
 
 function insertImageUrl() {
   const url = prompt(t("imageUrlPrompt"));
@@ -30,26 +28,6 @@ function insertImageUrl() {
   const md = `![${t("image")}](${url.trim()})`;
   text.value = text.value ? `${text.value}
 ${md}` : md;
-}
-
-async function onAttachSelected(e: Event) {
-  const input = e.target as HTMLInputElement;
-  const file = input.files?.[0];
-  input.value = "";
-  if (!file) return;
-  if (file.size > 20 * 1024 * 1024) {
-    mediaError.value = t("fileTooLarge", { size: "20MB" });
-    return;
-  }
-  const dataUrl = await readFileAsDataUrl(file);
-  attachFile.value = { name: file.name, size: file.size, dataUrl };
-  mediaError.value = "";
-}
-
-function formatAttachSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 async function onFileSelected(e: Event) {
@@ -97,14 +75,13 @@ watch(
 
 async function submit() {
   const t = text.value.trim();
-  if ((!t && !attachFile.value) || busy.value) return;
+  if (!t || busy.value) return;
   busy.value = true;
   error.value = "";
   try {
     // Community scope implies public visibility.
-    await api.publishPost(t, isPublic.value || !!props.community, attachFile.value?.dataUrl, attachFile.value?.name, props.community);
+    await api.publishPost(t, isPublic.value || !!props.community, props.community);
     text.value = "";
-    attachFile.value = null;
     emit("posted");
   } catch (e) {
     error.value = String(e);
@@ -137,13 +114,7 @@ async function submit() {
         {{ uploading ? t("uploading") : t("imageVideo") }}
       </button>
       <button @click="insertImageUrl">{{ t("imageUrl") }}</button>
-      <input ref="attachInput" type="file" hidden @change="onAttachSelected" />
-      <button class="attach-btn" @click="attachInput?.click()">📎 {{ t("attachment") }}</button>
-      <span v-if="attachFile" class="attach-chip" :title="attachFile.name">
-        📎 {{ attachFile.name }} ({{ formatAttachSize(attachFile.size) }})
-        <button class="mini" @click="attachFile = null">✕</button>
-      </span>
-      <button class="primary" :disabled="busy || uploading || (!text.trim() && !attachFile)" @click="submit">
+      <button class="primary" :disabled="busy || uploading || !text.trim()" @click="submit">
         {{ busy ? t("sending") : t("publish") }}
       </button>
     </div>
@@ -198,19 +169,5 @@ textarea {
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-.attach-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  background: var(--bg-3);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 2px 8px;
-  font-size: 12px;
-  max-width: 220px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 </style>

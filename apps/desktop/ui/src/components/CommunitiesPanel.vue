@@ -312,7 +312,6 @@ onBeforeUnmount(() => {
           :own="props.own"
           @open="emit('open', p.id)"
           @reacted="loadFeed"
-          @attachmentRequested="() => {}"
           @author="emit('author', p.author)"
         />
         <div v-if="feedHasMore" ref="feedSentinel" class="empty">

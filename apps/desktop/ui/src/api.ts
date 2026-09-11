@@ -17,13 +17,14 @@ export const api = {
   performUpdate: () => inv<void>("perform_update"),
   getNetworkStatus: () => inv<NetworkStatus>("get_network_status"),
   setProfile: (name: string, bio: string) => inv<void>("set_profile", { name, bio }),
-  addFriend: (toxid: string, message: string) => inv<number>("add_friend", { toxid, message }),
+  addFriend: (toxid: string, message: string, kind?: "friend" | "follow") =>
+    inv<number>("add_friend", { toxid, message, kind }),
+  setContactKind: (toxid: string, kind: "friend" | "follow") =>
+    inv<void>("set_contact_kind", { toxid, kind }),
   removeFriend: (friendNumber: number) => inv<void>("remove_friend", { friendNumber }),
   removeFriendByToxid: (toxid: string) => inv<void>("remove_friend_by_toxid", { toxid }),
-  publishPost: (text: string, isPublic?: boolean, attachmentData?: string, attachmentName?: string, community?: string) =>
-    inv<TimelineItem>("publish_post", { text, public: isPublic, attachmentData, attachmentName, community }),
-  requestAttachment: (postId: string) =>
-    inv<void>("request_attachment", { postId }),
+  publishPost: (text: string, isPublic?: boolean, community?: string) =>
+    inv<TimelineItem>("publish_post", { text, public: isPublic, community }),
   fileTransfers: () => inv<FileTransferInfo[]>("file_transfers"),
   publishComment: (postId: string, text: string, replyTo?: string) =>
     inv<TimelineItem>("publish_comment", { postId, text, replyTo }),

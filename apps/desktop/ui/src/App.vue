@@ -15,7 +15,7 @@ import PrivateChat from "./components/PrivateChat.vue";
 import Avatar from "./components/Avatar.vue";
 import logoUrl from "./assets/logo.png";
 
-const view = ref<"timeline" | "friends" | "settings" | "channels" | "communities" | "public" | "profile" | "pm">("timeline");
+const view = ref<"timeline" | "friends" | "follows" | "settings" | "channels" | "communities" | "public" | "profile" | "pm">("timeline");
 const activePm = ref<{ peer: string; name: string } | null>(null);
 const own = ref<OwnInfo | null>(null);
 const networkStatus = ref<NetworkStatus | null>(null);
@@ -101,11 +101,6 @@ function onForward(item: TimelineItem) {
     const el = document.querySelector<HTMLTextAreaElement>(".composer textarea");
     el?.focus();
   }, 100);
-}
-
-/** Attachment download request sent to the author. */
-function onAttachmentRequested() {
-  notify(t("attachmentRequested"));
 }
 
 /** Composer posted from the timeline (incl. forwards): refresh + clear draft. */
@@ -232,7 +227,7 @@ async function followProfileUser() {
   if (!u || followBusy.value) return;
   followBusy.value = true;
   try {
-    await api.addFriend(u.pubkey, t("followMessage"));
+    await api.addFriend(u.pubkey, t("followMessage"), "follow");
     notify(t("followingStarted", { name: u.name }));
     await refreshAll();
   } catch (e) {
@@ -246,6 +241,11 @@ async function followProfileUser() {
     followBusy.value = false;
   }
 }
+
+/** Mutual contacts (can be PM'd). */
+const friendList = computed(() => friends.value.filter((f) => f.kind !== "follow"));
+/** One-way subscriptions carried by a conference. */
+const followList = computed(() => friends.value.filter((f) => f.kind === "follow"));
 
 function isFollowingUser(pubkey: string): boolean {
   return friends.value.some(
@@ -552,8 +552,11 @@ onBeforeUnmount(() => {
         </button>
         <button @click="showAddFriend = true">{{ t("searchUsers") }}</button>
         <button :class="{ active: view === 'friends' }" @click="view = 'friends'; friendsUnread = 0">
-          {{ t("friends") }} <span v-if="own" class="count">{{ own.friendCount }}</span>
+          {{ t("friends") }} <span v-if="friendList.length" class="count">{{ friendList.length }}</span>
           <span v-if="friendsUnread" class="count unread">{{ friendsUnread }}</span>
+        </button>
+        <button :class="{ active: view === 'follows' }" @click="view = 'follows'">
+          {{ t("followingTab") }} <span v-if="followList.length" class="count">{{ followList.length }}</span>
         </button>
         <button :class="{ active: view === 'channels' }" @click="view = 'channels'; channelsUnread = 0">
           {{ t("channels") }}
@@ -595,7 +598,7 @@ onBeforeUnmount(() => {
         <div v-if="threadPostId" class="thread-header">
           <button @click="backToTimeline()">{{ t("backToTimeline") }}</button>
         </div>
-        <ThreadView v-if="threadPostId" :post-id="threadPostId" @refresh="refreshThreadAndTimeline" @attachmentRequested="onAttachmentRequested" @author="viewFriend" @forward="onForward" />
+        <ThreadView v-if="threadPostId" :post-id="threadPostId" @refresh="refreshThreadAndTimeline" @author="viewFriend" @forward="onForward" />
         <template v-else>
           <div v-if="friendFilter" class="thread-header">
             <button @click="backFromFriend()">{{ t("backToTimeline") }}</button>
@@ -608,7 +611,7 @@ onBeforeUnmount(() => {
               :item="p"
               :own="own"
               @open="openThreadWithData"
-              @reacted="refreshTimeline" @attachmentRequested="onAttachmentRequested" @author="viewFriend" @forward="onForward"
+              @reacted="refreshTimeline" @author="viewFriend" @forward="onForward"
             />
           </template>
           <template v-else>
@@ -628,7 +631,7 @@ onBeforeUnmount(() => {
                 :item="p"
                 :own="own"
                 @open="openThreadWithData"
-                @reacted="refreshTimeline" @attachmentRequested="onAttachmentRequested" @author="viewFriend" @forward="onForward"
+                @reacted="refreshTimeline" @author="viewFriend" @forward="onForward"
               />
             </template>
             <template v-else>
@@ -643,7 +646,7 @@ onBeforeUnmount(() => {
                 :item="p"
                 :own="own"
                 @open="openThreadWithData"
-                @reacted="refreshTimeline" @attachmentRequested="onAttachmentRequested" @author="viewFriend" @forward="onForward"
+                @reacted="refreshTimeline" @author="viewFriend" @forward="onForward"
               />
             </template>
           </template>
@@ -686,10 +689,11 @@ onBeforeUnmount(() => {
           :item="p"
           :own="own"
           @open="openThreadWithData"
-          @reacted="refreshTimeline" @attachmentRequested="onAttachmentRequested" @author="viewFriend" @forward="onForward"
+          @reacted="refreshTimeline" @author="viewFriend" @forward="onForward"
         />
       </div>
-      <FriendsPanel v-else-if="view === 'friends'" :friends="friends" @changed="refreshAll" @open="viewFriend" @pm="openPm" />
+      <FriendsPanel v-else-if="view === 'friends'" :friends="friendList" kind="friend" @changed="refreshAll" @open="viewFriend" @pm="openPm" />
+      <FriendsPanel v-else-if="view === 'follows'" :friends="followList" kind="follow" @changed="refreshAll" @open="viewFriend" @pm="openPm" />
       <PrivateChat
         v-else-if="view === 'pm' && activePm"
         :peer="activePm.peer"
@@ -706,7 +710,7 @@ onBeforeUnmount(() => {
           :item="p"
           :own="own"
           @open="openThreadWithData"
-          @reacted="refreshPublicTimeline" @attachmentRequested="onAttachmentRequested" @author="viewFriend" @forward="onForward"
+          @reacted="refreshPublicTimeline" @author="viewFriend" @forward="onForward"
         />
         <div v-if="publicHasMore" ref="publicSentinel" class="empty pm-sentinel">
           {{ publicLoadingMore ? t("loadingPublic") : t("loadMore") }}
@@ -762,7 +766,8 @@ onBeforeUnmount(() => {
         <div class="me-name">{{ own.name || t("noNickname") }}</div>
         <div class="mono">{{ own.pubkey.slice(0, 20) }}…</div>
         <div class="me-stats">
-          <span>{{ t("friendCount", { count: own.friendCount }) }}</span>
+          <span>{{ t("friendCount", { count: friendList.length }) }}</span>
+          <span>{{ t("followingCount", { count: followList.length }) }}</span>
         </div>
         <!-- Connection status (moved from Settings) -->
         <div class="me-conn">
@@ -813,7 +818,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-family: "CAGeheimagent", "Segoe UI", sans-serif;
+  font-family: "CAGeheimagent-Bold", "Segoe UI", sans-serif;
   color: #9c0d10;
 }
 .logo-img {
@@ -1098,6 +1103,9 @@ button.mini {
   color: var(--text-dim);
   font-size: 12px;
   margin-top: 4px;
+  display: flex;
+  gap: 10px;
+  justify-content: center;
 }
 .me-conn {
   display: flex;

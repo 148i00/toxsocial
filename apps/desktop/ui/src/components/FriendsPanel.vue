@@ -5,13 +5,20 @@ import { t } from "../i18n";
 import Avatar from "./Avatar.vue";
 import type { FriendInfo } from "../types";
 
-const props = defineProps<{ friends: FriendInfo[] }>();
+const props = defineProps<{ friends: FriendInfo[]; kind?: "friend" | "follow" }>();
 const emit = defineEmits<{ changed: []; open: [pubkey: string]; pm: [pubkey: string] }>();
 
 const removing = ref<string | null>(null);
 
+// The two lists use different wording for the same destructive action.
+const isFollow = () => props.kind === "follow";
+
 async function remove(f: FriendInfo) {
-  if (!confirm(t("confirmUnfollow", { name: f.name || f.toxid.slice(0, 8) }))) return;
+  const label = f.name || f.toxid.slice(0, 8);
+  const ask = isFollow()
+    ? t("confirmUnfollow", { name: label })
+    : t("confirmUnfollowFriend", { name: label });
+  if (!confirm(ask)) return;
   removing.value = f.pubkey;
   try {
     await api.removeFriendByToxid(f.toxid);
@@ -34,10 +41,10 @@ function pm(f: FriendInfo) {
 
 <template>
   <div class="panel">
-    <h2>{{ t("friendsTitle") }}</h2>
+    <h2>{{ kind === "follow" ? t("followsTitle") : t("friendsTitle") }}</h2>
 
     <div v-if="friends.length === 0" class="empty">
-      {{ t("noFriends") }}
+      {{ kind === "follow" ? t("noFollows") : t("noFriends") }}
     </div>
     <div v-for="f in friends" :key="f.toxid" class="friend" @click="open(f)">
       <Avatar :src="f.avatar" :name="f.name" :size="36" />
@@ -47,7 +54,7 @@ function pm(f: FriendInfo) {
         <div class="mono">{{ f.pubkey }}</div>
       </div>
       <span class="state">{{ f.online ? t("online") : t("offline") }}</span>
-      <button :disabled="!f.online" :title="t('pmTitle')" @click.stop="pm(f)">
+      <button v-if="kind !== 'follow'" :disabled="!f.online" :title="t('pmTitle')" @click.stop="pm(f)">
         {{ t("privateChat") }}
       </button>
       <button class="danger" :disabled="removing === f.pubkey" @click.stop="remove(f)">

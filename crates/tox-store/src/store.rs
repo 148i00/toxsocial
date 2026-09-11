@@ -77,6 +77,9 @@ pub struct FriendRow {
     pub status: i64, // 0 offline, 1 online, 2 blocked
     pub added_at: i64,
     pub last_seen: Option<i64>,
+    /// "friend" = mutual contact (can PM); "follow" = one-way subscription
+    /// established through a conference. Never overwritten by sync.
+    pub kind: String,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -177,6 +180,7 @@ impl Store {
         conn.execute_batch(SCHEMA)?;
         migrate_friends_avatar(&conn);
         migrate_friends_bio(&conn);
+        migrate_friends_kind(&conn);
         migrate_posts_is_public(&conn);
         migrate_channel_messages_pending(&conn);
         Ok(Store { conn })
@@ -188,6 +192,7 @@ impl Store {
         conn.execute_batch(SCHEMA)?;
         migrate_friends_avatar(&conn);
         migrate_friends_bio(&conn);
+        migrate_friends_kind(&conn);
         migrate_posts_is_public(&conn);
         migrate_channel_messages_pending(&conn);
         Ok(Store { conn })
@@ -291,8 +296,8 @@ impl Store {
 
     pub fn friend_upsert(&self, f: &FriendRow) -> Result<()> {
         self.conn.execute(
-            "INSERT INTO friends(toxid, nospam, name, avatar, bio, status, added_at, last_seen)
-             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+            "INSERT INTO friends(toxid, nospam, name, avatar, bio, status, added_at, last_seen, kind)
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
              ON CONFLICT(toxid) DO UPDATE SET
                nospam = excluded.nospam,
                name   = excluded.name,
@@ -300,6 +305,9 @@ impl Store {
                bio    = excluded.bio,
                status = excluded.status,
                last_seen = excluded.last_seen",
+            // kind is intentionally absent from the UPDATE set: a row already
+            // marked "follow" must not be flipped back to "friend" by the
+            // periodic toxcore friend sync. Use friend_set_kind to change it.
             params![
                 f.toxid,
                 f.nospam,
@@ -308,7 +316,8 @@ impl Store {
                 f.bio,
                 f.status,
                 f.added_at,
-                f.last_seen
+                f.last_seen,
+                f.kind
             ],
         )?;
         Ok(())
@@ -316,7 +325,7 @@ impl Store {
 
     pub fn friend_list(&self) -> Result<Vec<FriendRow>> {
         let mut stmt = self.conn.prepare(
-            "SELECT toxid, nospam, name, avatar, bio, status, added_at, last_seen FROM friends",
+            "SELECT toxid, nospam, name, avatar, bio, status, added_at, last_seen, kind FROM friends",
         )?;
         let rows = stmt.query_map([], |r| {
             Ok(FriendRow {
@@ -328,9 +337,19 @@ impl Store {
                 status: r.get(5)?,
                 added_at: r.get(6)?,
                 last_seen: r.get(7)?,
+                kind: r.get(8)?,
             })
         })?;
         rows.collect()
+    }
+
+    /// Re-classify an existing contact ("friend" | "follow").
+    pub fn friend_set_kind(&self, toxid: &str, kind: &str) -> Result<()> {
+        self.conn.execute(
+            "UPDATE friends SET kind = ?1 WHERE toxid = ?2",
+            params![kind, toxid],
+        )?;
+        Ok(())
     }
 
     pub fn friend_remove(&self, toxid: &str) -> Result<()> {
@@ -845,6 +864,14 @@ fn now_ms() -> i64 {
         .unwrap_or(0)
 }
 
+fn migrate_friends_kind(conn: &Connection) {
+    // Existing rows predate the friend/follow split; they stay plain friends.
+    let _ = conn.execute(
+        "ALTER TABLE friends ADD COLUMN kind TEXT NOT NULL DEFAULT 'friend'",
+        [],
+    );
+}
+
 fn migrate_friends_avatar(conn: &Connection) {
     let _ = conn.execute("ALTER TABLE friends ADD COLUMN avatar TEXT DEFAULT ''", []);
 }
@@ -1121,6 +1148,7 @@ mod tests {
             status: 1,
             added_at: 1,
             last_seen: Some(1),
+            kind: "friend".into(),
         };
         store.friend_upsert(&f).unwrap();
         let list = store.friend_list().unwrap();
