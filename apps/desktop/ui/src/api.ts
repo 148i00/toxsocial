@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { locale } from "./i18n";
 import { installTauriMock, isMockMode, mockInvokeShim, mockOnEventShim } from "./tauri-mock";
-import type { ChannelMessageInfo, CommunityInfo, ConferencePeerInfo, ConferenceSendResult, DirectoryEntryInfo, FileTransferInfo, FriendInfo, MediaConfig, NetworkStatus, OwnInfo, PrivateMessageInfo, PublicChannelInfo, TimelineItem, UpdateInfo } from "./types";
+import type { ChannelMessageInfo, CommunityInfo, ConferencePeerInfo, ConferenceSendResult, DirectoryEntryInfo, FileTransferInfo, FriendInfo, MediaConfig, NetworkStatus, OwnInfo, PrivateMessageInfo, PublicChannelInfo, TimelineItem, UpdateInfo, FollowInfo } from "./types";
 
 // Browser GUI-test mode: route every call through the in-memory mock when the
 // Tauri runtime is absent (the packaged app always has the runtime).
@@ -17,10 +17,10 @@ export const api = {
   performUpdate: () => inv<void>("perform_update"),
   getNetworkStatus: () => inv<NetworkStatus>("get_network_status"),
   setProfile: (name: string, bio: string) => inv<void>("set_profile", { name, bio }),
-  addFriend: (toxid: string, message: string, kind?: "friend" | "follow") =>
-    inv<number>("add_friend", { toxid, message, kind }),
-  setContactKind: (toxid: string, kind: "friend" | "follow") =>
-    inv<void>("set_contact_kind", { toxid, kind }),
+  addFriend: (toxid: string, message: string) => inv<number>("add_friend", { toxid, message }),
+  followUser: (toxid: string) => inv<void>("follow_user", { toxid }),
+  unfollowUser: (pubkey: string) => inv<void>("unfollow_user", { pubkey }),
+  myFollows: () => inv<FollowInfo[]>("my_follows"),
   removeFriend: (friendNumber: number) => inv<void>("remove_friend", { friendNumber }),
   removeFriendByToxid: (toxid: string) => inv<void>("remove_friend_by_toxid", { toxid }),
   publishPost: (text: string, isPublic?: boolean, community?: string) =>

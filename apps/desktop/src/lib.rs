@@ -48,6 +48,17 @@ pub fn run() {
             app.manage(state);
             events::spawn_event_pump(app.handle().clone());
 
+            // Be followable right away, and clear bootstrap contacts left
+            // behind by a previous run that never completed its handshake.
+            let boot = app.handle().clone();
+            std::thread::spawn(move || {
+                let state = boot.state::<AppState>();
+                if let Err(e) = commands::ensure_profile_conference(&state) {
+                    eprintln!("[toxsocial] profile conference init failed: {e}");
+                }
+                commands::sweep_temp_friends(&state, 120);
+            });
+
             // System tray: keep the app alive in the background.
             let show_i = MenuItem::with_id(app, "show", "显示主窗口", true, None::<&str>)?;
             let quit_i = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
@@ -98,6 +109,9 @@ pub fn run() {
             commands::set_avatar_url,
             commands::add_friend,
             commands::set_contact_kind,
+            commands::follow_user,
+            commands::unfollow_user,
+            commands::my_follows,
             commands::remove_friend,
             commands::remove_friend_by_toxid,
             commands::publish_post,

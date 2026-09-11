@@ -29,6 +29,9 @@ pub fn spawn_event_pump(app: AppHandle) {
                 Some(ev) => handle_event(&app, &state, ev),
                 None => {
                     heartbeat(&app, &state);
+                    // Bootstrap contacts whose handshake never completed must
+                    // not linger in the friends list.
+                    sweep_tick(&state);
                     std::thread::sleep(Duration::from_millis(50));
                 }
             }
@@ -65,6 +68,22 @@ fn heartbeat(app: &AppHandle, state: &State<AppState>) {
 
 use std::sync::atomic::AtomicU64;
 static LAST_HEARTBEAT: AtomicU64 = AtomicU64::new(0);
+static LAST_SWEEP: AtomicU64 = AtomicU64::new(0);
+
+/// Delete bootstrap-only contacts past the grace period, once a minute.
+fn sweep_tick(state: &State<AppState>) {
+    use std::sync::atomic::Ordering;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    let last = LAST_SWEEP.load(Ordering::Relaxed);
+    if now.saturating_sub(last) < 60_000 {
+        return;
+    }
+    LAST_SWEEP.store(now, Ordering::Relaxed);
+    crate::commands::sweep_temp_friends(state, 120);
+}
 
 fn handle_event(app: &AppHandle, state: &State<AppState>, ev: Event) {
     match ev {
@@ -92,6 +111,31 @@ fn handle_event(app: &AppHandle, state: &State<AppState>, ev: Event) {
                                 "[toxsocial] join_channel request for unknown channel {channel_id}: {e}"
                             ),
                         }
+                    }
+                    // Someone asked to follow us: hand them an invite to our
+                    // profile conference. The friend link carries only that
+                    // invite, so it is bootstrap-only on both sides.
+                    if msg.trim() == "follow_profile" {
+                        match crate::commands::ensure_profile_conference(state) {
+                            Ok((_, conf)) => {
+                                let session = state.session.lock().unwrap();
+                                match session.conference_invite(n, conf) {
+                                    Ok(()) => println!(
+                                        "[toxsocial] invited #{n} to our profile conference"
+                                    ),
+                                    Err(e) => {
+                                        eprintln!("[toxsocial] profile invite failed: {e}")
+                                    }
+                                }
+                            }
+                            Err(e) => eprintln!("[toxsocial] no profile conference: {e}"),
+                        }
+                    }
+                    // Bootstrap-only when the request carried an instruction
+                    // that runs over a conference; a plain "be my friend"
+                    // request stays a real friend.
+                    if msg.trim() == "follow_profile" || msg.trim().starts_with("join_channel ") {
+                        crate::commands::mark_temp(state, &public_key);
                     }
                     let _ = app.emit(
                         "friend:request",
@@ -174,6 +218,24 @@ fn handle_event(app: &AppHandle, state: &State<AppState>, ev: Event) {
                 }
                 Incoming::Rejected(_) => {
                     // Plain chat message — support "join_channel <id>" from friends.
+                    // Already connected: just hand out a conference invite.
+                    if text.trim() == "follow_profile" {
+                        match crate::commands::ensure_profile_conference(state) {
+                            Ok((_, conf)) => {
+                                let session = state.session.lock().unwrap();
+                                match session.conference_invite(friend_number, conf) {
+                                    Ok(()) => println!(
+                                        "[toxsocial] invited #{friend_number} to our profile conference"
+                                    ),
+                                    Err(e) => {
+                                        eprintln!("[toxsocial] profile invite failed: {e}")
+                                    }
+                                }
+                            }
+                            Err(e) => eprintln!("[toxsocial] no profile conference: {e}"),
+                        }
+                        return;
+                    }
                     if let Some(channel_id) = text.strip_prefix("join_channel ") {
                         let channel_id = channel_id.trim();
                         let invite_result = {
@@ -305,6 +367,36 @@ fn handle_event(app: &AppHandle, state: &State<AppState>, ev: Event) {
                 match joined {
                     Ok(n) => {
                         state.persist();
+                        // If a bootstrap contact invited us in, the
+                        // subscription now lives in the conference: the friend
+                        // link has done its job and is removed.
+                        let inviter = {
+                            let session = state.session.lock().unwrap();
+                            session
+                                .friend_public_key(friend_number)
+                                .unwrap_or_default()
+                        };
+                        if !inviter.is_empty() && crate::commands::is_temp(state, &inviter) {
+                            let (name, conference_id) = {
+                                let session = state.session.lock().unwrap();
+                                (
+                                    session.friend_name(friend_number).unwrap_or_default(),
+                                    session.conference_get_id(n).unwrap_or_default(),
+                                )
+                            };
+                            crate::commands::follows_upsert(
+                                state,
+                                crate::commands::FollowInfo {
+                                    pubkey: inviter.clone(),
+                                    name,
+                                    avatar: String::new(),
+                                    conference_id,
+                                    joined_at: now_ms(),
+                                },
+                            );
+                            crate::commands::drop_temp_friend(state, &inviter);
+                            let _ = app.emit("follows:changed", json!({}));
+                        }
                         let _ = app.emit(
                             "channel:joined",
                             json!({ "conferenceNumber": n, "friendNumber": friend_number }),

@@ -21,7 +21,13 @@ async function remove(f: FriendInfo) {
   if (!confirm(ask)) return;
   removing.value = f.pubkey;
   try {
-    await api.removeFriendByToxid(f.toxid);
+    // A follow is a conference subscription, not a contact: leave the
+    // conference instead of deleting a friend link.
+    if (isFollow()) {
+      await api.unfollowUser(f.pubkey);
+    } else {
+      await api.removeFriendByToxid(f.toxid);
+    }
     emit("changed");
   } catch (e) {
     alert(String(e));

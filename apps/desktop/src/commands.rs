@@ -562,9 +562,20 @@ pub async fn add_friend(
     message: String,
     kind: Option<String>,
 ) -> Result<u32, String> {
-    let kind = match kind.as_deref() {
-        Some("follow") => "follow",
-        _ => "friend",
+    // A request that exists only to carry a conference instruction must not
+    // become a permanent friend: mark it bootstrap-only so the link is swept
+    // away once the invite has been used.
+    let bootstrap = {
+        let m = message.trim();
+        m == "follow_profile" || m.starts_with("join_channel ")
+    };
+    let kind = if bootstrap {
+        "temp"
+    } else {
+        match kind.as_deref() {
+            Some("follow") => "follow",
+            _ => "friend",
+        }
     };
     let toxid = toxid.trim().to_string();
     let n = {
@@ -1056,7 +1067,14 @@ pub async fn reject_file(state: State<'_, AppState>, friend_number: u32, file_nu
 pub async fn get_friends(state: State<'_, AppState>) -> Result<Vec<FriendInfo>, String> {
     let engine = state.engine.lock().unwrap();
     let store = engine.store();
-    let friends = store.friend_list().map_err(|e| e.to_string())?;
+    // Bootstrap contacts are plumbing, not friends: hide them until the sweep
+    // removes them.
+    let friends: Vec<_> = store
+        .friend_list()
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .filter(|f| f.kind != "temp")
+        .collect();
     let dir_avatars: std::collections::HashMap<String, String> = store
         .dir_all(1000)
         .unwrap_or_default()
@@ -1473,8 +1491,35 @@ pub async fn get_conference_id(state: State<'_, AppState>, conference_number: u3
 
 #[tauri::command]
 pub async fn list_conferences(state: State<'_, AppState>) -> Result<Vec<u32>, String> {
+    // The personal (profile) conference is infrastructure for following, not a
+    // user-visible group: keep it out of every channel listing.
+    let profile = profile_conference_number(&state);
     let session = state.session.lock().unwrap();
-    Ok(session.conference_chatlist())
+    Ok(session
+        .conference_chatlist()
+        .into_iter()
+        .filter(|n| Some(*n) != profile)
+        .collect())
+}
+
+/// Conference number of our own profile conference, if it exists.
+fn profile_conference_number(state: &State<AppState>) -> Option<u32> {
+    let raw = {
+        let engine = state.engine.lock().unwrap();
+        engine
+            .store()
+            .kv_get("profile_conference")
+            .ok()
+            .flatten()
+            .unwrap_or_default()
+    };
+    if raw.is_empty() {
+        return None;
+    }
+    serde_json::from_str::<serde_json::Value>(&raw)
+        .ok()
+        .and_then(|v| v.get("conferenceNumber").and_then(|x| x.as_u64()))
+        .map(|n| n as u32)
 }
 
 #[tauri::command]
@@ -1617,6 +1662,260 @@ fn my_communities_save(state: &State<AppState>, list: &[CommunityInfo]) {
     if let Ok(raw) = serde_json::to_string(list) {
         let _ = engine.store().kv_set("my_communities", &raw);
     }
+}
+
+// ---------------------------------------------------------------------------
+// Following (one-way subscriptions carried by a conference)
+//
+// Following never leaves a Tox friend behind. A friend link is created only
+// to carry the bootstrap request and is deleted once the subscription exists;
+// the subscription itself lives in the followee's conference. Anything that
+// gets added to the contact list purely to bootstrap something is marked
+// `kind = "temp"` and swept away — only contacts the user added on purpose
+// survive as friends.
+// ---------------------------------------------------------------------------
+
+/// A one-way subscription to another identity.
+#[derive(Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct FollowInfo {
+    pub pubkey: String,
+    pub name: String,
+    /// Filled from the directory cache on read; empty when unknown.
+    #[serde(default)]
+    pub avatar: String,
+    pub conference_id: String,
+    pub joined_at: i64,
+}
+
+fn follows_load(state: &State<AppState>) -> Vec<FollowInfo> {
+    let engine = state.engine.lock().unwrap();
+    let raw = engine
+        .store()
+        .kv_get("follows")
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+    serde_json::from_str(&raw).unwrap_or_default()
+}
+
+fn follows_save(state: &State<AppState>, list: &[FollowInfo]) {
+    let engine = state.engine.lock().unwrap();
+    if let Ok(raw) = serde_json::to_string(list) {
+        let _ = engine.store().kv_set("follows", &raw);
+    }
+}
+
+pub(crate) fn follows_upsert(state: &State<AppState>, entry: FollowInfo) {
+    let mut list = follows_load(state);
+    list.retain(|f| f.pubkey != entry.pubkey);
+    list.push(entry);
+    follows_save(state, &list);
+}
+
+/// Mark a contact as bootstrap-only so it never shows up as a friend and gets
+/// deleted by [`sweep_temp_friends`] if its purpose never completes.
+pub(crate) fn mark_temp(state: &State<AppState>, pk: &str) {
+    let engine = state.engine.lock().unwrap();
+    let _ = engine.store().friend_set_kind(pk, "temp");
+}
+
+pub(crate) fn is_temp(state: &State<AppState>, pk: &str) -> bool {
+    let engine = state.engine.lock().unwrap();
+    engine
+        .store()
+        .friend_list()
+        .unwrap_or_default()
+        .into_iter()
+        .any(|f| f.toxid == pk && f.kind == "temp")
+}
+
+/// Delete a bootstrap-only friend: drop the Tox friend link and the local row.
+pub(crate) fn drop_temp_friend(state: &State<AppState>, pk: &str) {
+    if !is_temp(state, pk) {
+        return;
+    }
+    let number = {
+        let session = state.session.lock().unwrap();
+        session
+            .friend_list()
+            .into_iter()
+            .find(|n| session.friend_public_key(*n).map(|k| k == pk).unwrap_or(false))
+    };
+    if let Some(n) = number {
+        let mut session = state.session.lock().unwrap();
+        if let Err(e) = session.delete_friend(n) {
+            eprintln!("[toxsocial] drop temp friend failed: {e}");
+            return;
+        }
+    }
+    {
+        let engine = state.engine.lock().unwrap();
+        let _ = engine.store().friend_remove(pk);
+    }
+    state.persist();
+    let short: String = pk.chars().take(12).collect();
+    println!("[toxsocial] bootstrap friend {short} removed after use");
+}
+
+/// Bootstrap friends that never finished their handshake must not pile up.
+/// Called on startup and from the event pump's idle tick.
+pub fn sweep_temp_friends(state: &State<AppState>, max_age_secs: i64) {
+    let now = now_ms() / 1000;
+    let stale: Vec<String> = {
+        let engine = state.engine.lock().unwrap();
+        engine
+            .store()
+            .friend_list()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|f| f.kind == "temp" && now.saturating_sub(f.added_at) > max_age_secs)
+            .map(|f| f.toxid)
+            .collect()
+    };
+    for pk in stale {
+        drop_temp_friend(state, &pk);
+    }
+}
+
+/// The identity's own conference: where followers land when they subscribe.
+/// Created on demand and reused afterwards.
+pub fn ensure_profile_conference(state: &State<AppState>) -> Result<(String, u32), String> {
+    let stored = {
+        let engine = state.engine.lock().unwrap();
+        engine
+            .store()
+            .kv_get("profile_conference")
+            .ok()
+            .flatten()
+            .unwrap_or_default()
+    };
+    if !stored.is_empty() {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&stored) {
+            let id = v.get("channelId").and_then(|x| x.as_str()).unwrap_or_default();
+            if !id.is_empty() {
+                let existing = {
+                    let session = state.session.lock().unwrap();
+                    session.conference_by_id(id).ok()
+                };
+                if let Some(n) = existing {
+                    return Ok((id.to_string(), n));
+                }
+            }
+        }
+    }
+    let (id, number) = {
+        let mut session = state.session.lock().unwrap();
+        let n = session
+            .conference_new()
+            .map_err(|e| format!("create profile conference failed: {e}"))?;
+        let id = session
+            .conference_get_id(n)
+            .map_err(|e| format!("profile conference id failed: {e}"))?;
+        (id, n)
+    };
+    let payload = serde_json::json!({ "channelId": id, "conferenceNumber": number });
+    {
+        let engine = state.engine.lock().unwrap();
+        let _ = engine
+            .store()
+            .kv_set("profile_conference", &payload.to_string());
+    }
+    state.persist();
+    println!("[toxsocial] profile conference ready: {}", &id[..16.min(id.len())]);
+    Ok((id, number))
+}
+
+/// Follow another identity: bootstrap a link, ask for a conference invite,
+/// then the link is deleted once we are in (see `Event::ConferenceInvite`).
+#[tauri::command]
+pub async fn follow_user(state: State<'_, AppState>, toxid: String) -> Result<(), String> {
+    let contact = toxid.trim().to_string();
+    if contact.is_empty() {
+        return Err("empty contact".to_string());
+    }
+    let pk: String = contact.chars().take(64).collect();
+    if follows_load(&state).iter().any(|f| f.pubkey == pk) {
+        return Ok(());
+    }
+    // Already a real friend? Just ask over the existing link.
+    let existing = {
+        let session = state.session.lock().unwrap();
+        session
+            .friend_list()
+            .into_iter()
+            .find(|n| {
+                session
+                    .friend_public_key(*n)
+                    .map(|k| k == pk || contact.starts_with(&k))
+                    .unwrap_or(false)
+            })
+    };
+    match existing {
+        Some(n) => {
+            let session = state.session.lock().unwrap();
+            session
+                .send_message(n, "follow_profile")
+                .map_err(|e| format!("send follow request failed: {e}"))?;
+        }
+        None => {
+            {
+                let mut session = state.session.lock().unwrap();
+                session
+                    .add_friend(&contact, "follow_profile")
+                    .map_err(|e| match e {
+                        ToxError::FriendAdd(5) => "已经发送过关注请求了".to_string(),
+                        other => format!("follow failed: {other}"),
+                    })?;
+            }
+            mark_temp(&state, &pk);
+        }
+    }
+    state.persist();
+    Ok(())
+}
+
+/// Stop following: leave the followee's conference and forget the record.
+#[tauri::command]
+pub async fn unfollow_user(state: State<'_, AppState>, pubkey: String) -> Result<(), String> {
+    let pk = pubkey.trim().to_string();
+    let entry = follows_load(&state).into_iter().find(|f| f.pubkey == pk);
+    if let Some(f) = entry {
+        let leave = {
+            let session = state.session.lock().unwrap();
+            session.conference_by_id(&f.conference_id).ok()
+        };
+        if let Some(n) = leave {
+            let mut session = state.session.lock().unwrap();
+            let _ = session.conference_delete(n);
+        }
+    }
+    let mut list = follows_load(&state);
+    list.retain(|f| f.pubkey != pk);
+    follows_save(&state, &list);
+    state.persist();
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn my_follows(state: State<'_, AppState>) -> Result<Vec<FollowInfo>, String> {
+    let mut list = follows_load(&state);
+    let dir: std::collections::HashMap<String, String> = {
+        let engine = state.engine.lock().unwrap();
+        engine
+            .store()
+            .dir_all(1000)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|e| (e.pubkey, e.avatar))
+            .collect()
+    };
+    for f in &mut list {
+        if f.avatar.is_empty() {
+            f.avatar = dir.get(&f.pubkey).cloned().unwrap_or_default();
+        }
+    }
+    Ok(list)
 }
 
 /// Create a community: a dedicated conference (membership + realtime
@@ -2206,9 +2505,14 @@ pub async fn report_channel_memberships(state: State<'_, AppState>) -> Result<us
         let session = state.session.lock().unwrap();
         (session.self_address(), session.self_ed25519_public_key())
     };
-    let conferences = {
+    let profile = profile_conference_number(&state);
+    let conferences: Vec<u32> = {
         let session = state.session.lock().unwrap();
-        session.conference_chatlist()
+        session
+            .conference_chatlist()
+            .into_iter()
+            .filter(|n| Some(*n) != profile)
+            .collect()
     };
     let relays = relay_urls(&state);
     let mut public_ids = std::collections::HashSet::new();

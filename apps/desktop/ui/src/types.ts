@@ -56,6 +56,15 @@ export interface FriendInfo {
   kind: string;
 }
 
+/** A one-way subscription, carried by the followee's conference. */
+export interface FollowInfo {
+  pubkey: string;
+  name: string;
+  avatar: string;
+  conferenceId: string;
+  joinedAt: number;
+}
+
 export interface MediaConfig {
   provider: string;
   hasClientId: boolean;

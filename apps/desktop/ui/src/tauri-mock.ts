@@ -19,6 +19,16 @@ interface MockFriend {
 const now = Date.now();
 const pk = (s: string) => s.padEnd(64, "0").slice(0, 64);
 
+const follows: { pubkey: string; name: string; avatar: string; conferenceId: string; joinedAt: number }[] = [
+  {
+    pubkey: pk("b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2"),
+    name: "Bob（关注的作者）",
+    avatar: "",
+    conferenceId: pk("d4d4").slice(0, 64),
+    joinedAt: now,
+  },
+];
+
 const friends: MockFriend[] = [
   {
     toxid: pk("a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1") + "0001" + "aa",
@@ -38,7 +48,7 @@ const friends: MockFriend[] = [
     bio: "",
     online: false,
     lastSeen: now - 3600_000,
-    kind: "follow",
+    kind: "temp",
   },
 ];
 
@@ -222,6 +232,8 @@ async function mockInvoke(cmd: string, args: Args = {}): Promise<unknown> {
         relayOk: true,
       };
     case "get_friends":
+      return friends.filter((f) => f.kind !== "temp");
+    case "get_friends_unused":
       return friends.map((f) => ({ ...f }));
     case "get_media_config":
       return { provider: "imgur", hasClientId: false };
@@ -343,6 +355,24 @@ async function mockInvoke(cmd: string, args: Args = {}): Promise<unknown> {
     case "remove_friend":
     case "remove_friend_by_toxid":
       return null;
+    case "my_follows":
+      return follows;
+    case "follow_user":
+      follows.push({
+        pubkey: String(a.toxid).slice(0, 64),
+        name: "新关注",
+        avatar: "",
+        conferenceId: pk("f0f0").slice(0, 64),
+        joinedAt: Date.now(),
+      });
+      setTimeout(() => emitMock("follows:changed", {}), 50);
+      return null;
+    case "unfollow_user": {
+      const i = follows.findIndex((f) => f.pubkey === a.pubkey);
+      if (i >= 0) follows.splice(i, 1);
+      setTimeout(() => emitMock("follows:changed", {}), 50);
+      return null;
+    }
     case "set_contact_kind": {
       const f = friends.find((x) => x.toxid.startsWith(String(a.toxid).slice(0, 8)));
       if (f) f.kind = (a.kind as "friend" | "follow") || "friend";

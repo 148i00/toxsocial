@@ -22,6 +22,7 @@ const networkStatus = ref<NetworkStatus | null>(null);
 const timeline = ref<TimelineItem[]>([]);
 const threadPostId = ref<string | null>(null);
 const friends = ref<FriendInfo[]>([]);
+const follows = ref<FollowInfo[]>([]);
 const loading = ref(true);
 const searchQuery = ref("");
 const searchResults = ref<TimelineItem[]>([]);
@@ -227,7 +228,7 @@ async function followProfileUser() {
   if (!u || followBusy.value) return;
   followBusy.value = true;
   try {
-    await api.addFriend(u.pubkey, t("followMessage"), "follow");
+    await api.followUser(u.pubkey);
     notify(t("followingStarted", { name: u.name }));
     await refreshAll();
   } catch (e) {
@@ -242,12 +243,24 @@ async function followProfileUser() {
   }
 }
 
-/** Mutual contacts (can be PM'd). */
-const friendList = computed(() => friends.value.filter((f) => f.kind !== "follow"));
-/** One-way subscriptions carried by a conference. */
-const followList = computed(() => friends.value.filter((f) => f.kind === "follow"));
+/** Mutual contacts (can be PM'd). Bootstrap links are hidden by the backend. */
+const friendList = computed(() => friends.value);
+/** One-way subscriptions, rendered through the same panel shape. */
+const followList = computed<FriendInfo[]>(() =>
+  follows.value.map((f) => ({
+    toxid: f.pubkey,
+    pubkey: f.pubkey,
+    name: f.name,
+    avatar: f.avatar,
+    bio: "",
+    online: false,
+    lastSeen: null,
+    kind: "follow",
+  })),
+);
 
 function isFollowingUser(pubkey: string): boolean {
+  if (follows.value.some((f) => f.pubkey === pubkey)) return true;
   return friends.value.some(
     (f) => f.pubkey === pubkey || f.toxid.startsWith(pubkey) || pubkey.startsWith(f.pubkey),
   );
@@ -265,6 +278,16 @@ async function refreshFriends() {
   const next = await api.getFriends();
   if (JSON.stringify(next) === JSON.stringify(friends.value)) return;
   friends.value = next;
+}
+
+async function refreshFollows() {
+  try {
+    const next = await api.myFollows();
+    if (JSON.stringify(next) === JSON.stringify(follows.value)) return;
+    follows.value = next;
+  } catch {
+    follows.value = [];
+  }
 }
 
 async function refreshNetworkStatus() {
@@ -383,7 +406,7 @@ function backFromFriend() {
 }
 
 async function refreshAll() {
-  await Promise.all([refreshOwn(), refreshTimeline(), refreshFriends()]);
+  await Promise.all([refreshOwn(), refreshTimeline(), refreshFriends(), refreshFollows()]);
 }
 
 function openThread(id: string) {
@@ -447,6 +470,9 @@ onMounted(async () => {
     refreshOwn();
     refreshNetworkStatus();
     notify(t("friendConnectionChanged"));
+  });
+  onEvent("follows:changed", () => {
+    refreshFollows();
   });
   onEvent("friend:request", () => {
     refreshFriends();
