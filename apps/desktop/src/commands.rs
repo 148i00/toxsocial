@@ -741,6 +741,19 @@ pub async fn publish_post(
     for env in envelopes {
         fan_out(&state, env)?;
     }
+    // Conference distribution: community posts go to the community's room and
+    // public follower posts to our own, so members who are not friends and
+    // anyone with an unreachable Relay still get them. Private (friend-only)
+    // posts never take this path.
+    if is_public {
+        let target = match post.community.as_deref() {
+            Some(cid) => community_conference_number(&state, cid),
+            None => profile_conference_number(&state),
+        };
+        if let Some(n) = target {
+            distribute_to_conference(&state, n, &Envelope::Post(post.clone()));
+        }
+    }
     if is_public {
         let relays = relay_urls(&state);
         let pubkey = post.author.clone();
@@ -824,7 +837,12 @@ pub async fn publish_comment(
             .publish_comment(&me, &target, text.trim())
             .map_err(|e| e.to_string())?
     };
-    fan_out(&state, Envelope::Comment(comment.clone()))?;
+    let env = Envelope::Comment(comment.clone());
+    fan_out(&state, env.clone())?;
+    // Discussion rides the same room as the post it belongs to.
+    if let Some(n) = room_conference_for_post(&state, &target) {
+        distribute_to_conference(&state, n, &env);
+    }
     state.persist();
     Ok(comment)
 }
@@ -842,7 +860,11 @@ pub async fn publish_reaction(
             .publish_reaction(&me, post_id.trim(), emoji.trim())
             .map_err(|e| e.to_string())?
     };
-    fan_out(&state, Envelope::Reaction(reaction.clone()))?;
+    let env = Envelope::Reaction(reaction.clone());
+    fan_out(&state, env.clone())?;
+    if let Some(n) = room_conference_for_post(&state, post_id.trim()) {
+        distribute_to_conference(&state, n, &env);
+    }
     state.persist();
     Ok(reaction)
 }
@@ -1941,6 +1963,152 @@ pub fn sweep_temp_friends(state: &State<AppState>, max_age_secs: i64) {
     }
 }
 
+/// What a conference is for, which decides what kind of content it may carry.
+pub(crate) enum ContentRoom {
+    /// A community feed: only posts tagged with this channel id.
+    Community(String),
+    /// A followee's conference: only that identity's own public posts.
+    Follow { owner: String },
+    /// A plain group chat (or our own profile conference): no feed content.
+    Chat,
+}
+
+/// Classify a conference by the id we know it under.
+pub(crate) fn classify_room(state: &State<'_, AppState>, channel_id: &str) -> ContentRoom {
+    if channel_id.is_empty() {
+        return ContentRoom::Chat;
+    }
+    if let Some(c) = my_communities_load(state)
+        .into_iter()
+        .find(|c| c.channel_id == channel_id)
+    {
+        return ContentRoom::Community(c.channel_id);
+    }
+    if let Some(f) = follows_load(state)
+        .into_iter()
+        .find(|f| f.conference_id == channel_id)
+    {
+        return ContentRoom::Follow { owner: f.pubkey };
+    }
+    ContentRoom::Chat
+}
+
+/// Walk a comment/reaction chain up to the root post. Comments and reactions
+/// are stored with an empty channel, so the room of a nested reply can only be
+/// resolved through the parent chain.
+fn root_post_of(state: &State<'_, AppState>, id: &str) -> Option<tox_store::PostRow> {
+    let engine = state.engine.lock().unwrap();
+    let store = engine.store();
+    let mut current = id.to_string();
+    for _ in 0..32 {
+        let row = match store.post_get(&current) {
+            Ok(Some(r)) => r,
+            _ => return None,
+        };
+        match row.parent_id.clone().filter(|p| !p.is_empty()) {
+            Some(parent) => current = parent,
+            None => return Some(row),
+        }
+    }
+    None
+}
+
+/// Channel a stored post (or the post a comment belongs to) lives in.
+fn post_channel_of(state: &State<'_, AppState>, post_id: &str) -> String {
+    root_post_of(state, post_id)
+        .and_then(|p| p.channel_id)
+        .unwrap_or_default()
+}
+
+/// Is this envelope legitimate content for the room it arrived in?
+///
+/// A conference is a shared room: without this check any member could inject
+/// posts into a community they are not in, or push arbitrary posts at
+/// followers. Author identity itself is enforced later by
+/// `FeedEngine::handle_incoming` (author must equal the sending peer).
+pub(crate) fn room_accepts(state: &State<'_, AppState>, channel_id: &str, env: &Envelope) -> bool {
+    envelope_fits_room(
+        &classify_room(state, channel_id),
+        env,
+        &|id| post_channel_of(state, id),
+        &|id| post_author_of(state, id),
+    )
+}
+
+/// The acceptance rule itself, with lookups injected so it can be tested
+/// without a live app.
+fn envelope_fits_room(
+    room: &ContentRoom,
+    env: &Envelope,
+    channel_of: &dyn Fn(&str) -> String,
+    author_of: &dyn Fn(&str) -> String,
+) -> bool {
+    match room {
+        ContentRoom::Community(cid) => match env {
+            Envelope::Post(p) => p.community.as_deref() == Some(cid.as_str()),
+            Envelope::Comment(c) => channel_of(&c.reply_to) == *cid,
+            Envelope::Reaction(r) => channel_of(&r.reply_to) == *cid,
+            _ => false,
+        },
+        ContentRoom::Follow { owner } => match env {
+            // Only the followee's own public posts, and discussion of them.
+            Envelope::Post(p) => p.public && p.community.is_none() && p.author == *owner,
+            Envelope::Comment(c) => c.author == *owner || author_of(&c.reply_to) == *owner,
+            Envelope::Reaction(r) => author_of(&r.reply_to) == *owner,
+            _ => false,
+        },
+        ContentRoom::Chat => false,
+    }
+}
+
+/// Author of the root post a comment/reaction belongs to.
+fn post_author_of(state: &State<'_, AppState>, post_id: &str) -> String {
+    root_post_of(state, post_id)
+        .map(|p| p.author)
+        .unwrap_or_default()
+}
+
+/// Conference number hosting a community, if we are in it.
+fn community_conference_number(state: &State<'_, AppState>, channel_id: &str) -> Option<u32> {
+    my_communities_load(state)
+        .into_iter()
+        .find(|c| c.channel_id == channel_id)
+        .map(|c| c.conference_number)
+}
+
+/// Push an envelope into a conference so members who are not our friends
+/// (and anyone cut off from the Relay) still receive it. No-op when we are
+/// alone in the room.
+pub(crate) fn distribute_to_conference(
+    state: &State<'_, AppState>,
+    conference_number: u32,
+    env: &Envelope,
+) {
+    let session = state.session.lock().unwrap();
+    // peer_count includes ourselves: 1 means the room is empty.
+    match session.conference_peer_count(conference_number) {
+        Ok(n) if n > 1 => {}
+        _ => return,
+    }
+    let wire = env.encode();
+    if let Err(e) = session.conference_send_message(conference_number, &wire) {
+        eprintln!("[toxsocial] conference distribution failed: {e}");
+    }
+}
+
+/// Conference that should carry discussion of a post: its community's room,
+/// or the followee's room when the post is theirs.
+fn room_conference_for_post(state: &State<'_, AppState>, post_id: &str) -> Option<u32> {
+    let root = root_post_of(state, post_id)?;
+    let (channel_id, author) = (root.channel_id.unwrap_or_default(), root.author);
+    if !channel_id.is_empty() {
+        return community_conference_number(state, &channel_id);
+    }
+    let target = follows_load(state).into_iter().find(|f| f.pubkey == author)?;
+    let session = state.session.lock().unwrap();
+    session.conference_by_id(&target.conference_id).ok()
+}
+
 /// The identity's own conference: where followers land when they subscribe.
 /// Created on demand and reused afterwards.
 pub fn ensure_profile_conference(state: &State<AppState>) -> Result<(String, u32), String> {
@@ -2866,4 +3034,111 @@ fn now_ms() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod room_tests {
+    use super::*;
+    use tox_social::envelope::{Comment, Post, Reaction};
+
+    fn post(author: &str, community: Option<&str>) -> Envelope {
+        let mut p = Post::new(author, "hi");
+        p.public = true;
+        p.community = community.map(|c| c.to_string());
+        Envelope::Post(p)
+    }
+
+    fn comment(author: &str, reply_to: &str) -> Envelope {
+        Envelope::Comment(Comment {
+            v: tox_social::envelope::PROTOCOL_VERSION,
+            id: "c1".into(),
+            author: author.into(),
+            reply_to: reply_to.into(),
+            ts: 0,
+            text: "hi".into(),
+        })
+    }
+
+    fn reaction(author: &str, reply_to: &str) -> Envelope {
+        Envelope::Reaction(Reaction {
+            v: tox_social::envelope::PROTOCOL_VERSION,
+            id: "r1".into(),
+            author: author.into(),
+            reply_to: reply_to.into(),
+            ts: 0,
+            emoji: "👍".into(),
+        })
+    }
+
+    const CID: &str = "aa11";
+    const OTHER: &str = "bb22";
+
+    #[test]
+    fn community_room_only_takes_its_own_posts() {
+        let room = ContentRoom::Community(CID.into());
+        let no_channel = |_: &str| String::new();
+        let no_author = |_: &str| String::new();
+        assert!(envelope_fits_room(&room, &post("pk", Some(CID)), &no_channel, &no_author));
+        // a post for another community must not land here
+        assert!(!envelope_fits_room(&room, &post("pk", Some(OTHER)), &no_channel, &no_author));
+        // nor an untagged public post
+        assert!(!envelope_fits_room(&room, &post("pk", None), &no_channel, &no_author));
+    }
+
+    #[test]
+    fn community_room_takes_discussion_of_its_posts_only() {
+        let room = ContentRoom::Community(CID.into());
+        let mine = |_: &str| CID.to_string();
+        let theirs = |_: &str| OTHER.to_string();
+        let no_author = |_: &str| String::new();
+        assert!(envelope_fits_room(&room, &comment("pk", "p1"), &mine, &no_author));
+        assert!(envelope_fits_room(&room, &reaction("pk", "p1"), &mine, &no_author));
+        // discussion of a post living in another room is not ours to carry
+        assert!(!envelope_fits_room(&room, &comment("pk", "p1"), &theirs, &no_author));
+        assert!(!envelope_fits_room(&room, &reaction("pk", "p1"), &theirs, &no_author));
+    }
+
+    #[test]
+    fn follow_room_only_takes_the_owner_posts() {
+        let room = ContentRoom::Follow { owner: "owner".into() };
+        let no_channel = |_: &str| String::new();
+        let no_author = |_: &str| String::new();
+        assert!(envelope_fits_room(&room, &post("owner", None), &no_channel, &no_author));
+        // somebody else posting into my subscription room is rejected
+        assert!(!envelope_fits_room(&room, &post("stranger", None), &no_channel, &no_author));
+        // community posts belong to their community room, not the subscription
+        assert!(!envelope_fits_room(&room, &post("owner", Some(CID)), &no_channel, &no_author));
+    }
+
+    #[test]
+    fn follow_room_takes_discussion_of_owner_posts() {
+        let room = ContentRoom::Follow { owner: "owner".into() };
+        let owner = |_: &str| "owner".to_string();
+        let stranger = |_: &str| "stranger".to_string();
+        assert!(envelope_fits_room(&room, &comment("anyone", "p1"), &|_: &str| String::new(), &owner));
+        assert!(envelope_fits_room(&room, &reaction("anyone", "p1"), &|_: &str| String::new(), &owner));
+        assert!(!envelope_fits_room(&room, &reaction("anyone", "p1"), &|_: &str| String::new(), &stranger));
+    }
+
+    #[test]
+    fn chat_rooms_take_no_feed_content() {
+        let room = ContentRoom::Chat;
+        let any = |_: &str| CID.to_string();
+        assert!(!envelope_fits_room(&room, &post("pk", Some(CID)), &any, &any));
+        assert!(!envelope_fits_room(&room, &comment("pk", "p1"), &any, &any));
+    }
+
+    /// Transport-level envelopes have no business in a room either.
+    #[test]
+    fn sync_and_directory_envelopes_are_never_room_content() {
+        let room = ContentRoom::Community(CID.into());
+        let any = |_: &str| CID.to_string();
+        let env = Envelope::SyncReq(tox_social::envelope::SyncReq {
+            v: tox_social::envelope::PROTOCOL_VERSION,
+            author: "pk".into(),
+            ts: 0,
+            since: 0,
+        });
+        assert!(!envelope_fits_room(&room, &env, &any, &any));
+    }
 }

@@ -85,6 +85,63 @@ fn sweep_tick(state: &State<AppState>) {
     crate::commands::sweep_temp_friends(state, 120);
 }
 
+/// Emit a persisted post/comment/reaction to the UI. Returns false for
+/// envelopes the feed has no direct event for.
+fn announce_persisted(app: &AppHandle, env: &Envelope, name: &str) -> bool {
+    match env {
+        Envelope::Post(p) => {
+            println!("[toxsocial] post received from {name}: {}", p.text);
+            verify_post_via_relay(app, p.id.clone());
+            let _ = app.emit(
+                "feed:post",
+                json!({ "id": p.id, "author": p.author, "authorName": name, "text": p.text, "ts": p.ts }),
+            );
+            true
+        }
+        Envelope::Comment(c) => {
+            let _ = app.emit(
+                "feed:comment",
+                json!({ "id": c.id, "author": c.author, "authorName": name, "text": c.text, "ts": c.ts, "parentId": c.reply_to }),
+            );
+            true
+        }
+        Envelope::Reaction(r) => {
+            let _ = app.emit(
+                "feed:reaction",
+                json!({ "id": r.id, "author": r.author, "authorName": name, "emoji": r.emoji, "ts": r.ts, "parentId": r.reply_to }),
+            );
+            true
+        }
+        _ => false,
+    }
+}
+
+/// Per-peer throttle for conference traffic: a room is shared, so one member
+/// must not be able to flood everyone else's client or history.
+fn conference_rate_ok(conference_number: u32, peer_number: u32) -> bool {
+    const LIMIT: u32 = 5;
+    static CONF_RATE: std::sync::Mutex<Option<std::collections::HashMap<String, (u64, u32)>>> =
+        std::sync::Mutex::new(None);
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    let mut guard = CONF_RATE.lock().unwrap();
+    let map = guard.get_or_insert_with(std::collections::HashMap::new);
+    let entry = map
+        .entry(format!("{conference_number}:{peer_number}"))
+        .or_insert((now, 0));
+    if now.saturating_sub(entry.0) >= 1_000 {
+        *entry = (now, 1);
+        true
+    } else if entry.1 < LIMIT {
+        entry.1 += 1;
+        true
+    } else {
+        false
+    }
+}
+
 fn handle_event(app: &AppHandle, state: &State<AppState>, ev: Event) {
     match ev {
         Event::FriendRequest { public_key, message } => {
@@ -167,33 +224,15 @@ fn handle_event(app: &AppHandle, state: &State<AppState>, ev: Event) {
             match outcome {
                 Incoming::Persisted(env) => {
                     match env {
-                        Envelope::Post(p) => {
-                            println!("[toxsocial] post received from {name}: {}", p.text);
-                            verify_post_via_relay(app, p.id.clone());
-                            let _ = app.emit(
-                                "feed:post",
-                                json!({ "id": p.id, "author": p.author, "authorName": name, "text": p.text, "ts": p.ts }),
-                            );
-                        }
-                        Envelope::Comment(c) => {
-                            let _ = app.emit(
-                                "feed:comment",
-                                json!({ "id": c.id, "author": c.author, "authorName": name, "text": c.text, "ts": c.ts, "parentId": c.reply_to }),
-                            );
-                        }
-                        Envelope::Reaction(r) => {
-                            let _ = app.emit(
-                                "feed:reaction",
-                                json!({ "id": r.id, "author": r.author, "authorName": name, "emoji": r.emoji, "ts": r.ts, "parentId": r.reply_to }),
-                            );
-                        }
                         Envelope::SyncReq(req) => {
                             handle_sync_req(state, friend_number, &pk, &req);
                         }
                         Envelope::SyncPosts(sp) => {
                             handle_sync_posts(state, app, &pk, sp.items);
                         }
-                        _ => {}
+                        other => {
+                            announce_persisted(app, &other, &name);
+                        }
                     }
                 }
                 Incoming::Profile(p) => {
@@ -449,6 +488,32 @@ fn handle_event(app: &AppHandle, state: &State<AppState>, ev: Event) {
                     "[toxsocial] conference #{conference_number} self-message echo ignored"
                 );
                 return;
+            }
+            // A room is shared: throttle any single member before doing work.
+            if !conference_rate_ok(conference_number, peer_number) {
+                println!(
+                    "[toxsocial] conference #{conference_number} peer {peer_number} rate-limited, dropped"
+                );
+                return;
+            }
+            // Conferences carry feed content too (community posts, a
+            // followee's posts). Try the payload as a protocol envelope first;
+            // anything that is not legitimate content for *this* room falls
+            // through and is handled as chat.
+            if !peer_key.is_empty() {
+                if let Some(env) = Envelope::decode(&text) {
+                    if crate::commands::room_accepts(state, &channel_id, &env) {
+                        let outcome = {
+                            let engine = state.engine.lock().unwrap();
+                            engine.handle_incoming(&peer_key, &text)
+                        };
+                        if let Incoming::Persisted(env) = outcome {
+                            let name = state.name_for(&peer_key);
+                            announce_persisted(app, &env, &name);
+                            return;
+                        }
+                    }
+                }
             }
             let display_name = if peer_name.is_empty() {
                 format!("#{peer_number}")
