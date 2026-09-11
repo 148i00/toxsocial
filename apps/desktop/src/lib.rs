@@ -160,6 +160,7 @@ pub fn run() {
             commands::request_sync_all,
             commands::search_posts,
             commands::search_directory,
+            commands::search_all,
             commands::request_directory_search,
             commands::fetch_public_timeline,
             commands::request_public_posts,

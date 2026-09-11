@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { locale } from "./i18n";
 import { installTauriMock, isMockMode, mockInvokeShim, mockOnEventShim } from "./tauri-mock";
-import type { ChannelMessageInfo, CommunityInfo, ConferencePeerInfo, ConferenceSendResult, DirectoryEntryInfo, FileTransferInfo, FriendInfo, MediaConfig, NetworkStatus, OwnInfo, PrivateMessageInfo, PublicChannelInfo, TimelineItem, UpdateInfo, FollowInfo } from "./types";
+import type { SearchHit, ChannelMessageInfo, CommunityInfo, ConferencePeerInfo, ConferenceSendResult, DirectoryEntryInfo, FileTransferInfo, FriendInfo, MediaConfig, NetworkStatus, OwnInfo, PrivateMessageInfo, PublicChannelInfo, TimelineItem, UpdateInfo, FollowInfo } from "./types";
 
 // Browser GUI-test mode: route every call through the in-memory mock when the
 // Tauri runtime is absent (the packaged app always has the runtime).
@@ -80,6 +80,7 @@ export const api = {
   requestSyncAll: () => inv<number>("request_sync_all"),
   searchPosts: (query: string, limit?: number) =>
     inv<TimelineItem[]>("search_posts", { query, limit }),
+  searchAll: (query: string) => inv<SearchHit[]>("search_all", { query }),
   searchDirectory: (query: string, limit?: number) =>
     inv<DirectoryEntryInfo[]>("search_directory", { query, limit }),
   requestDirectorySearch: (query: string, depth?: number) =>

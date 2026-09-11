@@ -3,7 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import { api, onEvent } from "./api";
 import { pushChannelMessage } from "./channelStore";
 import { t } from "./i18n";
-import type { DirectoryEntryInfo, FileTransferInfo, FriendInfo, NetworkStatus, OwnInfo, TimelineItem } from "./types";
+import type { CommunityInfo, DirectoryEntryInfo, FileTransferInfo, FollowInfo, FriendInfo, NetworkStatus, OwnInfo, SearchHit, TimelineItem } from "./types";
 import PostComposer from "./components/PostComposer.vue";
 import PostCard from "./components/PostCard.vue";
 import ThreadView from "./components/ThreadView.vue";
@@ -26,6 +26,9 @@ const follows = ref<FollowInfo[]>([]);
 const loading = ref(true);
 const searchQuery = ref("");
 const searchResults = ref<TimelineItem[]>([]);
+const dirHits = ref<SearchHit[]>([]);
+const myCommunities = ref<CommunityInfo[]>([]);
+const openCommunityId = ref("");
 const publicTimeline = ref<TimelineItem[]>([]);
 const friendFilter = ref<string | null>(null);
 const friendPosts = ref<TimelineItem[]>([]);
@@ -406,7 +409,7 @@ function backFromFriend() {
 }
 
 async function refreshAll() {
-  await Promise.all([refreshOwn(), refreshTimeline(), refreshFriends(), refreshFollows()]);
+  await Promise.all([refreshOwn(), refreshTimeline(), refreshFriends(), refreshFollows(), refreshCommunities()]);
 }
 
 function openThread(id: string) {
@@ -548,15 +551,73 @@ async function runSearch() {
   const q = searchQuery.value.trim();
   if (!q) {
     searchResults.value = [];
+    dirHits.value = [];
     return;
   }
   searching.value = true;
   try {
-    searchResults.value = await api.searchPosts(q, 50);
+    // Local + Relay + conference peers right away; the friend-network answer
+    // arrives asynchronously, so re-query once to pick it up.
+    const [posts, hits] = await Promise.all([
+      api.searchPosts(q, 50).catch(() => [] as TimelineItem[]),
+      api.searchAll(q).catch(() => [] as SearchHit[]),
+    ]);
+    searchResults.value = posts;
+    dirHits.value = hits;
+    setTimeout(() => {
+      if (searchQuery.value.trim() !== q) return;
+      api.searchAll(q).then((again) => {
+        if (searchQuery.value.trim() === q && again.length > dirHits.value.length) {
+          dirHits.value = again;
+        }
+      }).catch(() => {});
+    }, 2200);
   } catch {
     searchResults.value = [];
+    dirHits.value = [];
   } finally {
     searching.value = false;
+  }
+}
+
+const usersHits = computed(() => dirHits.value.filter((h) => h.kind === "user"));
+const communityHits = computed(() => dirHits.value.filter((h) => h.kind === "community"));
+const groupHits = computed(() => dirHits.value.filter((h) => h.kind === "group"));
+
+/** Display name for a hit's provenance badge. */
+function sourceLabel(src: string): string {
+  if (src === "relay") return t("sourceRelay");
+  if (src === "friend") return t("sourceFriend");
+  if (src === "conference") return t("sourceConference");
+  return t("sourceLocal");
+}
+
+/** Open a search hit: a profile, or the matching community/group feed. */
+function openHit(h: SearchHit) {
+  if (h.kind === "user") {
+    viewFriend(h.id);
+    return;
+  }
+  if (h.kind === "community") {
+    openCommunity(h.id);
+    return;
+  }
+  view.value = "channels";
+}
+
+/** Jump to a community's feed from the sidebar list or a search hit. */
+function openCommunity(channelId: string) {
+  openCommunityId.value = channelId;
+  view.value = "communities";
+}
+
+async function refreshCommunities() {
+  try {
+    const next = await api.myCommunities();
+    if (JSON.stringify(next) === JSON.stringify(myCommunities.value)) return;
+    myCommunities.value = next;
+  } catch {
+    myCommunities.value = [];
   }
 }
 onBeforeUnmount(() => {
@@ -576,7 +637,6 @@ onBeforeUnmount(() => {
         <button :class="{ active: view === 'timeline' && !threadPostId }" @click="backToTimeline(); view = 'timeline'">
           {{ t("home") }}
         </button>
-        <button @click="showAddFriend = true">{{ t("searchUsers") }}</button>
         <button :class="{ active: view === 'friends' }" @click="view = 'friends'; friendsUnread = 0">
           {{ t("friends") }} <span v-if="friendList.length" class="count">{{ friendList.length }}</span>
           <span v-if="friendsUnread" class="count unread">{{ friendsUnread }}</span>
@@ -592,6 +652,20 @@ onBeforeUnmount(() => {
         <button :class="{ active: view === 'public' }" @click="openPublic">{{ t("public") }}</button>
         <button :class="{ active: view === 'settings' }" @click="view = 'settings'">{{ t("settings") }}</button>
       </nav>
+      <!-- Joined communities, Reddit-style: jump straight into a feed. -->
+      <div v-if="myCommunities.length" class="nav-section">
+        <div class="nav-section-head">{{ t("myCommunities") }}</div>
+        <button
+          v-for="c in myCommunities"
+          :key="c.channelId"
+          class="nav-community"
+          :class="{ active: view === 'communities' && openCommunityId === c.channelId }"
+          :title="c.name"
+          @click="openCommunity(c.channelId)"
+        >
+          {{ c.name }}
+        </button>
+      </div>
       <div v-if="showNotifications" class="notif-panel">
         <div class="notif-head">
           <span>{{ t("notifications") }} <span v-if="unread" class="count">{{ unread }}</span></span>
@@ -619,6 +693,63 @@ onBeforeUnmount(() => {
 
     <!-- Center: content -->
     <main class="content">
+      <!-- Global search: users, communities, groups and posts -->
+      <div class="global-search">
+        <input
+          v-model="searchQuery"
+          :placeholder="t('globalSearchPlaceholder')"
+          @input="runSearch"
+        />
+        <button class="mini" :title="t('addFriend')" @click="showAddFriend = true">
+          ＋ {{ t("addFriend") }}
+        </button>
+      </div>
+
+      <template v-if="searchQuery.trim()">
+        <div v-if="searching" class="empty">{{ t("searching") }}</div>
+        <template v-else>
+          <template v-if="usersHits.length">
+            <div class="result-group">{{ t("searchSectionUsers") }}</div>
+            <div v-for="h in usersHits" :key="'u' + h.id" class="search-result clickable" @click="openHit(h)">
+              <Avatar :src="h.avatar" :name="h.name" :size="28" />
+              <span>{{ h.name || t("unnamed") }}</span>
+              <span class="mono">{{ h.id.slice(0, 12) }}…</span>
+              <span class="src-badge">{{ sourceLabel(h.source) }}</span>
+            </div>
+          </template>
+          <template v-if="communityHits.length">
+            <div class="result-group">{{ t("searchSectionCommunities") }}</div>
+            <div v-for="h in communityHits" :key="'c' + h.id" class="search-result clickable" @click="openHit(h)">
+              <span>{{ h.name }}</span>
+              <span class="dim">{{ h.desc }}</span>
+              <span class="src-badge">{{ sourceLabel(h.source) }}</span>
+            </div>
+          </template>
+          <template v-if="groupHits.length">
+            <div class="result-group">{{ t("searchSectionGroups") }}</div>
+            <div v-for="h in groupHits" :key="'g' + h.id" class="search-result clickable" @click="openHit(h)">
+              <span>{{ h.name }}</span>
+              <span class="dim">{{ h.desc }}</span>
+              <span class="src-badge">{{ sourceLabel(h.source) }}</span>
+            </div>
+          </template>
+          <template v-if="searchResults.length">
+            <div class="result-group">{{ t("searchSectionPosts") }}</div>
+            <PostCard
+              v-for="p in searchResults"
+              :key="p.id"
+              :item="p"
+              :own="own"
+              @open="openThreadWithData"
+              @reacted="refreshTimeline" @author="viewFriend" @forward="onForward"
+            />
+          </template>
+          <div v-if="!usersHits.length && !communityHits.length && !groupHits.length && !searchResults.length" class="empty">
+            {{ t("noSearchResults") }}
+          </div>
+        </template>
+      </template>
+      <template v-else>
       <!-- Timeline / thread -->
       <template v-if="view === 'timeline'">
         <div v-if="threadPostId" class="thread-header">
@@ -641,26 +772,7 @@ onBeforeUnmount(() => {
             />
           </template>
           <template v-else>
-            <div class="search-box">
-              <input
-                v-model="searchQuery"
-                :placeholder="t('searchPlaceholder')"
-                @input="runSearch"
-              />
-            </div>
-            <template v-if="searchQuery.trim()">
-              <div v-if="searching" class="empty">{{ t("searching") }}</div>
-              <div v-else-if="searchResults.length === 0" class="empty">{{ t("noSearchResults") }}</div>
-              <PostCard
-                v-for="p in searchResults"
-                :key="p.id"
-                :item="p"
-                :own="own"
-                @open="openThreadWithData"
-                @reacted="refreshTimeline" @author="viewFriend" @forward="onForward"
-              />
-            </template>
-            <template v-else>
+            <template>
               <PostComposer :own="own" :prefill="forwardDraft" @posted="onComposerPosted" />
               <div v-if="loading" class="empty">{{ t("loading") }}</div>
               <div v-else-if="timeline.length === 0" class="empty">
@@ -683,6 +795,7 @@ onBeforeUnmount(() => {
         v-else-if="view === 'communities'"
         :friends="friends"
         :own="own"
+        :open-id="openCommunityId"
         @open="openThreadWithData"
         @author="viewFriend" @forward="onForward"
       />
@@ -743,6 +856,7 @@ onBeforeUnmount(() => {
         </div>
       </div>
       <SettingsPanel v-else :own="own" @saved="refreshAll" />
+      </template>
     </main>
 
     <!-- File receive confirm modal -->
@@ -864,6 +978,64 @@ nav button {
   justify-content: center;
   font-size: 14px;
   padding: 10px 12px;
+}
+.nav-section {
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.nav-section-head {
+  color: var(--text-dim);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+  padding: 0 8px;
+}
+nav .nav-community {
+  text-align: left;
+  font-size: 13px;
+  padding: 6px 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.global-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.global-search input {
+  flex: 1;
+}
+.result-group {
+  color: var(--text-dim);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin: 14px 0 6px;
+}
+.src-badge {
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.dim {
+  color: var(--text-dim);
+  font-size: 12px;
+}
+.search-result.clickable {
+  cursor: pointer;
+}
+.search-result.clickable:hover {
+  border-color: var(--accent);
 }
 nav button.active {
   background: var(--bg-3);

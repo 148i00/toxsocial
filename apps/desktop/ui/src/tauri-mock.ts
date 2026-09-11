@@ -355,6 +355,18 @@ async function mockInvoke(cmd: string, args: Args = {}): Promise<unknown> {
     case "remove_friend":
     case "remove_friend_by_toxid":
       return null;
+    case "search_all": {
+      const q = String(a.query || "").toLowerCase();
+      const hits = [
+        { kind: "user", id: pk("a1a1"), name: "Alice（在线好友）", desc: "", avatar: "", source: "friend" },
+        { kind: "user", id: pk("e5e5"), name: "Relay 上的陌生人", desc: "", avatar: "", source: "relay" },
+        { kind: "user", id: pk("c3c3"), name: "同 conference 的人", desc: "", avatar: "", source: "conference" },
+        { kind: "community", id: pk("d4d4"), name: "测试社区", desc: "mock 社区", avatar: "", source: "relay" },
+        { kind: "group", id: pk("f1f1"), name: "测试群组", desc: "mock 群组", avatar: "", source: "relay" },
+        { kind: "group", id: pk("f2f2"), name: "本地已知群组", desc: "", avatar: "", source: "local" },
+      ];
+      return hits.filter((h) => !q || h.name.toLowerCase().includes(q) || h.desc.toLowerCase().includes(q));
+    }
     case "my_follows":
       return follows;
     case "follow_user":

@@ -56,6 +56,17 @@ export interface FriendInfo {
   kind: string;
 }
 
+/** One unified search result (user / community / group). */
+export interface SearchHit {
+  kind: "user" | "community" | "group";
+  id: string;
+  name: string;
+  desc: string;
+  avatar: string;
+  /** Where the hit came from: local | relay | friend | conference. */
+  source: string;
+}
+
 /** A one-way subscription, carried by the followee's conference. */
 export interface FollowInfo {
   pubkey: string;

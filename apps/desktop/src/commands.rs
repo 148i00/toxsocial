@@ -1609,13 +1609,18 @@ pub async fn search_directory(state: State<'_, AppState>, query: String, limit: 
 
 #[tauri::command]
 pub async fn request_directory_search(state: State<'_, AppState>, query: String, depth: Option<u32>) -> Result<usize, String> {
-    let depth = depth.unwrap_or(2);
+    broadcast_directory_request(&state, query.trim()).await
+}
+
+/// Ask every connected friend to search their own directory neighbourhood.
+async fn broadcast_directory_request(state: &State<'_, AppState>, query: &str) -> Result<usize, String> {
+    let depth = 2u32;
     let me = state.session.lock().unwrap().self_public_key();
     let req = Envelope::DirReq(tox_social::envelope::DirReq {
         v: tox_social::envelope::PROTOCOL_VERSION,
         author: me,
         ts: now_ms(),
-        query: query.trim().to_string(),
+        query: query.to_string(),
         depth,
     });
     let wire = req.encode();
@@ -1629,6 +1634,164 @@ pub async fn request_directory_search(state: State<'_, AppState>, query: String,
         }
     }
     Ok(sent)
+}
+
+/// One unified search result.
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchHit {
+    /// "user" | "community" | "group"
+    pub kind: String,
+    /// Channel id for communities/groups, public key for users.
+    pub id: String,
+    pub name: String,
+    pub desc: String,
+    pub avatar: String,
+    /// Provenance, shown to the user: "local" | "relay" | "friend" | "conference".
+    pub source: String,
+}
+
+/// Search users, communities and groups in one pass.
+///
+/// The Relay is asked first, but a Relay outage must not make search useless:
+/// whatever the local directory already knows (which includes everything
+/// learned from the friend network) and the peers of joined conferences are
+/// searched regardless, and a directory request is broadcast to friends so
+/// their answers show up as `friend` hits on the next call.
+#[tauri::command]
+pub async fn search_all(
+    state: State<'_, AppState>,
+    query: String,
+) -> Result<Vec<SearchHit>, String> {
+    let q = query.trim();
+    if q.is_empty() {
+        return Ok(Vec::new());
+    }
+    let needle = q.to_lowercase();
+    let hit = |s: &str| s.to_lowercase().contains(&needle);
+    let mut hits: Vec<SearchHit> = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    // 1) Local directory: users we already know about. Entries carry their own
+    //    provenance, so a friend-sourced one still reads as "friend".
+    {
+        let rows = {
+            let engine = state.engine.lock().unwrap();
+            engine.store().dir_search(q, 30).unwrap_or_default()
+        };
+        for e in rows {
+            if !seen.insert(format!("user:{}", e.pubkey)) {
+                continue;
+            }
+            let source = if e.source == "relay" {
+                "relay"
+            } else if e.source.len() == 64 && e.source.chars().all(|c| c.is_ascii_hexdigit()) {
+                "friend"
+            } else {
+                "local"
+            };
+            hits.push(SearchHit {
+                kind: "user".to_string(),
+                id: e.pubkey,
+                name: e.name,
+                desc: String::new(),
+                avatar: e.avatar,
+                source: source.to_string(),
+            });
+        }
+    }
+
+    // 2) Relay: users plus the public community/group directory. Each call is
+    //    independent so one failure still leaves the other results.
+    let relays = relay_urls(&state);
+    for relay in &relays {
+        if let Ok(entries) = crate::relay::search_directory(relay, q).await {
+            for e in entries {
+                if !hit(&e.name) || !seen.insert(format!("user:{}", e.pubkey)) {
+                    continue;
+                }
+                hits.push(SearchHit {
+                    kind: "user".to_string(),
+                    id: e.pubkey,
+                    name: e.name,
+                    desc: String::new(),
+                    avatar: e.avatar,
+                    source: "relay".to_string(),
+                });
+            }
+        }
+        for (kind, wire) in [("community", "community"), ("group", "group")] {
+            if let Ok(channels) = crate::relay::list_channels(relay, wire).await {
+                for c in channels {
+                    if !(hit(&c.name) || hit(&c.desc)) {
+                        continue;
+                    }
+                    if !seen.insert(format!("{kind}:{}", c.channel_id)) {
+                        continue;
+                    }
+                    hits.push(SearchHit {
+                        kind: kind.to_string(),
+                        id: c.channel_id,
+                        name: c.name,
+                        desc: c.desc,
+                        avatar: String::new(),
+                        source: "relay".to_string(),
+                    });
+                }
+            }
+        }
+    }
+
+    // 3) Joined conferences: whoever is in the same room is findable by name
+    //    or public key, even with the Relay down.
+    let profile = profile_conference_number(&state);
+    let peers: Vec<(u32, Vec<(String, String)>)> = {
+        let session = state.session.lock().unwrap();
+        session
+            .conference_chatlist()
+            .into_iter()
+            .filter(|n| Some(*n) != profile)
+            .filter_map(|n| {
+                let count = session.conference_peer_count(n).ok()?;
+                let mut list = Vec::new();
+                for i in 0..count {
+                    let name = session.conference_peer_name(n, i).unwrap_or_default();
+                    let key = session.conference_peer_public_key(n, i).unwrap_or_default();
+                    if !key.is_empty() {
+                        list.push((name, key));
+                    }
+                }
+                Some((n, list))
+            })
+            .collect()
+    };
+    for (_, list) in peers {
+        for (name, key) in list {
+            if key == state.session.lock().unwrap().self_public_key() {
+                continue;
+            }
+            if !(hit(&name) || hit(&key)) {
+                continue;
+            }
+            if !seen.insert(format!("user:{key}")) {
+                continue;
+            }
+            hits.push(SearchHit {
+                kind: "user".to_string(),
+                id: key,
+                name,
+                desc: String::new(),
+                avatar: String::new(),
+                source: "conference".to_string(),
+            });
+        }
+    }
+
+    // 4) Ask friends to search their own neighbourhoods; their answers land in
+    //    the local directory and surface as "friend" hits on the next call.
+    let _ = broadcast_directory_request(&state, q).await;
+
+    Ok(hits)
 }
 
 // ---------------------------------------------------------------------------

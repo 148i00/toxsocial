@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { api, onEvent } from "../api";
 import { t } from "../i18n";
 import { renderMarkdown } from "../markdown";
@@ -10,6 +10,8 @@ import type { CommunityInfo, PublicChannelInfo, TimelineItem } from "../types";
 const props = defineProps<{
   friends: { pubkey: string }[];
   own: import("../types").OwnInfo | null;
+  /** Community picked from the sidebar list or a search hit. */
+  openId?: string;
 }>();
 const emit = defineEmits<{ open: [id: string]; author: [pubkey: string] }>();
 
@@ -40,13 +42,27 @@ const selectedName = computed(
 async function loadMy() {
   try {
     myCommunities.value = await api.myCommunities();
-    if (!selected.value && myCommunities.value.length > 0) {
+    const want = props.openId;
+    const target = want ? myCommunities.value.find((c) => c.channelId === want) : undefined;
+    if (target && target.channelId !== selected.value?.channelId) {
+      await select(target);
+    } else if (!selected.value && myCommunities.value.length > 0) {
       await select(myCommunities.value[0]);
     }
   } catch {
     /* ignore */
   }
 }
+
+// A sidebar click or search hit changes openId without remounting the panel.
+watch(
+  () => props.openId,
+  async (id) => {
+    if (!id) return;
+    const target = myCommunities.value.find((c) => c.channelId === id);
+    if (target && target.channelId !== selected.value?.channelId) await select(target);
+  },
+);
 
 async function loadDiscover() {
   try {
